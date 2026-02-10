@@ -134,24 +134,24 @@ export class OneBotClient extends EventEmitter {
     }, delay);
   }
 
-  sendPrivateMsg(userId: number, message: OneBotMessage | string) {
-    this.sendAction("send_private_msg", { user_id: userId, message });
+  async sendPrivateMsg(userId: number, message: OneBotMessage | string) {
+    await this.sendAction("send_private_msg", { user_id: userId, message });
   }
 
-  sendGroupMsg(groupId: number, message: OneBotMessage | string) {
-    this.sendAction("send_group_msg", { group_id: groupId, message });
+  async sendGroupMsg(groupId: number, message: OneBotMessage | string) {
+    await this.sendAction("send_group_msg", { group_id: groupId, message });
   }
 
   deleteMsg(messageId: number | string) {
-    this.send("delete_msg", { message_id: messageId });
+    this.sendWs("delete_msg", { message_id: messageId });
   }
 
   setGroupAddRequest(flag: string, subType: string, approve: boolean = true, reason: string = "") {
-    this.send("set_group_add_request", { flag, sub_type: subType, approve, reason });
+    this.sendWs("set_group_add_request", { flag, sub_type: subType, approve, reason });
   }
 
   setFriendAddRequest(flag: string, approve: boolean = true, remark: string = "") {
-    this.send("set_friend_add_request", { flag, approve, remark });
+    this.sendWs("set_friend_add_request", { flag, approve, remark });
   }
 
   async getLoginInfo(): Promise<any> {
@@ -181,7 +181,7 @@ export class OneBotClient extends EventEmitter {
 
   // --- Guild (Channel) Extension APIs ---
   sendGuildChannelMsg(guildId: string, channelId: string, message: OneBotMessage | string) {
-    this.send("send_guild_channel_msg", { guild_id: guildId, channel_id: channelId, message });
+    this.sendWs("send_guild_channel_msg", { guild_id: guildId, channel_id: channelId, message });
   }
 
   async getGuildList(): Promise<any[]> {
@@ -199,30 +199,31 @@ export class OneBotClient extends EventEmitter {
   }
 
   sendGroupPoke(groupId: number, userId: number) {
-      this.send("group_poke", { group_id: groupId, user_id: userId });
+      this.sendWs("group_poke", { group_id: groupId, user_id: userId });
       // Note: Some implementations use send_poke or touch
       // Standard OneBot v11 doesn't enforce poke API, but group_poke is common in go-cqhttp
   }
   // --------------------------------------
 
   setGroupBan(groupId: number, userId: number, duration: number = 1800) {
-    this.send("set_group_ban", { group_id: groupId, user_id: userId, duration });
+    this.sendWs("set_group_ban", { group_id: groupId, user_id: userId, duration });
   }
 
   setGroupKick(groupId: number, userId: number, rejectAddRequest: boolean = false) {
-    this.send("set_group_kick", { group_id: groupId, user_id: userId, reject_add_request: rejectAddRequest });
+    this.sendWs("set_group_kick", { group_id: groupId, user_id: userId, reject_add_request: rejectAddRequest });
   }
 
   /** Try HTTP API first, fall back to WebSocket */
-  private sendAction(action: string, params: any) {
+  private async sendAction(action: string, params: any) {
     if (this.options.httpUrl) {
-      this.sendViaHttp(action, params).catch((err) => {
+      try {
+        await this.sendViaHttp(action, params);
+        return;
+      } catch (err: any) {
         console.warn(`[QQ] HTTP API failed for ${action}, falling back to WS:`, err.message);
-        this.send(action, params);
-      });
-    } else {
-      this.send(action, params);
+      }
     }
+    this.sendWs(action, params);
   }
 
   private async sendViaHttp(action: string, params: any): Promise<any> {
@@ -364,12 +365,12 @@ export class OneBotClient extends EventEmitter {
     });
   }
 
-  private send(action: string, params: any) {
+  private sendWs(action: string, params: any) {
     const activeWs = this.getActiveWs();
     if (activeWs) {
       activeWs.send(JSON.stringify({ action, params }));
     } else {
-      console.warn("[QQ] Cannot send message, no WebSocket connection available");
+      throw new Error("No WebSocket connection available");
     }
   }
 
