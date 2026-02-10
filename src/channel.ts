@@ -695,41 +695,50 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
     sendText: async ({ to, text, accountId, replyTo }) => {
         const client = getClientForAccount(accountId || DEFAULT_ACCOUNT_ID);
         if (!client) return { channel: "qq", sent: false, error: "Client not connected" };
-        const chunks = splitMessage(text, 4000);
-        for (let i = 0; i < chunks.length; i++) {
-            let message: OneBotMessage | string = chunks[i];
-            if (replyTo && i === 0) message = [ { type: "reply", data: { id: String(replyTo) } }, { type: "text", data: { text: chunks[i] } } ];
-            
-            if (to.startsWith("group:")) client.sendGroupMsg(parseInt(to.replace("group:", ""), 10), message);
-            else if (to.startsWith("guild:")) {
-                const parts = to.split(":");
-                if (parts.length >= 3) client.sendGuildChannelMsg(parts[1], parts[2], message);
+        try {
+            const chunks = splitMessage(text, 4000);
+            for (let i = 0; i < chunks.length; i++) {
+                let message: OneBotMessage | string = chunks[i];
+                if (replyTo && i === 0) message = [ { type: "reply", data: { id: String(replyTo) } }, { type: "text", data: { text: chunks[i] } } ];
+
+                if (to.startsWith("group:")) await client.sendGroupMsg(parseInt(to.replace("group:", ""), 10), message);
+                else if (to.startsWith("guild:")) {
+                    const parts = to.split(":");
+                    if (parts.length >= 3) client.sendGuildChannelMsg(parts[1], parts[2], message);
+                }
+                else await client.sendPrivateMsg(parseInt(to, 10), message);
+
+                if (chunks.length > 1) await sleep(1000);
             }
-            else client.sendPrivateMsg(parseInt(to, 10), message);
-            
-            if (chunks.length > 1) await sleep(1000); 
+            return { channel: "qq", sent: true };
+        } catch (err) {
+            console.error("[QQ] outbound.sendText failed:", err);
+            return { channel: "qq", sent: false, error: String(err) };
         }
-        return { channel: "qq", sent: true };
     },
     sendMedia: async ({ to, text, mediaUrl, accountId, replyTo }) => {
          const client = getClientForAccount(accountId || DEFAULT_ACCOUNT_ID);
          if (!client) return { channel: "qq", sent: false, error: "Client not connected" };
-         
-         const finalUrl = await resolveMediaUrl(mediaUrl);
-         
-         const message: OneBotMessage = [];
-         if (replyTo) message.push({ type: "reply", data: { id: String(replyTo) } });
-         if (text) message.push({ type: "text", data: { text } });
-         if (isImageFile(mediaUrl)) message.push({ type: "image", data: { file: finalUrl } });
-         else message.push({ type: "text", data: { text: `[CQ:file,file=${finalUrl},url=${finalUrl}]` } });
-         
-         if (to.startsWith("group:")) client.sendGroupMsg(parseInt(to.replace("group:", ""), 10), message);
-         else if (to.startsWith("guild:")) {
-             const parts = to.split(":");
-             if (parts.length >= 3) client.sendGuildChannelMsg(parts[1], parts[2], message);
+         try {
+             const finalUrl = await resolveMediaUrl(mediaUrl);
+
+             const message: OneBotMessage = [];
+             if (replyTo) message.push({ type: "reply", data: { id: String(replyTo) } });
+             if (text) message.push({ type: "text", data: { text } });
+             if (isImageFile(mediaUrl)) message.push({ type: "image", data: { file: finalUrl } });
+             else message.push({ type: "text", data: { text: `[CQ:file,file=${finalUrl},url=${finalUrl}]` } });
+
+             if (to.startsWith("group:")) await client.sendGroupMsg(parseInt(to.replace("group:", ""), 10), message);
+             else if (to.startsWith("guild:")) {
+                 const parts = to.split(":");
+                 if (parts.length >= 3) client.sendGuildChannelMsg(parts[1], parts[2], message);
+             }
+             else await client.sendPrivateMsg(parseInt(to, 10), message);
+             return { channel: "qq", sent: true };
+         } catch (err) {
+             console.error("[QQ] outbound.sendMedia failed:", err);
+             return { channel: "qq", sent: false, error: String(err) };
          }
-         else client.sendPrivateMsg(parseInt(to, 10), message);
-         return { channel: "qq", sent: true };
     },
     // @ts-ignore
     deleteMessage: async ({ messageId, accountId }) => {
