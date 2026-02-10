@@ -2,6 +2,8 @@ import { z } from "zod";
 
 export const QQConfigSchema = z.object({
   wsUrl: z.string().url().describe("The WebSocket URL of the OneBot v11 server (e.g. ws://localhost:3001)"),
+  httpUrl: z.string().url().optional().describe("The HTTP API URL of the OneBot v11 server (e.g. http://localhost:3000) for outbound message sending"),
+  reverseWsPort: z.number().optional().describe("Port to start a reverse WebSocket server on, for NapCat to connect to (e.g. 3002)"),
   accessToken: z.string().optional().describe("The access token for the OneBot server"),
   admins: z.array(z.number()).optional().describe("List of admin QQ numbers"),
   requireMention: z.boolean().optional().default(true).describe("Require @mention or reply to bot in group chats"),
