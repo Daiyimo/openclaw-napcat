@@ -274,6 +274,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
           
           const client = new OneBotClient({
               wsUrl: account.config.wsUrl,
+              httpUrl: account.config.httpUrl,
               accessToken: account.config.accessToken,
           });
           
@@ -339,6 +340,8 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
 
         const newConfig = {
             wsUrl: input.wsUrl || "ws://localhost:3001",
+            httpUrl: input.httpUrl,
+            reverseWsPort: input.reverseWsPort,
             accessToken: input.accessToken,
             enabled: true,
         };
@@ -388,6 +391,8 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
 
         const client = new OneBotClient({
             wsUrl: config.wsUrl,
+            httpUrl: config.httpUrl,
+            reverseWsPort: config.reverseWsPort,
             accessToken: config.accessToken,
         });
         
@@ -675,10 +680,11 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
         });
 
         client.connect();
-        return () => { 
+        client.startReverseWs();
+        return () => {
             clearInterval(cleanupInterval);
-            client.disconnect(); 
-            clients.delete(account.accountId); 
+            client.disconnect();
+            clients.delete(account.accountId);
         };
     },
     logoutAccount: async ({ accountId, cfg }) => {
