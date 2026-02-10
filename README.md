@@ -57,9 +57,10 @@ OpenClawd 是一个多功能代理。下面的聊天演示仅展示了最基础�
 cd openclaw/extensions
 # 克隆仓库
 git clone https://github.com/Daiyimo/openclaw-qq-plugin.git qq
-# 安装依赖并构建
-cd ../..
-pnpm install && pnpm build
+# 进入qq插件目录
+npm install -g pnpm
+# 安装qq
+pnpm install
 ```
 
 ### 方法 2: Docker 集成
@@ -92,6 +93,8 @@ openclaw setup qq
   "channels": {
     "qq": {
       "wsUrl": "ws://127.0.0.1:3001",
+      "httpUrl": "http://127.0.0.1:3000",
+      "reverseWsPort": 3002,
       "accessToken": "123456",
       "admins": [12345678],
       "allowedGroups": [10001, 10002],
@@ -119,6 +122,8 @@ openclaw setup qq
 | 配置项 | 类型 | 默认值 | 说明 |
 | :--- | :--- | :--- | :--- |
 | `wsUrl` | string | **必填** | OneBot v11 WebSocket 地址 |
+| `httpUrl` | string | - | OneBot v11 HTTP API 地址（如 `http://localhost:3000`），用于主动发送消息和定时任务 |
+| `reverseWsPort` | number | - | 反向 WebSocket 监听端口（如 `3002`），NapCat 主动连接到此端口接收事件 |
 | `accessToken` | string | - | 连接鉴权 Token |
 | `admins` | number[] | `[]` | **管理员 QQ 号列表**。拥有执行 `/status`, `/kick` 等指令的权限。 |
 | `requireMention` | boolean | `true` | **是否需要 @ 触发**。设为 `true` 仅在被 @ 或回复机器人时响应。 |
@@ -226,4 +231,97 @@ A: 将 `enableTTS` 设为 `true`。注意：这取决于 OneBot 服务端是否�
 | **交互按钮** | ❌ 暂不支持 | ✅ 支持 | TG 消息下方可带按钮；QQ 目前完全依靠文本指令。 |
 | **风控等级** | 🔴 **极高** | 🟢 **极低** | QQ 极易因回复过快或敏感词封号，插件已内置分片限速。 |
 | **戳一戳** | ✅ **特色支持** | ❌ 不支持 | QQ 特有的社交互动，AI 可感知并回应。 |
-| **转发消息** | ✅ **深度支持** | ❌ 基础支持 | QQ 插件专门优化了对“合并转发”聊天记录的解析。 |
+| **转发消息** | ✅ **深度支持** | ❌ 基础支持 | QQ 插件专门优化了对"合并转发"聊天记录的解析。 |
+
+---
+
+## 更新日志
+
+### v1.1.0 - HTTP API + 反向 WebSocket + Outbound 修复
+
+本次更新解决了 **OpenClaw 定时任务/主动推送消息无法送达** 的问题，并新增了两种通信方式。
+
+#### 涉及文件
+
+| 文件 | 变更类型 | 说明 |
+| :--- | :--- | :--- |
+| `src/config.ts` | 新增字段 | 新增 `httpUrl`、`reverseWsPort` 两个可选配置项 |
+| `src/client.ts` | 重构 | 新增 HTTP API 发送、反向 WS Server、修复消息发送静默失败 |
+| `src/channel.ts` | 修改 | 适配新配置项，outbound 发送改为 await 并正确返回错误 |
+
+#### 新增功能
+
+**1. HTTP API 发送 (`httpUrl`)**
+
+通过 NapCat 的 HTTP 接口（默认端口 3000）发送消息。定时任务等 outbound 场景不再依赖 WebSocket 连接状态。
+
+- `src/config.ts`: 新增 `httpUrl` 字段（`z.string().url().optional()`）
+- `src/client.ts`: 新增 `sendViaHttp()` 方法，通过 `fetch` POST 调用 OneBot HTTP API
+- `src/client.ts`: 新增 `sendAction()` 方法，发送消息时优先走 HTTP，HTTP 失败自动降级到 WebSocket
+- `src/client.ts`: `sendWithResponse()`（查询类 API 如 `get_login_info`）同样优先走 HTTP
+
+**2. 反向 WebSocket Server (`reverseWsPort`)**
+
+插件启动一个 WebSocket Server，由 NapCat 主动连接过来，确保事件接收更可靠。
+
+- `src/config.ts`: 新增 `reverseWsPort` 字段（`z.number().optional()`）
+- `src/client.ts`: 新增 `startReverseWs()` / `stopReverseWs()` 方法
+- `src/client.ts`: 新增 `getActiveWs()` 方法，自动选择可用连接（正向 WS 优先，反向 WS 备选）
+- `src/client.ts`: 反向 WS 支持 `accessToken` 鉴权
+- `src/channel.ts`: `startAccount` 中调用 `client.startReverseWs()`，`disconnect` 时自动清理
+
+#### Bug 修复
+
+**3. 修复 outbound 消息发送静默失败**
+
+旧代码中定时任务调用 `outbound.sendText` 发送消息时，即使实际发送失败也会返回 `{ sent: true }`，导致 OpenClaw 认为消息已送达。
+
+根本原因：
+- `sendGroupMsg` / `sendPrivateMsg` 不是 async 方法，内部用 fire-and-forget 的 `.catch()` 处理错误，调用方无法感知失败
+- `outbound.sendText` 没有 `await` 发送结果，也没有 `try/catch`，始终返回 `{ sent: true }`
+- WS 断开时 `send()` 只 `console.warn` 不抛错，消息静默丢失
+
+修复内容：
+- `src/client.ts`: `sendGroupMsg` / `sendPrivateMsg` 改为 `async`，内部 `await sendAction()`
+- `src/client.ts`: `sendAction()` 改为 `async`，HTTP 失败后同步降级到 WS，不再用 `.catch()` 丢弃错误
+- `src/client.ts`: `send()` 重命名为 `sendWs()`，WS 不可用时 `throw Error` 而非静默 warn
+- `src/channel.ts`: `outbound.sendText` / `outbound.sendMedia` 增加 `try/catch`，`await` 每个发送调用，失败时返回 `{ sent: false, error: "..." }`
+
+#### 消息发送优先级（修复后）
+
+```
+OpenClaw 定时任务 → outbound.sendText()
+  → client.sendGroupMsg() [async]
+    → sendAction() [async]
+      → 1. 尝试 HTTP API (httpUrl, 如 http://localhost:3000)
+      → 2. HTTP 失败? 降级到 WebSocket (正向WS > 反向WS)
+      → 3. 全部失败? 抛出 Error → outbound 返回 { sent: false }
+```
+
+#### 新增配置项
+
+| 配置项 | 类型 | 默认值 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `httpUrl` | string | - | NapCat HTTP API 地址（如 `http://localhost:3000`），用于主动发送消息 |
+| `reverseWsPort` | number | - | 反向 WebSocket 监听端口（如 `3002`），NapCat 主动连接到此端口 |
+
+#### 配置示例
+
+```json
+{
+  "channels": {
+    "qq": {
+      "wsUrl": "ws://127.0.0.1:3001",
+      "httpUrl": "http://127.0.0.1:3000",
+      "reverseWsPort": 3002,
+      "accessToken": "123456",
+      "admins": [12345678]
+    }
+  }
+}
+```
+
+#### NapCat 侧配置
+
+1. **HTTP 服务**: 确保 NapCat 的 HTTP 服务已开启（默认端口 3000）
+2. **反向 WebSocket**: 在 NapCat 网络配置中添加反向 WS 地址 `ws://你的服务器IP:3002`，类型选择"反向 WebSocket"
