@@ -60,7 +60,7 @@ git clone https://github.com/Daiyimo/openclaw-qq-plugin.git qq
 # 进入qq插件目录
 npm install -g pnpm
 # 安装qq
-pnpm install
+pnpm install qq
 ```
 
 ### 方法 2: Docker 集成
@@ -325,3 +325,36 @@ OpenClaw 定时任务 → outbound.sendText()
 
 1. **HTTP 服务**: 确保 NapCat 的 HTTP 服务已开启（默认端口 3000）
 2. **反向 WebSocket**: 在 NapCat 网络配置中添加反向 WS 地址 `ws://你的服务器IP:3002`，类型选择"反向 WebSocket"
+
+### v1.1.1 - Outbound 调试日志
+
+为排查定时任务消息发送不到的问题，在 outbound 全链路增加了详细的调试日志。
+
+#### 涉及文件
+
+| 文件 | 变更类型 | 说明 |
+| :--- | :--- | :--- |
+| `src/channel.ts` | 增加日志 | `outbound.sendText` 入口处打印调用参数、client 查找结果、发送进度 |
+| `src/client.ts` | 增加日志 | `sendAction` 中打印 HTTP 请求地址、WS 连接状态、成功/失败结果 |
+
+#### 新增日志标签
+
+| 日志前缀 | 含义 |
+| :--- | :--- |
+| `[QQ][outbound.sendText] called` | outbound 被 openclaw 调用，打印 `to`、`accountId`、`text` 前 100 字符 |
+| `[QQ][outbound.sendText] client lookup` | 打印 client 是否找到，以及 `clients` Map 中所有已注册的 accountId |
+| `[QQ][outbound.sendText] sending chunk` | 每个消息分片发送前打印 |
+| `[QQ][outbound.sendText] success` | 全部发送成功 |
+| `[QQ][outbound.sendText] FAILED` | 发送失败，打印错误详情 |
+| `[QQ][sendAction] trying HTTP` | 正在尝试 HTTP API 发送 |
+| `[QQ][sendAction] HTTP success` | HTTP 发送成功 |
+| `[QQ][sendAction] HTTP failed` | HTTP 失败，即将降级到 WS |
+| `[QQ][sendAction] trying WS` | 打印正向/反向 WS 的 readyState 和是否有可用连接 |
+
+#### 排查指南
+
+定时任务触发后查看 openclaw 控制台日志：
+
+- **完全没有 `[QQ][outbound.sendText]` 日志** → openclaw 没调用插件的 outbound，检查 cron job 的 `delivery.channel` 是否为 `"qq"`
+- **日志显示 `found=false`** → client 没注册成功，检查 accountId 是否匹配
+- **日志显示 `HTTP failed` + `WS active=false`** → HTTP 和 WS 都不通，检查 NapCat 是否在线、端口是否正确
