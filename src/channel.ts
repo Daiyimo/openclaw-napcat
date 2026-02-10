@@ -693,7 +693,10 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
   },
   outbound: {
     sendText: async ({ to, text, accountId, replyTo }) => {
-        const client = getClientForAccount(accountId || DEFAULT_ACCOUNT_ID);
+        console.log(`[QQ][outbound.sendText] called: to=${to}, accountId=${accountId}, text=${text?.slice(0, 100)}`);
+        const resolvedAccountId = accountId || DEFAULT_ACCOUNT_ID;
+        const client = getClientForAccount(resolvedAccountId);
+        console.log(`[QQ][outbound.sendText] client lookup: accountId=${resolvedAccountId}, found=${!!client}, clients keys=[${[...clients.keys()].join(",")}]`);
         if (!client) return { channel: "qq", sent: false, error: "Client not connected" };
         try {
             const chunks = splitMessage(text, 4000);
@@ -701,6 +704,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                 let message: OneBotMessage | string = chunks[i];
                 if (replyTo && i === 0) message = [ { type: "reply", data: { id: String(replyTo) } }, { type: "text", data: { text: chunks[i] } } ];
 
+                console.log(`[QQ][outbound.sendText] sending chunk ${i + 1}/${chunks.length} to ${to}`);
                 if (to.startsWith("group:")) await client.sendGroupMsg(parseInt(to.replace("group:", ""), 10), message);
                 else if (to.startsWith("guild:")) {
                     const parts = to.split(":");
@@ -710,9 +714,10 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
 
                 if (chunks.length > 1) await sleep(1000);
             }
+            console.log(`[QQ][outbound.sendText] success: to=${to}`);
             return { channel: "qq", sent: true };
         } catch (err) {
-            console.error("[QQ] outbound.sendText failed:", err);
+            console.error("[QQ][outbound.sendText] FAILED:", err);
             return { channel: "qq", sent: false, error: String(err) };
         }
     },
