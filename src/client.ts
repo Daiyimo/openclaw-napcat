@@ -1,9 +1,12 @@
-import WebSocket from "ws";
+import WebSocket, { WebSocketServer } from "ws";
 import EventEmitter from "events";
 import type { OneBotEvent, OneBotMessage } from "./types.js";
+import type { IncomingMessage } from "http";
 
 interface OneBotClientOptions {
   wsUrl: string;
+  httpUrl?: string;
+  reverseWsPort?: number;
   accessToken?: string;
 }
 
@@ -16,6 +19,8 @@ export class OneBotClient extends EventEmitter {
   private isAlive = false;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private heartbeatTimer: NodeJS.Timeout | null = null;
+  private reverseWss: WebSocketServer | null = null;
+  private reverseWs: WebSocket | null = null;
 
   constructor(options: OneBotClientOptions) {
     super();
@@ -130,11 +135,11 @@ export class OneBotClient extends EventEmitter {
   }
 
   sendPrivateMsg(userId: number, message: OneBotMessage | string) {
-    this.send("send_private_msg", { user_id: userId, message });
+    this.sendAction("send_private_msg", { user_id: userId, message });
   }
 
   sendGroupMsg(groupId: number, message: OneBotMessage | string) {
-    this.send("send_group_msg", { group_id: groupId, message });
+    this.sendAction("send_group_msg", { group_id: groupId, message });
   }
 
   deleteMsg(messageId: number | string) {
@@ -208,9 +213,125 @@ export class OneBotClient extends EventEmitter {
     this.send("set_group_kick", { group_id: groupId, user_id: userId, reject_add_request: rejectAddRequest });
   }
 
+  /** Try HTTP API first, fall back to WebSocket */
+  private sendAction(action: string, params: any) {
+    if (this.options.httpUrl) {
+      this.sendViaHttp(action, params).catch((err) => {
+        console.warn(`[QQ] HTTP API failed for ${action}, falling back to WS:`, err.message);
+        this.send(action, params);
+      });
+    } else {
+      this.send(action, params);
+    }
+  }
+
+  private async sendViaHttp(action: string, params: any): Promise<any> {
+    const url = `${this.options.httpUrl}/${action}`;
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (this.options.accessToken) {
+      headers["Authorization"] = `Bearer ${this.options.accessToken}`;
+    }
+    const resp = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(params),
+    });
+    if (!resp.ok) {
+      throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+    }
+    const data = await resp.json() as any;
+    if (data.status !== "ok" && data.retcode !== 0) {
+      throw new Error(data.msg || data.wording || "HTTP API request failed");
+    }
+    return data.data;
+  }
+
+  // --- Reverse WebSocket Server ---
+
+  startReverseWs() {
+    const port = this.options.reverseWsPort;
+    if (!port) return;
+
+    this.reverseWss = new WebSocketServer({ port });
+    console.log(`[QQ] Reverse WebSocket server listening on port ${port}`);
+
+    this.reverseWss.on("connection", (ws: WebSocket, req: IncomingMessage) => {
+      // Verify access token if configured
+      if (this.options.accessToken) {
+        const auth = req.headers["authorization"];
+        if (auth !== `Bearer ${this.options.accessToken}`) {
+          console.warn("[QQ] Reverse WS: unauthorized connection rejected");
+          ws.close(4001, "Unauthorized");
+          return;
+        }
+      }
+
+      console.log("[QQ] Reverse WS: NapCat connected");
+      this.reverseWs = ws;
+
+      ws.on("message", (data) => {
+        try {
+          const payload = JSON.parse(data.toString()) as OneBotEvent;
+          if (payload.post_type === "meta_event" && payload.meta_event_type === "heartbeat") {
+            return;
+          }
+          if (payload.post_type === "meta_event" && payload.meta_event_type === "lifecycle" && payload.self_id) {
+            this.selfId = payload.self_id;
+          }
+          this.emit("message", payload);
+        } catch (err) {
+          // Ignore non-JSON
+        }
+      });
+
+      ws.on("close", () => {
+        console.log("[QQ] Reverse WS: NapCat disconnected");
+        if (this.reverseWs === ws) this.reverseWs = null;
+      });
+
+      ws.on("error", (err) => {
+        console.error("[QQ] Reverse WS error:", err);
+      });
+    });
+
+    this.reverseWss.on("error", (err) => {
+      console.error("[QQ] Reverse WS server error:", err);
+    });
+  }
+
+  stopReverseWs() {
+    if (this.reverseWs) {
+      this.reverseWs.close();
+      this.reverseWs = null;
+    }
+    if (this.reverseWss) {
+      this.reverseWss.close();
+      this.reverseWss = null;
+      console.log("[QQ] Reverse WebSocket server stopped");
+    }
+  }
+
+  private getActiveWs(): WebSocket | null {
+    if (this.ws?.readyState === WebSocket.OPEN) return this.ws;
+    if (this.reverseWs?.readyState === WebSocket.OPEN) return this.reverseWs;
+    return null;
+  }
+
   private sendWithResponse(action: string, params: any): Promise<any> {
+    // Prefer HTTP API for request-response calls if available
+    if (this.options.httpUrl) {
+      return this.sendViaHttp(action, params).catch((err) => {
+        console.warn(`[QQ] HTTP API failed for ${action}, falling back to WS:`, err.message);
+        return this.sendWithResponseWs(action, params);
+      });
+    }
+    return this.sendWithResponseWs(action, params);
+  }
+
+  private sendWithResponseWs(action: string, params: any): Promise<any> {
     return new Promise((resolve, reject) => {
-      if (this.ws?.readyState !== WebSocket.OPEN) {
+      const activeWs = this.getActiveWs();
+      if (!activeWs) {
         reject(new Error("WebSocket not open"));
         return;
       }
@@ -220,7 +341,7 @@ export class OneBotClient extends EventEmitter {
         try {
           const resp = JSON.parse(data.toString());
           if (resp.echo === echo) {
-            this.ws?.off("message", handler);
+            activeWs.off("message", handler);
             if (resp.status === "ok") {
               resolve(resp.data);
             } else {
@@ -232,26 +353,28 @@ export class OneBotClient extends EventEmitter {
         }
       };
 
-      this.ws.on("message", handler);
-      this.ws.send(JSON.stringify({ action, params, echo }));
+      activeWs.on("message", handler);
+      activeWs.send(JSON.stringify({ action, params, echo }));
 
       // Timeout after 5 seconds
       setTimeout(() => {
-        this.ws?.off("message", handler);
+        activeWs.off("message", handler);
         reject(new Error("Request timeout"));
       }, 5000);
     });
   }
 
   private send(action: string, params: any) {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ action, params }));
+    const activeWs = this.getActiveWs();
+    if (activeWs) {
+      activeWs.send(JSON.stringify({ action, params }));
     } else {
-      console.warn("[QQ] Cannot send message, WebSocket not open");
+      console.warn("[QQ] Cannot send message, no WebSocket connection available");
     }
   }
 
   disconnect() {
     this.cleanup();
+    this.stopReverseWs();
   }
 }
