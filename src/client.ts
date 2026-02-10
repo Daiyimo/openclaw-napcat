@@ -217,12 +217,16 @@ export class OneBotClient extends EventEmitter {
   private async sendAction(action: string, params: any) {
     if (this.options.httpUrl) {
       try {
+        console.log(`[QQ][sendAction] trying HTTP: ${this.options.httpUrl}/${action}`);
         await this.sendViaHttp(action, params);
+        console.log(`[QQ][sendAction] HTTP success: ${action}`);
         return;
       } catch (err: any) {
-        console.warn(`[QQ] HTTP API failed for ${action}, falling back to WS:`, err.message);
+        console.warn(`[QQ][sendAction] HTTP failed for ${action}:`, err.message);
       }
     }
+    const activeWs = this.getActiveWs();
+    console.log(`[QQ][sendAction] trying WS: forwardWs=${this.ws?.readyState}, reverseWs=${this.reverseWs?.readyState}, active=${!!activeWs}`);
     this.sendWs(action, params);
   }
 
