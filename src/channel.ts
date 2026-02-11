@@ -754,6 +754,10 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
   },
   outbound: {
     sendText: async ({ to, text, accountId, replyTo }) => {
+        // Ignore non-routable targets (e.g. framework heartbeat probes)
+        if (!to || to === "heartbeat") {
+            return { channel: "qq", sent: true };
+        }
         console.log(`[QQ][outbound.sendText] called: to=${to}, accountId=${accountId}, text=${text?.slice(0, 100)}`);
         const resolvedAccountId = accountId || DEFAULT_ACCOUNT_ID;
         const client = getClientForAccount(resolvedAccountId);
@@ -780,6 +784,10 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
         }
     },
     sendMedia: async ({ to, text, mediaUrl, accountId, replyTo }) => {
+         // Ignore non-routable targets (e.g. framework heartbeat probes)
+         if (!to || to === "heartbeat") {
+             return { channel: "qq", sent: true };
+         }
          const client = getClientForAccount(accountId || DEFAULT_ACCOUNT_ID);
          if (!client) return { channel: "qq", sent: false, error: "Client not connected" };
          try {
