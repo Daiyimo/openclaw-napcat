@@ -119,6 +119,67 @@ function normalizeTarget(raw: string): string {
   return raw.replace(/^(qq:)/i, "");
 }
 
+type TargetType = "private" | "group" | "guild";
+interface ParsedTarget {
+  type: TargetType;
+  /** For private: user_id (number); for group: group_id (number); for guild: { guildId, channelId } */
+  userId?: number;
+  groupId?: number;
+  guildId?: string;
+  channelId?: string;
+}
+
+/**
+ * Parse the `to` field from outbound calls into a structured target.
+ *
+ * Supported formats:
+ *   - Private:  "12345678"  or  "private:12345678"
+ *   - Group:    "group:88888888"
+ *   - Guild:    "guild:GUILD_ID:CHANNEL_ID"
+ */
+function parseTarget(to: string): ParsedTarget {
+  if (to.startsWith("group:")) {
+    const id = parseInt(to.slice(6), 10);
+    if (isNaN(id)) throw new Error(`Invalid group target: "${to}" — expected "group:<number>"`);
+    return { type: "group", groupId: id };
+  }
+  if (to.startsWith("guild:")) {
+    const parts = to.split(":");
+    if (parts.length < 3 || !parts[1] || !parts[2]) {
+      throw new Error(`Invalid guild target: "${to}" — expected "guild:<guildId>:<channelId>"`);
+    }
+    return { type: "guild", guildId: parts[1], channelId: parts[2] };
+  }
+  if (to.startsWith("private:")) {
+    const id = parseInt(to.slice(8), 10);
+    if (isNaN(id)) throw new Error(`Invalid private target: "${to}" — expected "private:<number>"`);
+    return { type: "private", userId: id };
+  }
+  // Default: treat as private user id
+  const id = parseInt(to, 10);
+  if (isNaN(id)) {
+    throw new Error(
+      `Cannot determine target type from "${to}". Use "private:<QQ号>", "group:<群号>", or "guild:<频道ID>:<子频道ID>".`
+    );
+  }
+  return { type: "private", userId: id };
+}
+
+/** Dispatch a message to the correct API based on the parsed target. */
+async function dispatchMessage(client: OneBotClient, target: ParsedTarget, message: OneBotMessage | string) {
+  switch (target.type) {
+    case "group":
+      await client.sendGroupMsg(target.groupId!, message);
+      break;
+    case "guild":
+      client.sendGuildChannelMsg(target.guildId!, target.channelId!, message);
+      break;
+    case "private":
+      await client.sendPrivateMsg(target.userId!, message);
+      break;
+  }
+}
+
 const clients = new Map<string, OneBotClient>();
 
 function getClientForAccount(accountId: string) {
@@ -699,18 +760,15 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
         console.log(`[QQ][outbound.sendText] client lookup: accountId=${resolvedAccountId}, found=${!!client}, clients keys=[${[...clients.keys()].join(",")}]`);
         if (!client) return { channel: "qq", sent: false, error: "Client not connected" };
         try {
+            const target = parseTarget(to);
+            console.log(`[QQ][outbound.sendText] parsed target: type=${target.type}, to=${to}`);
             const chunks = splitMessage(text, 4000);
             for (let i = 0; i < chunks.length; i++) {
                 let message: OneBotMessage | string = chunks[i];
                 if (replyTo && i === 0) message = [ { type: "reply", data: { id: String(replyTo) } }, { type: "text", data: { text: chunks[i] } } ];
 
-                console.log(`[QQ][outbound.sendText] sending chunk ${i + 1}/${chunks.length} to ${to}`);
-                if (to.startsWith("group:")) await client.sendGroupMsg(parseInt(to.replace("group:", ""), 10), message);
-                else if (to.startsWith("guild:")) {
-                    const parts = to.split(":");
-                    if (parts.length >= 3) client.sendGuildChannelMsg(parts[1], parts[2], message);
-                }
-                else await client.sendPrivateMsg(parseInt(to, 10), message);
+                console.log(`[QQ][outbound.sendText] sending chunk ${i + 1}/${chunks.length} to ${to} (${target.type})`);
+                await dispatchMessage(client, target, message);
 
                 if (chunks.length > 1) await sleep(1000);
             }
@@ -725,6 +783,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
          const client = getClientForAccount(accountId || DEFAULT_ACCOUNT_ID);
          if (!client) return { channel: "qq", sent: false, error: "Client not connected" };
          try {
+             const target = parseTarget(to);
              const finalUrl = await resolveMediaUrl(mediaUrl);
 
              const message: OneBotMessage = [];
@@ -733,12 +792,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
              if (isImageFile(mediaUrl)) message.push({ type: "image", data: { file: finalUrl } });
              else message.push({ type: "text", data: { text: `[CQ:file,file=${finalUrl},url=${finalUrl}]` } });
 
-             if (to.startsWith("group:")) await client.sendGroupMsg(parseInt(to.replace("group:", ""), 10), message);
-             else if (to.startsWith("guild:")) {
-                 const parts = to.split(":");
-                 if (parts.length >= 3) client.sendGuildChannelMsg(parts[1], parts[2], message);
-             }
-             else await client.sendPrivateMsg(parseInt(to, 10), message);
+             await dispatchMessage(client, target, message);
              return { channel: "qq", sent: true };
          } catch (err) {
              console.error("[QQ] outbound.sendMedia failed:", err);
@@ -753,11 +807,11 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
         catch (err) { return { channel: "qq", success: false, error: String(err) }; }
     }
   },
-  messaging: { 
+  messaging: {
       normalizeTarget,
       targetResolver: {
-          looksLikeId: (id) => /^\d{5,12}$/.test(id) || /^guild:/.test(id),
-          hint: "QQ号, 群号 (group:123), 或频道 (guild:id:channel)",
+          looksLikeId: (id) => /^\d{5,12}$/.test(id) || /^(group|guild|private):/.test(id),
+          hint: "QQ号, private:QQ号, group:群号, 或 guild:频道ID:子频道ID",
       }
   },
   setup: { resolveAccountId: ({ accountId }) => normalizeAccountId(accountId) }
