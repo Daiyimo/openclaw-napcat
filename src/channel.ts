@@ -673,8 +673,8 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                 if (!mentioned) return;
             }
 
-            // React with emoji if configured
-            if (config.reactionEmoji && event.message_id) {
+            // React with emoji if configured (static mode, not "auto")
+            if (config.reactionEmoji && config.reactionEmoji !== "auto" && event.message_id) {
                 try { client.setMsgEmojiLike(event.message_id, config.reactionEmoji); } catch (e) {}
             }
 
@@ -693,6 +693,16 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             const deliver = async (payload: ReplyPayload) => {
                  const send = async (msg: string) => {
                      let processed = msg;
+
+                     // Extract AI-chosen reaction from reply text
+                     if (config.reactionEmoji === "auto" && event.message_id) {
+                         const reactionMatch = processed.match(/^\[reaction:(\d+)\]\s*/);
+                         if (reactionMatch) {
+                             try { client.setMsgEmojiLike(event.message_id, reactionMatch[1]); } catch (e) {}
+                             processed = processed.slice(reactionMatch[0].length);
+                         }
+                     }
+
                      if (config.formatMarkdown) processed = stripMarkdown(processed);
                      if (config.antiRiskMode) processed = processAntiRisk(processed);
                      const chunks = splitMessage(processed, config.maxMessageLength || 4000);
@@ -771,6 +781,12 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             let bodyWithReply = cleanCQCodes(text) + replySuffix;
             let systemBlock = "";
             if (config.systemPrompt) systemBlock += `<system>${config.systemPrompt}</system>\n\n`;
+            if (config.reactionEmoji === "auto") {
+                systemBlock += `<reaction-instruction>根据用户消息的语气和内容，在回复的最开头添加一个表情回应标记，格式为 [reaction:表情ID]。表情ID从以下列表中选择最合适的一个：
+128077(👍厉害) 128079(👏鼓掌) 128293(🔥火) 128516(😄高兴) 128514(😂激动) 128522(😊嘿嘿) 128536(😘飞吻) 128170(💪加油) 128147(💓爱心) 10024(✨闪光) 127881(🎉庆祝) 128557(😭大哭) 128076(👌OK)
+示例：用户说"谢谢"→回复"[reaction:128147]不客气！"，用户说"太厉害了"→回复"[reaction:128293]嘿嘿~"
+只输出一个[reaction:ID]标记，放在回复最前面，后面紧跟正文。</reaction-instruction>\n\n`;
+            }
             if (historyContext) systemBlock += `<history>\n${historyContext}\n</history>\n\n`;
             bodyWithReply = systemBlock + bodyWithReply;
 
