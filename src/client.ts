@@ -163,8 +163,10 @@ export class OneBotClient extends EventEmitter {
   }
 
   // Note: get_group_msg_history is extended API supported by go-cqhttp/napcat
-  async getGroupMsgHistory(groupId: number): Promise<any> {
-    return this.sendWithResponse("get_group_msg_history", { group_id: groupId });
+  async getGroupMsgHistory(groupId: number, count?: number): Promise<any> {
+    const params: any = { group_id: groupId };
+    if (count !== undefined) params.count = count;
+    return this.sendWithResponse("get_group_msg_history", params);
   }
 
   async getForwardMsg(id: string): Promise<any> {
@@ -200,8 +202,42 @@ export class OneBotClient extends EventEmitter {
 
   sendGroupPoke(groupId: number, userId: number) {
       this.sendWs("group_poke", { group_id: groupId, user_id: userId });
-      // Note: Some implementations use send_poke or touch
-      // Standard OneBot v11 doesn't enforce poke API, but group_poke is common in go-cqhttp
+  }
+
+  sendFriendPoke(userId: number) {
+      this.sendWs("friend_poke", { user_id: userId });
+  }
+
+  async setMsgEmojiLike(messageId: number | string, emojiId: string) {
+      this.sendWs("set_msg_emoji_like", { message_id: messageId, emoji_id: emojiId });
+  }
+
+  async markGroupMsgAsRead(groupId: number) {
+      this.sendWs("mark_group_msg_as_read", { group_id: groupId });
+  }
+
+  async markPrivateMsgAsRead(userId: number) {
+      this.sendWs("mark_private_msg_as_read", { user_id: userId });
+  }
+
+  async getGroupMemberList(groupId: number): Promise<any[]> {
+      return this.sendWithResponse("get_group_member_list", { group_id: groupId });
+  }
+
+  async getAiCharacters(): Promise<any> {
+      return this.sendWithResponse("get_ai_characters", {});
+  }
+
+  async sendGroupAiRecord(groupId: number, text: string, voiceId: string) {
+      await this.sendAction("send_group_ai_record", { group_id: groupId, text, character: voiceId });
+  }
+
+  async uploadGroupFile(groupId: number, file: string, name: string) {
+      await this.sendAction("upload_group_file", { group_id: groupId, file, name });
+  }
+
+  async uploadPrivateFile(userId: number, file: string, name: string) {
+      await this.sendAction("upload_private_file", { user_id: userId, file, name });
   }
   // --------------------------------------
 
