@@ -59,7 +59,7 @@ OpenClawd 是一个多功能代理。下面的聊天演示仅展示了最基础�
 # 进入插件目录
 cd openclaw/extensions
 # 克隆仓库
-git clone https://github.com/Daiyimo/openclaw-qq-plugin.git qq
+git clone -b pre-release https://gh-proxy.com/https://github.com/Daiyimo/openclaw-qq-plugin.git qq
 # 进入qq插件目录
 npm install -g pnpm
 # 安装qq
