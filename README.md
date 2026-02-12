@@ -26,7 +26,10 @@ OpenClawd 是一个多功能代理。下面的聊天演示仅展示了最基础�
     *   **系统号屏蔽**：自动过滤 QQ 管家等系统账号的干扰。
 
 ### 🎭 丰富的交互体验
-*   **戳一戳 (Poke)**：当用户“戳一戳”机器人时，AI 会感知到并做出有趣的回应。
+*   **戳一戳 (Poke)**：当用户"戳一戳"机器人时，AI 会感知到并做出有趣的回应。支持群聊和私聊双向戳一戳。
+*   **表情回应 (Reaction)**：收到触发消息时，自动对消息添加表情回应（如竖起大拇指），提升交互体验。
+*   **已读标记 (Mark Read)**：自动标记消息为已读，避免未读消息堆积。
+*   **AI 语音 (AI Voice)**：利用 NapCat 原生 AI 语音 API，支持丰富的音色角色，比传统 TTS 更自然。
 *   **拟人化回复**：
     *   **自动 @**：在群聊回复时，自动 @原发送者（仅在第一段消息），符合人类社交礼仪。
     *   **昵称解析**：将消息中的 `[CQ:at]` 代码转换为真实昵称（如 `@张三`），AI 回复更自然。
@@ -42,7 +45,7 @@ OpenClawd 是一个多功能代理。下面的聊天演示仅展示了最基础�
 
 1.  **OpenClaw**：已安装并运行 OpenClaw 主程序。
 2.  **OneBot v11 服务端**：你需要一个运行中的 OneBot v11 实现。
-    *   推荐：**[NapCat (Docker)](https://github.com/NapCatQQ/NapCat-Docker)** 或 **Lagrange**。
+    *   推荐：**[NapCat (Docker)](https://github.com/NapCatQQ/NapCat-Docker)** (4.16.0+) 或 **Lagrange**。
     *   **重要配置**：请务必在 OneBot 配置中将 `message_post_format` 设置为 `array`（数组格式），否则无法解析多媒体消息。
     *   网络：确保开启了正向 WebSocket 服务（通常端口为 3001）。
 
@@ -108,7 +111,10 @@ openclaw setup qq
       "rateLimitMs": 1000,
       "formatMarkdown": true,
       "antiRiskMode": false,
-      "maxMessageLength": 4000
+      "maxMessageLength": 4000,
+      "reactionEmoji": "",
+      "autoMarkRead": false,
+      "aiVoiceId": ""
     }
   },
   "plugins": {
@@ -139,6 +145,9 @@ openclaw setup qq
 | `formatMarkdown` | boolean | `false` | 是否将 Markdown 表格/列表转换为易读的纯文本排版。 |
 | `antiRiskMode` | boolean | `false` | 是否开启风控规避（如给 URL 加空格）。 |
 | `maxMessageLength` | number | `4000` | 单条消息最大长度，超过将自动分片发送。 |
+| `reactionEmoji` | string | - | 收到触发消息时自动回应的表情 ID（如 `"128077"` 为竖大拇指），留空不启用。 |
+| `autoMarkRead` | boolean | `false` | 是否自动标记消息为已读，防止未读消息堆积。 |
+| `aiVoiceId` | string | - | NapCat AI 语音角色 ID，当 `enableTTS` 开启时优先使用 AI 语音 API 代替 CQ:tts。 |
 
 ---
 
@@ -281,6 +290,51 @@ A: 将 `enableTTS` 设为 `true`。注意：这取决于 OneBot 服务端是否�
 ---
 
 ## 更新日志
+
+### v1.3.0 - NapCat API 深度集成 (2026-02-12)
+
+基于 NapCat 完整 API 能力进行全面优化，新增多项交互功能并提升性能。
+
+#### 新增功能
+
+| 功能 | 说明 |
+| :--- | :--- |
+| **表情回应** | 收到触发消息时自动添加表情回应（`set_msg_emoji_like`），通过 `reactionEmoji` 配置 |
+| **已读标记** | 自动标记群聊/私聊消息为已读（`mark_group_msg_as_read` / `mark_private_msg_as_read`），通过 `autoMarkRead` 配置 |
+| **AI 语音** | 利用 NapCat 原生 `send_group_ai_record` API 发送 AI 语音，音色更丰富，通过 `aiVoiceId` 配置 |
+| **私聊戳一戳** | 新增 `friend_poke` 支持，私聊中收到戳一戳也会回应 |
+| **批量成员缓存** | 使用 `get_group_member_list` 一次获取全部群成员，替代逐个查询，大幅减少 API 调用 |
+| **文件上传 API** | 非图片文件优先使用 `upload_group_file` / `upload_private_file` 上传，更可靠 |
+
+#### 优化改进
+
+- `OneBotEvent` 类型补全：新增 `guild_id`、`channel_id`、`target_id`、`notice_type`、`request_type`、`flag` 等字段
+- `OneBotMessageSegment` 类型补全：新增 `record`、`video`、`json`、`forward`、`file`、`face` 等消息段
+- `getGroupMsgHistory` 新增 `count` 参数，按需获取历史消息条数，减少数据传输
+- 好友/入群请求处理从死代码修复为正确的事件分发
+
+#### 涉及文件
+
+| 文件 | 变更类型 | 说明 |
+| :--- | :--- | :--- |
+| `src/types.ts` | 增强 | 补全 OneBotEvent 和 OneBotMessageSegment 类型定义 |
+| `src/config.ts` | 新增字段 | 新增 `reactionEmoji`、`autoMarkRead`、`aiVoiceId` 配置项 |
+| `src/client.ts` | 新增方法 | 新增 7 个 NapCat API 方法，优化 `getGroupMsgHistory` 参数 |
+| `src/channel.ts` | 集成 | 表情回应、已读标记、AI 语音、批量成员缓存、文件上传、私聊戳一戳 |
+| `README.md` | 文档 | 同步文档更新 |
+| `package.json` | 版本 | 更新为 1.3.0 |
+
+#### 新增配置项
+
+| 配置项 | 类型 | 默认值 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `reactionEmoji` | string | - | 表情回应 ID（如 `"128077"`），留空不启用 |
+| `autoMarkRead` | boolean | `false` | 自动标记消息为已读 |
+| `aiVoiceId` | string | - | NapCat AI 语音角色 ID，配合 `enableTTS` 使用 |
+
+#### 推荐环境
+
+- NapCat 4.16.0+
 
 ### v1.2.0 - Outbound 目标解析优化
 
