@@ -1,6 +1,5 @@
 
-OpenClawd 是一个多功能代理。下面的聊天演示仅展示了最基础的功能。
-# OpenClaw QQ 插件 (OneBot v11)
+# OpenClaw-Napcat 插件 (OneBot v11)
 
 本插件通过 OneBot v11 协议（WebSocket）为 [OpenClaw](https://github.com/openclaw/openclaw) 添加全功能的 QQ 频道支持。它不仅支持基础聊天，还集成了群管、频道、多模态交互和生产级风控能力。
 
@@ -47,7 +46,7 @@ OpenClawd 是一个多功能代理。下面的聊天演示仅展示了最基础�
 2.  **OneBot v11 服务端**：你需要一个运行中的 OneBot v11 实现。
     *   推荐：**[NapCat (Docker)](https://github.com/NapCatQQ/NapCat-Docker)** (4.16.0+) 或 **Lagrange**。
     *   **重要配置**：请务必在 OneBot 配置中将 `message_post_format` 设置为 `array`（数组格式），否则无法解析多媒体消息。
-    *   网络：确保开启了正向 WebSocket 服务（通常端口为 3001）。
+    *   网络：确保开启了正向 WebSocket 服务（通常端口为 3001）以及http-server（通常端口为 3000）。
 
 ---
 
@@ -59,7 +58,7 @@ OpenClawd 是一个多功能代理。下面的聊天演示仅展示了最基础�
 # 进入插件目录
 cd openclaw/extensions
 # 克隆仓库
-git clone -b pre-release https://gh-proxy.com/https://github.com/Daiyimo/openclaw-qq-plugin.git qq
+git clone -b pre-release https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat.git qq
 # 进入qq插件目录
 npm install -g pnpm
 # 安装qq
