@@ -818,7 +818,15 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
 
                      // Extract reaction/task marker from AI reply
                      if (isAutoReaction && event.message_id) {
-                         // Check for task acknowledgment - react to original message with OK
+                         // Check for task emoji_only - react with OK emoji first, then send text reply
+                         const taskEmojiOnlyMatch = processed.match(/^\[task:emoji_only\]\s*/);
+                         if (taskEmojiOnlyMatch) {
+                             try { client.setMsgEmojiLike(event.message_id, "128076"); } catch (e) {
+                                 console.log(`[QQ] Failed to set OK emoji reaction:`, e);
+                             }
+                             processed = processed.slice(taskEmojiOnlyMatch[0].length);
+                         }
+                         // Check for task acknowledgment (legacy support) - react to original message with OK
                          const taskMatch = processed.match(/^\[task:ok\]\s*/);
                          if (taskMatch) {
                              try { client.setMsgEmojiLike(event.message_id, "128076"); } catch (e) {
@@ -917,14 +925,17 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             if (config.systemPrompt) systemBlock += `<system>${config.systemPrompt}</system>\n\n`;
             if (config.reactionEmoji === "auto") {
                 systemBlock += `<reaction-instruction>根据用户消息类型，在回复最开头添加标记：
-- 如果是任务类请求（如查询、提醒、设置、执行操作等），输出"[task:ok]"标记，表示已收到任务
-- 如果是闲聊/情感类消息，从以下列表选择一个最合适的表情ID：[reaction:表情ID]
+- 如果是任务类请求（如查询、提醒、设置、执行操作、获取信息、帮助等），输出"[task:emoji_only]"标记，机器人会先在消息上添加OK emoji反应，然后再发送文字回复
+- 如果是闲聊/情感类消息，从以下列表选择一个最合适的表情ID：[reaction:表情ID]，机器人会先添加emoji反应再发文字
+- 如果是一般对话（问候、感谢、道歉等），正常文字回复不需要任何标记
   可用表情：128077(👍厉害) 128079(👏鼓掌) 128293(🔥火) 128516(😄高兴) 128514(😂激动) 128522(😊嘿嘿) 128536(😘飞吻) 128170(💪加油) 128147(💓爱心) 10024(✨闪光) 127881(🎉庆祝) 128557(😭大哭) 128076(👌OK)
 示例：
-- 用户说"帮我查下天气"→回复"[task:ok]好的，我帮你查一下天气"
+- 用户说"帮我查下天气"→回复"[task:emoji_only]好的，我帮你查一下天气"
 - 用户说"谢谢"→回复"[reaction:128147]不客气！"
 - 用户说"太厉害了"→回复"[reaction:128293]嘿嘿~
-只输出一个标记，放在回复最前面。</reaction-instruction>\n\n`;
+- 用户说"在吗"→回复"在的，有什么可以帮你的吗？"
+- 用户说"今天怎么样"→回复"还不错，你呢？"
+只输出一个标记或正常文字回复。</reaction-instruction>\n\n`;
             }
             if (historyContext) systemBlock += `<history>\n${historyContext}\n</history>\n\n`;
             if (ocrText) systemBlock += `<ocr-text>\n${ocrText}\n</ocr-text>\n\n`;
