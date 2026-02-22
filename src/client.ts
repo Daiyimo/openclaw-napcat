@@ -239,6 +239,221 @@ export class OneBotClient extends EventEmitter {
   async uploadPrivateFile(userId: number, file: string, name: string) {
       await this.sendAction("upload_private_file", { user_id: userId, file, name });
   }
+
+  // --- NapCat 4.17.25 新增 API ---
+
+  // 通用消息发送
+  async sendMsg(message: OneBotMessage | string, options?: { group_id?: number, user_id?: number, guild_id?: number, channel_id?: number }) {
+      const params: any = { message };
+      if (options?.group_id) params.group_id = options.group_id;
+      if (options?.user_id) params.user_id = options.user_id;
+      if (options?.guild_id) params.guild_id = options.guild_id;
+      if (options?.channel_id) params.channel_id = options.channel_id;
+      await this.sendAction("send_msg", params);
+  }
+
+  // 获取群详细信息 (扩展)
+  async getGroupInfoEx(groupId: number): Promise<any> {
+      return this.sendWithResponse("get_group_info_ex", { group_id: groupId });
+  }
+
+  // 批量踢出群成员
+  async setGroupKickBatch(groupId: number, userIds: number[], rejectAddRequest: boolean = false) {
+      await this.sendAction("set_group_kick_batch", { group_id: groupId, user_id: userIds, reject_add_request: rejectAddRequest });
+  }
+
+  // 设置群加群选项
+  async setGroupAddOption(groupId: number, type: "allow" | "need_verify" | "disable") {
+      await this.sendAction("set_group_add_option", { group_id: groupId, type });
+  }
+
+  // 设置群机器人加群选项
+  async setGroupBotAddOption(groupId: number, enable: boolean) {
+      await this.sendAction("set_group_bot_add_option", { group_id: groupId, enable });
+  }
+
+  // 获取表情点赞详情
+  async getMsgEmojiLikeInfo(messageId: number | string): Promise<any> {
+      return this.sendWithResponse("get_msg_emoji_like_info", { message_id: messageId });
+  }
+
+  // 获取消息表情点赞列表
+  async getMsgEmojiLikeUsers(messageId: number | string, emojiId: string): Promise<any> {
+      return this.sendWithResponse("get_msg_emoji_like_users", { message_id: messageId, emoji_id: emojiId });
+  }
+
+  // 获取群精华消息列表
+  async getGroupEssenceMsgList(groupId: number): Promise<any[]> {
+      return this.sendWithResponse("get_essence_msg_list", { group_id: groupId });
+  }
+
+  // 设置精华消息
+  async setEssenceMsg(messageId: number | string) {
+      await this.sendAction("set_essence_msg", { message_id: messageId });
+  }
+
+  // 移出精华消息
+  async deleteEssenceMsg(messageId: number | string) {
+      await this.sendAction("delete_essence_msg", { message_id: messageId });
+  }
+
+  // 获取群荣誉信息
+  async getGroupHonorInfo(groupId: number, type: "talkative" | "performer" | "legend" | "strong_newbie" | "emotion" | "all" = "all"): Promise<any> {
+      return this.sendWithResponse("get_group_honor_info", { group_id: groupId, type });
+  }
+
+  // 发送群公告
+  async sendGroupNotice(groupId: number, message: string, image?: string) {
+      await this.sendAction("send_group_notice", { group_id: groupId, message, image });
+  }
+
+  // 获取群公告
+  async getGroupNotice(groupId: number): Promise<any[]> {
+      return this.sendWithResponse("get_group_notice", { group_id: groupId });
+  }
+
+  // 删除群公告
+  async deleteGroupNotice(groupId: number, messageId: string) {
+      await this.sendAction("delete_group_notice", { group_id: groupId, message_id: messageId });
+  }
+
+  // 获取群艾特全体剩余次数
+  async getGroupAtAllRemain(groupId: number): Promise<any> {
+      return this.sendWithResponse("get_group_at_all_remain", { group_id: groupId });
+  }
+
+  // 获取群禁言列表
+  async getGroupBanList(groupId: number): Promise<any[]> {
+      return this.sendWithResponse("get_group_ban_list", { group_id: groupId });
+  }
+
+  // 设置群管理员
+  async setGroupAdmin(groupId: number, userId: number, enable: boolean = true) {
+      await this.sendAction("set_group_admin", { group_id: groupId, user_id: userId, enable });
+  }
+
+  // 设置群名片
+  async setGroupCard(groupId: number, userId: number, card: string) {
+      await this.sendAction("set_group_card", { group_id: groupId, user_id: userId, card });
+  }
+
+  // 设置群名称
+  async setGroupName(groupId: number, name: string) {
+      await this.sendAction("set_group_name", { group_id: groupId, name });
+  }
+
+  // 设置群头像
+  async setGroupAvatar(groupId: number, file: string) {
+      await this.sendAction("set_group_avatar", { group_id: groupId, file });
+  }
+
+  // 设置群备注
+  async setGroupRemark(groupId: number, remark: string) {
+      await this.sendAction("set_group_remark", { group_id: groupId, remark });
+  }
+
+  // 设置专属头衔
+  async setGroupSpecialTitle(groupId: number, userId: number, title: string, duration: number = -1) {
+      await this.sendAction("set_group_special_title", { group_id: groupId, user_id: userId, title, duration });
+  }
+
+  // 群打卡
+  async sendGroupSignIn(groupId: number) {
+      await this.sendAction("send_group_sign_in", { group_id: groupId });
+  }
+
+  // 点赞
+  async sendLike(userId: number, times: number = 1) {
+      await this.sendAction("send_like", { user_id: userId, times });
+  }
+
+  // 获取陌生人信息
+  async getStrangerInfo(userId: number, noCache: boolean = false): Promise<any> {
+      return this.sendWithResponse("get_stranger_info", { user_id: userId, no_cache: noCache });
+  }
+
+  // 设置好友备注
+  async setFriendRemark(userId: number, remark: string) {
+      await this.sendAction("set_friend_remark", { user_id: userId, remark });
+  }
+
+  // 设置个性签名
+  async setCurSignature(sign: string) {
+      await this.sendAction("set_cur_signature", { sign });
+  }
+
+  // 设置头像
+  async setAvatar(file: string) {
+      await this.sendAction("set_avatar", { file });
+  }
+
+  // 设置在线状态
+  async setCurStatus(status: { online?: boolean, battery?: number, charging?: boolean }) {
+      await this.sendAction("set_cur_status", status);
+  }
+
+  // 获取在线客户端
+  async getOnlineClients(): Promise<any[]> {
+      return this.sendWithResponse("get_online_clients", {});
+  }
+
+  // 获取私聊文件URL
+  async getPrivateFileUrl(userId: number, fileId: string, busid: number): Promise<any> {
+      return this.sendWithResponse("get_private_file_url", { user_id: userId, file_id: fileId, busid });
+  }
+
+  // 获取文件信息
+  async getFile(file: string, name?: string): Promise<any> {
+      const params: any = { file };
+      if (name) params.name = name;
+      return this.sendWithResponse("get_file", params);
+  }
+
+  // 图片 OCR 识别
+  async ocrImage(image: string): Promise<any> {
+      return this.sendWithResponse("ocr_image", { image });
+  }
+
+  // 检查URL安全性
+  async checkUrlSafely(url: string): Promise<any> {
+      return this.sendWithResponse("check_url_safely", { url });
+  }
+
+  // 清理缓存
+  async cleanCache(): Promise<any> {
+      return this.sendWithResponse("clean_cache", {});
+  }
+
+  // 获取群系统消息
+  async getGroupSystemMsg(groupId: number): Promise<any> {
+      return this.sendWithResponse("get_group_system_msg", { group_id: groupId });
+  }
+
+  // 获取群被忽略的加群请求
+  async getGroupIgnoreAddRequest(groupId: number): Promise<any> {
+      return this.sendWithResponse("get_group_ignore_add_request", { group_id: groupId });
+  }
+
+  // 获取资料点赞
+  async getUserProfileLike(userId: number): Promise<any> {
+      return this.sendWithResponse("get_user_profile_like", { user_id: userId });
+  }
+
+  // 获取机型显示
+  async getModelShow(model: string): Promise<any> {
+      return this.sendWithResponse("get_model_show", { model });
+  }
+
+  // 设置机型
+  async setModelShow(model: string, show: string) {
+      await this.sendAction("set_model_show", { model, show });
+  }
+
+  // 设置输入状态
+  async setInputStatus(type: "friend" | "group", id: number, status: boolean) {
+      await this.sendAction("set_input_status", { type, id, status });
+  }
+
   // --------------------------------------
 
   setGroupBan(groupId: number, userId: number, duration: number = 1800) {

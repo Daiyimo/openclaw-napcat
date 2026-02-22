@@ -291,6 +291,62 @@ A: 将 `enableTTS` 设为 `true`。注意：这取决于 OneBot 服务端是否�
 
 ## 更新日志
 
+### v1.4.0 - NapCat 4.17.25 全面适配 (2026-02-22)
+
+基于 NapCat 4.17.25 完整 API 进行全面适配，新增多项管理功能和智能识别能力。
+
+#### 新增功能
+
+| 功能 | 说明 |
+| :--- | :--- |
+| **URL 安全检查** | 自动检测消息中链接的安全性，危险链接自动拦截（`check_url_safely`），通过 `enableUrlCheck` 配置 |
+| **图片 OCR 识别** | 自动识别图片中的文字并发送给 AI 分析（`ocr_image`），通过 `enableOcr` 配置 |
+| **群公告管理** | 支持发送、获取、删除群公告（`send_group_notice` / `get_group_notice` / `delete_group_notice`） |
+| **精华消息** | 支持查看、设置、移出精华消息（`get_essence_msg_list` / `set_essence_msg` / `delete_essence_msg`） |
+| **群荣誉查询** | 获取群荣誉信息（`get_group_honor_info`），通过 `enableGroupHonor` 配置 |
+| **群打卡** | 支持群打卡功能（`send_group_sign_in`），通过 `enableGroupSignIn` 配置 |
+| **缓存清理** | 支持清理 NapCat 缓存（`clean_cache`） |
+| **通用消息发送** | 新增 `send_msg` API，支持同时指定 group_id / user_id / guild_id |
+
+#### 新增管理员命令
+
+| 命令 | 说明 | 适用场景 |
+| :--- | :--- | :--- |
+| `/notice 公告内容` | 发送群公告 | 群聊 |
+| `/signin` | 群打卡 | 群聊 |
+| `/honor` | 查看群荣誉信息 | 群聊 |
+| `/essence` | 查看精华消息列表 | 群聊 |
+| `/setessence` | 设为精华消息（需回复某条消息） | 群聊 |
+| `/delessence` | 移出精华消息（需回复某条消息） | 群聊 |
+| `/cache` | 清理缓存 | 私聊/群聊 |
+
+#### 涉及文件
+
+| 文件 | 变更类型 | 说明 |
+| :--- | :--- | :--- |
+| `src/client.ts` | 新增方法 | 新增 40+ 个 NapCat 4.17.25 API 方法 |
+| `src/types.ts` | 增强 | 新增 12 种消息类型（markdown, button, share, contact 等） |
+| `src/config.ts` | 新增字段 | 新增 6 个配置项 |
+| `src/channel.ts` | 集成 | URL安全检查、图片OCR、新管理员命令 |
+| `openclaw.plugin.json` | 更新 | 完整配置 Schema 定义 |
+| `README.md` | 文档 | 同步更新日志 |
+| `package.json` | 版本 | 更新为 1.4.0 |
+
+#### 新增配置项
+
+| 配置项 | 类型 | 默认值 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `enableOcr` | boolean | `false` | 启用图片 OCR 识别 |
+| `enableUrlCheck` | boolean | `false` | 启用 URL 安全检查 |
+| `enableGroupHonor` | boolean | `false` | 启用群荣誉信息获取 |
+| `enableGroupSignIn` | boolean | `false` | 启用自动群打卡 |
+| `autoCleanCache` | boolean | `false` | 自动清理缓存 |
+| `enableEssenceMsg` | boolean | `false` | 启用精华消息管理 |
+
+#### 推荐环境
+
+- NapCat 4.17.25+
+
 ### v1.3.0 - NapCat API 深度集成 (2026-02-12)
 
 基于 NapCat 完整 API 能力进行全面优化，新增多项交互功能并提升性能。
