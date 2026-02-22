@@ -87,7 +87,6 @@ function cleanCQCodes(text: string | undefined): string {
   let result = text;
   const imageUrls: string[] = [];
   
-  // Match both url= and file= if they look like URLs
   const imageRegex = /\[CQ:image,[^\]]*(?:url|file)=([^,\]]+)[^\]]*\]/g;
   let match;
   while ((match = imageRegex.exec(text)) !== null) {
@@ -140,21 +139,12 @@ function normalizeTarget(raw: string): string {
 type TargetType = "private" | "group" | "guild";
 interface ParsedTarget {
   type: TargetType;
-  /** For private: user_id (number); for group: group_id (number); for guild: { guildId, channelId } */
   userId?: number;
   groupId?: number;
   guildId?: string;
   channelId?: string;
 }
 
-/**
- * Parse the `to` field from outbound calls into a structured target.
- *
- * Supported formats:
- *   - Private:  "12345678"  or  "private:12345678"
- *   - Group:    "group:88888888"
- *   - Guild:    "guild:GUILD_ID:CHANNEL_ID"
- */
 function parseTarget(to: string): ParsedTarget {
   if (to.startsWith("group:")) {
     const id = parseInt(to.slice(6), 10);
@@ -173,7 +163,6 @@ function parseTarget(to: string): ParsedTarget {
     if (isNaN(id)) throw new Error(`Invalid private target: "${to}" — expected "private:<number>"`);
     return { type: "private", userId: id };
   }
-  // Default: treat as private user id
   const id = parseInt(to, 10);
   if (isNaN(id)) {
     throw new Error(
@@ -183,7 +172,6 @@ function parseTarget(to: string): ParsedTarget {
   return { type: "private", userId: id };
 }
 
-/** Dispatch a message to the correct API based on the parsed target. */
 async function dispatchMessage(client: OneBotClient, target: ParsedTarget, message: OneBotMessage | string) {
   switch (target.type) {
     case "group":
@@ -224,17 +212,15 @@ function splitMessage(text: string, limit: number): string[] {
 
 function stripMarkdown(text: string): string {
     return text
-        .replace(/\*\*(.*?)\*\*/g, "$1") // Bold
-        .replace(/\*(.*?)\*/g, "$1")     // Italic
-        .replace(/`(.*?)`/g, "$1")       // Inline code
-        .replace(/#+\s+(.*)/g, "$1")     // Headers
-        .replace(/\[(.*?)\]\(.*?\)/g, "$1") // Links
-        .replace(/^\s*>\s+(.*)/gm, "▎$1") // Blockquotes
-        .replace(/```[\s\S]*?```/g, "[代码块]") // Code blocks
-        .replace(/^\|.*\|$/gm, (match) => { // Simple table row approximation
-             return match.replace(/\|/g, " ").trim();
-        })
-        .replace(/^[\-\*]\s+/gm, "• "); // Lists
+        .replace(/\*\*(.*?)\*\*/g, "$1")
+        .replace(/\*(.*?)\*/g, "$1")
+        .replace(/`(.*?)`/g, "$1")
+        .replace(/#+\s+(.*)/g, "$1")
+        .replace(/\[(.*?)\]\(.*?\)/g, "$1")
+        .replace(/^\s*>\s+(.*)/gm, "▎$1")
+        .replace(/```[\s\S]*?```/g, "[代码块]")
+        .replace(/^\|.*\|$/gm, (match) => match.replace(/\|/g, " ").trim())
+        .replace(/^[\-\*]\s+/gm, "• ");
 }
 
 function processAntiRisk(text: string): string {
@@ -250,7 +236,7 @@ async function resolveMediaUrl(url: string): Promise<string> {
             return `base64://${base64}`;
         } catch (e) {
             console.warn(`[QQ] Failed to convert local file to base64: ${e}`);
-            return url; // Fallback to original
+            return url;
         }
     }
     return url;
@@ -461,7 +447,6 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
 
         if (!config.wsUrl) throw new Error("QQ: wsUrl is required");
 
-        // 1. Prevent multiple clients for the same account
         const existingClient = clients.get(account.accountId);
         if (existingClient) {
             console.log(`[QQ] Stopping existing client for account ${account.accountId} before restart`);
@@ -501,7 +486,9 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                  return;
             }
 
-            // Handle friend/group add requests
+            // --- 重要修复：提前解析 replyMsgId 以免后续命令逻辑报错 ---
+            const replyMsgId = getReplyMessageId(event.message, event.raw_message);
+
             if (event.post_type === "request" && config.autoApproveRequests) {
                 if (event.request_type === "friend" && event.flag) client.setFriendAddRequest(event.flag, true);
                 else if (event.request_type === "group" && event.flag && event.sub_type) client.setGroupAddRequest(event.flag, event.sub_type, true);
@@ -515,7 +502,6 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                     event.message_type = isGroupPoke ? "group" : "private";
                     event.raw_message = `[动作] 用户戳了你一下`;
                     event.message = [{ type: "text", data: { text: event.raw_message } }];
-                    // Poke back
                     if (isGroupPoke) {
                         client.sendGroupPoke(event.group_id!, event.user_id!);
                     } else if (event.user_id) {
@@ -526,7 +512,6 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
 
             if (event.post_type !== "message") return;
             
-            // 2. Dynamic self-message filtering
             const selfId = client.getSelfId() || event.self_id;
             if (selfId && String(event.user_id) === String(selfId)) return;
 
@@ -546,7 +531,6 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             const guildId = event.guild_id;
             const channelId = event.channel_id;
 
-            // Auto mark messages as read
             if (config.autoMarkRead) {
                 try {
                     if (isGroup && groupId) client.markGroupMsgAsRead(groupId);
@@ -554,7 +538,6 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                 } catch (e) {}
             }
 
-            // Bulk populate member cache on first group message
             if (isGroup && groupId) {
                 await populateGroupMemberCache(client, groupId);
             }
@@ -636,7 +619,6 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                     }
                     return;
                 }
-                // NapCat 4.17.25 新命令
                 if (isGroup && cmd === '/notice') {
                     const noticeText = text.slice(cmd.length).trim();
                     if (noticeText) {
@@ -718,7 +700,6 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             }
             
             let repliedMsg: any = null;
-            const replyMsgId = getReplyMessageId(event.message, text);
             if (replyMsgId) {
                 try { repliedMsg = await client.getMsg(replyMsgId); } catch (err) {}
             }
@@ -752,15 +733,12 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                 if (!mentioned) return;
             }
 
-            // React with emoji if configured (static mode, not "auto")
             if (config.reactionEmoji && config.reactionEmoji !== "auto" && event.message_id) {
                 try { client.setMsgEmojiLike(event.message_id, config.reactionEmoji); } catch (e) {}
             }
 
-            // Auto reaction mode: task messages get OK emoji on original, chat messages get reaction on reply
             const isAutoReaction = config.reactionEmoji === "auto";
 
-            // NapCat 4.17.25: URL safety check
             if (config.enableUrlCheck && Array.isArray(event.message)) {
                 for (const seg of event.message) {
                     if (seg.type === "text") {
@@ -771,7 +749,6 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                                 try {
                                     const safe = await client.checkUrlSafely(url);
                                     if (safe?.level && safe.level > 1) {
-                                        console.log(`[QQ] URL unsafe: ${url}, level: ${safe.level}`);
                                         text = text.replace(url, "[链接已拦截]");
                                     }
                                 } catch (e) {}
@@ -781,7 +758,6 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                 }
             }
 
-            // NapCat 4.17.25: Image OCR
             let ocrText = "";
             if (config.enableOcr && Array.isArray(event.message)) {
                 for (const seg of event.message) {
@@ -792,7 +768,6 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                                 const ocr = await client.ocrImage(imgUrl);
                                 if (ocr?.texts) {
                                     ocrText = ocr.texts.map((t: any) => t.text).join(" ");
-                                    console.log(`[QQ] OCR result: ${ocrText.slice(0, 100)}...`);
                                 }
                             } catch (e) {}
                         }
@@ -812,36 +787,21 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
 
             const runtime = getQQRuntime();
 
+            // --- 重要修改：优化 deliver 逻辑，先 Reaction 再发文字 ---
             const deliver = async (payload: ReplyPayload) => {
                  const send = async (msg: string) => {
                      let processed = msg;
 
-                     // Extract reaction/task marker from AI reply
                      if (isAutoReaction && event.message_id) {
-                         // Check for task emoji_only - react with OK emoji first, then send text reply
-                         const taskEmojiOnlyMatch = processed.match(/^\[task:emoji_only\]\s*/);
-                         if (taskEmojiOnlyMatch) {
-                             try { client.setMsgEmojiLike(event.message_id, "128076"); } catch (e) {
-                                 console.log(`[QQ] Failed to set OK emoji reaction:`, e);
-                             }
-                             processed = processed.slice(taskEmojiOnlyMatch[0].length);
-                         }
-                         // Check for task acknowledgment (legacy support) - react to original message with OK
-                         const taskMatch = processed.match(/^\[task:ok\]\s*/);
+                         const taskMatch = processed.match(/^\[task:(?:emoji_only|ok)\]\s*/);
+                         const reactionMatch = processed.match(/^\[reaction:(\d+)\]\s*/);
+
                          if (taskMatch) {
-                             try { client.setMsgEmojiLike(event.message_id, "128076"); } catch (e) {
-                                 console.log(`[QQ] Failed to set OK emoji reaction:`, e);
-                             }
+                             try { await client.setMsgEmojiLike(event.message_id, "128076"); } catch (e) {}
                              processed = processed.slice(taskMatch[0].length);
-                         } else {
-                             // Check for chat reaction - react to original message with AI-chosen emoji
-                             const reactionMatch = processed.match(/^\[reaction:(\d+)\]\s*/);
-                             if (reactionMatch) {
-                                 try { client.setMsgEmojiLike(event.message_id, reactionMatch[1]); } catch (e) {
-                                     console.log(`[QQ] Failed to set emoji reaction:`, e);
-                                 }
-                                 processed = processed.slice(reactionMatch[0].length);
-                             }
+                         } else if (reactionMatch) {
+                             try { await client.setMsgEmojiLike(event.message_id, reactionMatch[1]); } catch (e) {}
+                             processed = processed.slice(reactionMatch[0].length);
                          }
                      }
 
@@ -861,7 +821,6 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                              if (tts) {
                                  if (isGroup && config.aiVoiceId) {
                                      try { await client.sendGroupAiRecord(groupId, tts, config.aiVoiceId); } catch (e) {
-                                         // Fallback to CQ:tts
                                          client.sendGroupMsg(groupId, `[CQ:tts,text=${tts}]`);
                                      }
                                  } else if (isGroup) {
@@ -871,7 +830,6 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                                  }
                              }
                          }
-                         
                          if (chunks.length > 1 && config.rateLimitMs > 0) await sleep(config.rateLimitMs);
                      }
                  };
@@ -886,18 +844,12 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                                  else if (isGuild) client.sendGuildChannelMsg(guildId, channelId, imgMsg);
                                  else client.sendPrivateMsg(userId, imgMsg);
                              } else {
-                                 // Try upload API first for non-image files, fall back to CQ code
                                  const fileName = f.name || 'file';
                                  try {
-                                     if (isGroup) {
-                                         await client.uploadGroupFile(groupId, url, fileName);
-                                     } else if (!isGuild) {
-                                         await client.uploadPrivateFile(userId, url, fileName);
-                                     } else {
-                                         client.sendGuildChannelMsg(guildId, channelId, `[文件] ${url}`);
-                                     }
+                                     if (isGroup) await client.uploadGroupFile(groupId, url, fileName);
+                                     else if (!isGuild) await client.uploadPrivateFile(userId, url, fileName);
+                                     else client.sendGuildChannelMsg(guildId, channelId, `[文件] ${url}`);
                                  } catch (e) {
-                                     // Fallback to CQ code
                                      const txtMsg = `[CQ:file,file=${url},name=${fileName}]`;
                                      if (isGroup) client.sendGroupMsg(groupId, txtMsg);
                                      else if (isGuild) client.sendGuildChannelMsg(guildId, channelId, `[文件] ${url}`);
@@ -925,17 +877,9 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             if (config.systemPrompt) systemBlock += `<system>${config.systemPrompt}</system>\n\n`;
             if (config.reactionEmoji === "auto") {
                 systemBlock += `<reaction-instruction>根据用户消息类型，在回复最开头添加标记：
-- 如果是任务类请求（如查询、提醒、设置、执行操作、获取信息、帮助等），输出"[task:emoji_only]"标记，机器人会先在消息上添加OK emoji反应，然后再发送文字回复
-- 如果是闲聊/情感类消息，从以下列表选择一个最合适的表情ID：[reaction:表情ID]，机器人会先添加emoji反应再发文字
-- 如果是一般对话（问候、感谢、道歉等），正常文字回复不需要任何标记
-  可用表情：128077(👍厉害) 128079(👏鼓掌) 128293(🔥火) 128516(😄高兴) 128514(😂激动) 128522(😊嘿嘿) 128536(😘飞吻) 128170(💪加油) 128147(💓爱心) 10024(✨闪光) 127881(🎉庆祝) 128557(😭大哭) 128076(👌OK)
-示例：
-- 用户说"帮我查下天气"→回复"[task:emoji_only]好的，我帮你查一下天气"
-- 用户说"谢谢"→回复"[reaction:128147]不客气！"
-- 用户说"太厉害了"→回复"[reaction:128293]嘿嘿~
-- 用户说"在吗"→回复"在的，有什么可以帮你的吗？"
-- 用户说"今天怎么样"→回复"还不错，你呢？"
-只输出一个标记或正常文字回复。</reaction-instruction>\n\n`;
+- 如果是任务类请求，输出"[task:emoji_only]"标记
+- 如果是闲聊/情感类消息，从以下列表选择一个最合适的表情ID：[reaction:表情ID]
+可用表情：128077(👍) 128079(👏) 128293(🔥) 128516(😄) 128514(😂) 128522(😊) 128536(😘) 128170(💪) 128147(💓) 10024(✨) 127881(🎉) 128557(😭) 128076(👌)</reaction-instruction>\n\n`;
             }
             if (historyContext) systemBlock += `<history>\n${historyContext}\n</history>\n\n`;
             if (ocrText) systemBlock += `<ocr-text>\n${ocrText}\n</ocr-text>\n\n`;
@@ -978,56 +922,39 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
   },
   outbound: {
     sendText: async ({ to, text, accountId, replyTo }) => {
-        // Ignore non-routable targets (e.g. framework heartbeat probes)
-        if (!to || to === "heartbeat") {
-            return { channel: "qq", sent: true };
-        }
-        console.log(`[QQ][outbound.sendText] called: to=${to}, accountId=${accountId}, text=${text?.slice(0, 100)}`);
+        if (!to || to === "heartbeat") return { channel: "qq", sent: true };
         const resolvedAccountId = accountId || DEFAULT_ACCOUNT_ID;
         const client = getClientForAccount(resolvedAccountId);
-        console.log(`[QQ][outbound.sendText] client lookup: accountId=${resolvedAccountId}, found=${!!client}, clients keys=[${[...clients.keys()].join(",")}]`);
         if (!client) return { channel: "qq", sent: false, error: "Client not connected" };
         try {
             const target = parseTarget(to);
-            console.log(`[QQ][outbound.sendText] parsed target: type=${target.type}, to=${to}`);
             const chunks = splitMessage(text, 4000);
             for (let i = 0; i < chunks.length; i++) {
                 let message: OneBotMessage | string = chunks[i];
                 if (replyTo && i === 0) message = [ { type: "reply", data: { id: String(replyTo) } }, { type: "text", data: { text: chunks[i] } } ];
-
-                console.log(`[QQ][outbound.sendText] sending chunk ${i + 1}/${chunks.length} to ${to} (${target.type})`);
                 await dispatchMessage(client, target, message);
-
                 if (chunks.length > 1) await sleep(1000);
             }
-            console.log(`[QQ][outbound.sendText] success: to=${to}`);
             return { channel: "qq", sent: true };
         } catch (err) {
-            console.error("[QQ][outbound.sendText] FAILED:", err);
             return { channel: "qq", sent: false, error: String(err) };
         }
     },
     sendMedia: async ({ to, text, mediaUrl, accountId, replyTo }) => {
-         // Ignore non-routable targets (e.g. framework heartbeat probes)
-         if (!to || to === "heartbeat") {
-             return { channel: "qq", sent: true };
-         }
+         if (!to || to === "heartbeat") return { channel: "qq", sent: true };
          const client = getClientForAccount(accountId || DEFAULT_ACCOUNT_ID);
          if (!client) return { channel: "qq", sent: false, error: "Client not connected" };
          try {
              const target = parseTarget(to);
              const finalUrl = await resolveMediaUrl(mediaUrl);
-
              const message: OneBotMessage = [];
              if (replyTo) message.push({ type: "reply", data: { id: String(replyTo) } });
              if (text) message.push({ type: "text", data: { text } });
              if (isImageFile(mediaUrl)) message.push({ type: "image", data: { file: finalUrl } });
              else message.push({ type: "text", data: { text: `[CQ:file,file=${finalUrl},url=${finalUrl}]` } });
-
              await dispatchMessage(client, target, message);
              return { channel: "qq", sent: true };
          } catch (err) {
-             console.error("[QQ] outbound.sendMedia failed:", err);
              return { channel: "qq", sent: false, error: String(err) };
          }
     },
