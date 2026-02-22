@@ -614,7 +614,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                     return;
                 }
                 if (cmd === '/help') {
-                    const helpMsg = `[OpenClawd QQ]\n/status - 状态\n/mute @用户 [分] - 禁言\n/kick @用户 - 踢出\n/help - 帮助`;
+                    const helpMsg = `[OpenClawd QQ]\n/status - 状态\n/mute @用户 [分] - 禁言\n/kick @用户 - 踢出\n/notice 公告 - 发送群公告\n/signin - 群打卡\n/honor - 群荣誉\n/essence - 精华消息\n/cache - 清理缓存\n/help - 帮助`;
                     if (isGroup) client.sendGroupMsg(groupId, helpMsg); else client.sendPrivateMsg(userId, helpMsg);
                     return;
                 }
@@ -633,6 +633,85 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                     if (targetId) {
                         client.setGroupKick(groupId, targetId);
                         client.sendGroupMsg(groupId, `已踢出。`);
+                    }
+                    return;
+                }
+                // NapCat 4.17.25 新命令
+                if (isGroup && cmd === '/notice') {
+                    const noticeText = text.slice(cmd.length).trim();
+                    if (noticeText) {
+                        try {
+                            await client.sendGroupNotice(groupId, noticeText);
+                            client.sendGroupMsg(groupId, `公告已发送。`);
+                        } catch (e) {
+                            client.sendGroupMsg(groupId, `公告发送失败: ${e}`);
+                        }
+                    }
+                    return;
+                }
+                if (isGroup && cmd === '/signin') {
+                    try {
+                        await client.sendGroupSignIn(groupId);
+                        client.sendGroupMsg(groupId, `打卡成功！`);
+                    } catch (e) {
+                        client.sendGroupMsg(groupId, `打卡失败: ${e}`);
+                    }
+                    return;
+                }
+                if (isGroup && cmd === '/honor') {
+                    try {
+                        const honor = await client.getGroupHonorInfo(groupId, "all");
+                        if (honor) {
+                            let msg = `[群荣誉信息]\n`;
+                            if (honor.current_nickname) msg += `群昵称: ${honor.current_nickname}\n`;
+                            if (honor.day_count !== undefined) msg += `群聊等级: ${honor.day_count}\n`;
+                            client.sendGroupMsg(groupId, msg);
+                        }
+                    } catch (e) {
+                        client.sendGroupMsg(groupId, `获取荣誉失败: ${e}`);
+                    }
+                    return;
+                }
+                if (isGroup && cmd === '/essence') {
+                    try {
+                        const essence = await client.getGroupEssenceMsgList(groupId);
+                        if (essence && essence.length > 0) {
+                            const msg = `[精华消息] 共${essence.length}条`;
+                            client.sendGroupMsg(groupId, msg);
+                        } else {
+                            client.sendGroupMsg(groupId, `暂无精华消息。回复某条消息并输入"/setessence"设为精华`);
+                        }
+                    } catch (e) {
+                        client.sendGroupMsg(groupId, `获取精华消息失败: ${e}`);
+                    }
+                    return;
+                }
+                if (isGroup && cmd === '/setessence' && replyMsgId) {
+                    try {
+                        await client.setEssenceMsg(replyMsgId);
+                        client.sendGroupMsg(groupId, `已设为精华消息。`);
+                    } catch (e) {
+                        client.sendGroupMsg(groupId, `设置精华失败: ${e}`);
+                    }
+                    return;
+                }
+                if (isGroup && cmd === '/delessence' && replyMsgId) {
+                    try {
+                        await client.deleteEssenceMsg(replyMsgId);
+                        client.sendGroupMsg(groupId, `已移出精华消息。`);
+                    } catch (e) {
+                        client.sendGroupMsg(groupId, `移出精华失败: ${e}`);
+                    }
+                    return;
+                }
+                if (cmd === '/cache') {
+                    if (isAdmin) {
+                        try {
+                            await client.cleanCache();
+                            client.sendGroupMsg(groupId, `缓存已清理。`);
+                        } catch (e) {
+                            client.sendGroupMsg(groupId, `清理缓存失败: ${e}`);
+                        }
                     }
                     return;
                 }
@@ -676,6 +755,46 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             // React with emoji if configured (static mode, not "auto")
             if (config.reactionEmoji && config.reactionEmoji !== "auto" && event.message_id) {
                 try { client.setMsgEmojiLike(event.message_id, config.reactionEmoji); } catch (e) {}
+            }
+
+            // NapCat 4.17.25: URL safety check
+            if (config.enableUrlCheck && Array.isArray(event.message)) {
+                for (const seg of event.message) {
+                    if (seg.type === "text") {
+                        const urlRegex = /https?:\/\/[^\s]+/g;
+                        const urls = seg.data?.text?.match(urlRegex);
+                        if (urls) {
+                            for (const url of urls) {
+                                try {
+                                    const safe = await client.checkUrlSafely(url);
+                                    if (safe?.level && safe.level > 1) {
+                                        console.log(`[QQ] URL unsafe: ${url}, level: ${safe.level}`);
+                                        text = text.replace(url, "[链接已拦截]");
+                                    }
+                                } catch (e) {}
+                            }
+                        }
+                    }
+                }
+            }
+
+            // NapCat 4.17.25: Image OCR
+            let ocrText = "";
+            if (config.enableOcr && Array.isArray(event.message)) {
+                for (const seg of event.message) {
+                    if (seg.type === "image") {
+                        const imgUrl = seg.data?.url || seg.data?.file;
+                        if (imgUrl) {
+                            try {
+                                const ocr = await client.ocrImage(imgUrl);
+                                if (ocr?.texts) {
+                                    ocrText = ocr.texts.map((t: any) => t.text).join(" ");
+                                    console.log(`[QQ] OCR result: ${ocrText.slice(0, 100)}...`);
+                                }
+                            } catch (e) {}
+                        }
+                    }
+                }
             }
 
             let fromId = String(userId);
@@ -788,6 +907,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
 只输出一个[reaction:ID]标记，放在回复最前面，后面紧跟正文。</reaction-instruction>\n\n`;
             }
             if (historyContext) systemBlock += `<history>\n${historyContext}\n</history>\n\n`;
+            if (ocrText) systemBlock += `<ocr-text>\n${ocrText}\n</ocr-text>\n\n`;
             bodyWithReply = systemBlock + bodyWithReply;
 
             const ctxPayload = runtime.channel.reply.finalizeInboundContext({

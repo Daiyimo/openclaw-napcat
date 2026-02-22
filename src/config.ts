@@ -24,6 +24,13 @@ export const QQConfigSchema = z.object({
   reactionEmoji: z.string().optional().describe("Emoji ID to react on incoming trigger messages (e.g. '128077' for thumbs up). Set to 'auto' for AI-chosen reactions. Empty = disabled"),
   autoMarkRead: z.boolean().optional().default(false).describe("Automatically mark messages as read to prevent unread pile-up"),
   aiVoiceId: z.string().optional().describe("NapCat AI voice character ID for send_group_ai_record. Used when enableTTS is true"),
+  // NapCat 4.17.25 新增配置
+  enableOcr: z.boolean().optional().default(false).describe("Enable image OCR recognition for incoming images"),
+  enableUrlCheck: z.boolean().optional().default(false).describe("Enable URL safety checking for URLs in messages"),
+  enableGroupHonor: z.boolean().optional().default(false).describe("Enable group honor info fetching"),
+  enableGroupSignIn: z.boolean().optional().default(false).describe("Enable automatic group sign-in"),
+  autoCleanCache: z.boolean().optional().default(false).describe("Automatically clean cache periodically"),
+  enableEssenceMsg: z.boolean().optional().default(false).describe("Enable essence message management"),
 });
 
 export type QQConfig = z.infer<typeof QQConfigSchema>;
