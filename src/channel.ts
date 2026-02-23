@@ -137,7 +137,7 @@ async function resolveMediaUrl(url: string): Promise<string> {
     return url;
 }
 
-// --- 核心插件定义 ---
+// --- 插件主入口 ---
 export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
   id: "qq",
   meta: {
@@ -150,7 +150,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
   capabilities: {
     chatTypes: ["direct", "group"],
     media: true,
-    reactions: true, // 启用表情回应能力
+    reactions: true, // 核心修改：显式支持 Reaction
     // @ts-ignore
     deleteMessage: true,
   },
@@ -191,8 +191,6 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
         });
         clients.set(account.accountId, client);
 
-        const processedMsgIds = new Set<string>();
-
         client.on("connect", async () => {
              console.log(`[QQ] Connected account ${account.accountId}`);
              try {
@@ -205,9 +203,8 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
           try {
             if (event.post_type === "meta_event") return;
 
-            // 提前解析 replyMsgId 确保安全
+            // 提前解析变量
             const replyMsgId = getReplyMessageId(event.message, event.raw_message);
-
             if (event.post_type !== "message") return;
             const selfId = client.getSelfId() || event.self_id;
             if (selfId && String(event.user_id) === String(selfId)) return;
@@ -222,29 +219,21 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             if (isGroup && groupId) await populateGroupMemberCache(client, groupId);
             
             let text = event.raw_message || "";
-            // ... CQ 码解析逻辑 ...
-
             const isAdmin = config.admins?.includes(userId) ?? false;
             
-            // 修改命令逻辑中的 replyMsgId 引用
-            if (isGroup && text.trim() === '/setessence' && isAdmin && replyMsgId) {
-                try { await client.setEssenceMsg(replyMsgId); client.sendGroupMsg(groupId, "已设为精华。"); } catch(e) {}
-                return;
-            }
-
             const isAutoReaction = config.reactionEmoji === "auto";
             const runtime = getQQRuntime();
 
-            // 优化后的 deliver 函数：先执行 Reaction 再回复文字
+            // --- 核心优化：先执行 Reaction 再回复文字 ---
             const deliver = async (payload: ReplyPayload) => {
-                 // 1. 优先处理核心下发的 Reaction 指令
+                 // A. 响应来自 config.json 工具链下发的 metadata.reaction
                  if (payload.metadata?.reaction && event.message_id) {
                      try { await client.setMsgEmojiLike(event.message_id, payload.metadata.reaction); } catch (e) {}
                  }
 
                  const send = async (msg: string) => {
                      let processed = msg;
-                     // 2. 插件内部 AI 标记匹配
+                     // B. 插件内部 AI 标记备选逻辑
                      if (isAutoReaction && event.message_id) {
                          const taskMatch = processed.match(/^\[task:(?:emoji_only|ok)\]\s*/);
                          const reactionMatch = processed.match(/^\[reaction:(\d+)\]\s*/);
@@ -269,14 +258,13 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                  };
 
                  if (payload.text) await send(payload.text);
-                 // ... 文件发送逻辑保持不变 ...
             };
 
             const { dispatcher, replyOptions } = runtime.channel.reply.createReplyDispatcherWithTyping({ deliver });
 
-            // --- 系统提示词与上下文构建 ---
             let systemBlock = "";
-            if (config.reactionEmoji === "auto") {
+            if (config.systemPrompt) systemBlock += `<system>${config.systemPrompt}</system>\n\n`;
+            if (isAutoReaction) {
                 systemBlock += `<reaction-instruction>在回复开头添加 [reaction:表情ID] 或任务成功后添加 [task:emoji_only]。 可选ID: 128077(👍), 128514(😂), 128147(💓), 128076(👌)</reaction-instruction>\n\n`;
             }
 
@@ -295,7 +283,6 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
     },
     logoutAccount: async () => ({ loggedOut: true, cleared: true })
   },
-  // outbound 保持不变
   outbound: {
     sendText: async ({ to, text, accountId }) => {
         const client = getClientForAccount(accountId || DEFAULT_ACCOUNT_ID);
@@ -304,5 +291,63 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
         await dispatchMessage(client, target, text);
         return { channel: "qq", sent: true };
     }
-  }
+  },
+  // Actions 系统：支持外部调用添加/删除表情回应
+  actions: {
+    listActions: ({ cfg, accountId }) => {
+      const qqCfg = (cfg as any)?.channels?.qq;
+      const accountConfig = accountId ? qqCfg?.accounts?.[accountId] : qqCfg;
+      if (!accountConfig?.enableReactions) {
+        return [];
+      }
+      return ["react"];
+    },
+    supportsAction: ({ action }) => action === "react",
+    handleAction: async ({ action, params, cfg, accountId }) => {
+      if (action !== "react") {
+        throw new Error(`Action ${action} is not supported for QQ channel`);
+      }
+
+      const messageId = params.messageId;
+      const emoji = params.emoji;
+      const remove = params.remove === true || params.remove === "true";
+
+      if (!messageId) {
+        throw new Error("messageId is required for react action");
+      }
+
+      const qqCfg = (cfg as any)?.channels?.qq;
+      const accountConfig = accountId ? qqCfg?.accounts?.[accountId] : qqCfg;
+
+      if (!accountConfig?.enableReactions) {
+        throw new Error("Reactions are not enabled for this account");
+      }
+
+      const client = getClientForAccount(accountId || DEFAULT_ACCOUNT_ID);
+      if (!client) {
+        throw new Error("No client available for this account");
+      }
+
+      try {
+        if (remove) {
+          // 删除反应：在 QQ 中需要使用空表情 ID 来移除反应
+          // 或者使用 set_msg_emoji_like 发送一个特殊值来取消
+          // Note: OneBot v11 标准 API 不直接支持删除 reaction，这里我们尝试使用空 emoji
+          console.log(`[QQ] Removing reaction for message ${messageId}`);
+          // 尝试发送空表情 ID 来移除（如果支持的话）
+          await client.setMsgEmojiLike(messageId, "");
+        } else if (emoji) {
+          // 添加反应
+          console.log(`[QQ] Adding reaction ${emoji} to message ${messageId}`);
+          await client.setMsgEmojiLike(messageId, emoji);
+        } else {
+          throw new Error("emoji is required when not removing reaction");
+        }
+        return { success: true, action: remove ? "removed" : "added", emoji, messageId };
+      } catch (err: any) {
+        console.error("[QQ] Reaction action failed:", err);
+        throw new Error(`Failed to perform reaction: ${err.message}`);
+      }
+    },
+  },
 };

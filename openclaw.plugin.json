@@ -95,6 +95,10 @@
         "type": "string",
         "description": "Reaction emoji ID"
       },
+      "enableReactions": {
+        "type": "boolean",
+        "description": "Enable reactions feature (allow external action calls to add/remove emoji reactions)"
+      },
       "autoMarkRead": {
         "type": "boolean",
         "description": "Auto mark messages as read"

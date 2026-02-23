@@ -24,6 +24,9 @@ export const QQConfigSchema = z.object({
   
   // 核心功能配置：Emoji 反应逻辑
   reactionEmoji: z.string().optional().default("auto").describe("消息触发时的表情反应设置。'auto' 表示由 AI 自动选择（推荐）；输入数字 ID 表示固定反应；留空则禁用此功能。"),
+
+  // Actions 配置：控制外部 action 调用
+  enableReactions: z.boolean().optional().default(true).describe("是否启用 reactions 功能（允许外部通过 action 调用添加/删除表情回应）"),
   
   autoMarkRead: z.boolean().optional().default(false).describe("是否自动将接收的消息设为已读"),
   aiVoiceId: z.string().optional().describe("使用 NapCat AI 语音时的角色 ID（需开启 enableTTS）"),
