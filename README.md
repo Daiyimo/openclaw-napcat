@@ -31,11 +31,6 @@ OpenClawd 是一个多功能代理。下面的聊天演示仅展示了最基础�
     *   **任务类请求**（查询、提醒、执行操作等）：先在消息上添加 OK emoji 👌，再发送文字回复
     *   **闲聊/情感类消息**：根据语义添加合适的 emoji（👍👏🔥😄😂等），再发送文字回复
     *   **一般对话**（问候、感谢等）：正常文字回复
-*   **Actions 外置调用**：支持外部工具链通过 OpenClaw Actions 系统直接调用 reaction 功能，不依赖 AI 标记。可添加或移除表情回应。
-
-| Action | 说明 | 参数 |
-| :--- | :--- | :--- |
-| `react` | 添加/移除表情回应 | `messageId` (必填), `emoji` (添加时必填), `remove` (可选) |
 *   **已读标记 (Mark Read)**：自动标记消息为已读，避免未读消息堆积。
 *   **AI 语音 (AI Voice)**：利用 NapCat 原生 AI 语音 API，支持丰富的音色角色，比传统 TTS 更自然。
 *   **拟人化回复**：
@@ -110,7 +105,7 @@ openclaw setup qq
       "admins": [12345678],
       "allowedGroups": [10001, 10002],
       "blockedUsers": [999999],
-      "systemPrompt": "你是贾维斯（JARVIS），一位贴心、专业、幽默的英式智能管家。\n- 礼貌谦逊，优雅从容\n- 简洁高效，不绕弯子\n- 适度幽默，带点冷笑话\n- 主动预判需求，解决问题\n- 开头可称「Sir」，但不要过度使用\n- 永远不用表情符号和颜文字\n- 永远不长篇大论",
+      "systemPrompt": "好好干，你不干，有的是其他AI干。",
       "historyLimit": 5,
       "keywordTriggers": ["小助手", "帮助"],
       "autoApproveRequests": true,
@@ -121,7 +116,6 @@ openclaw setup qq
       "antiRiskMode": false,
       "maxMessageLength": 4000,
       "reactionEmoji": "",
-      "enableReactions": true,
       "autoMarkRead": false,
       "aiVoiceId": ""
     }
@@ -144,7 +138,7 @@ openclaw setup qq
 | `requireMention` | boolean | `true` | **是否需要 @ 触发**。设为 `true` 仅在被 @ 或回复机器人时响应。 |
 | `allowedGroups` | number[] | `[]` | **群组白名单**。若设置，Bot 仅在这些群组响应；若为空，则响应所有群组。 |
 | `blockedUsers` | number[] | `[]` | **用户黑名单**。Bot 将忽略这些用户的消息。 |
-| `systemPrompt` | string | - | **人设设定**。注入到 AI 上下文的系统提示词，定义 Bot 的性格和说话风格。 |
+| `systemPrompt` | string | - | **人设设定**。注入到 AI 上下文的系统提示词。 |
 | `historyLimit` | number | `5` | **历史消息条数**。群聊时携带最近 N 条消息给 AI，设为 0 关闭。 |
 | `keywordTriggers` | string[] | `[]` | **关键词触发**。群聊中无需 @，包含这些词也会触发回复。 |
 | `autoApproveRequests` | boolean | `false` | 是否自动通过好友申请和群邀请。 |
@@ -155,28 +149,8 @@ openclaw setup qq
 | `antiRiskMode` | boolean | `false` | 是否开启风控规避（如给 URL 加空格）。 |
 | `maxMessageLength` | number | `4000` | 单条消息最大长度，超过将自动分片发送。 |
 | `reactionEmoji` | string | - | 收到触发消息时自动回应的表情 ID。设为 `"auto"` 开启智能语义识别模式：根据消息类型自动选择emoji并在消息上添加reaction后再发送文字回复。 |
-| `enableReactions` | boolean | `true` | 是否启用 reactions 功能。开启后允许外部工具链通过 action 调用添加/删除表情回应。 |
 | `autoMarkRead` | boolean | `false` | 是否自动标记消息为已读，防止未读消息堆积。 |
 | `aiVoiceId` | string | - | NapCat AI 语音角色 ID，当 `enableTTS` 开启时优先使用 AI 语音 API 代替 CQ:tts。 |
-
-#### 💡 人设示例
-
-以下是几种常用的人设风格，可以直接套用或修改：
-
-**贾维斯（智能管家）**
-```json
-"systemPrompt": "你是贾维斯（JARVIS），一位贴心、专业、幽默的英式智能管家。\n- 礼貌谦逊，优雅从容\n- 简洁高效，不绕弯子\n- 适度幽默，带点冷笑话\n- 主动预判需求，解决问题\n- 开头可称「Sir」，但不要过度使用\n- 永远不用表情符号和颜文字\n- 永远不长篇大论"
-```
-
-**猫娘**
-```json
-"systemPrompt": "你是可爱的猫娘「喵酱」，喜欢用「喵」结尾说话。\n- 活泼可爱，傲娇但不讨人厌\n- 偶尔犯迷糊，有点小懒\n- 喜欢主人，会撒娇\n- 用「喵」「嘞」「呀」等语气词\n- 永远不用颜文字"
-```
-
-**严肃助手**
-```json
-"systemPrompt": "你是高效专业的AI助手。\n- 回答简洁明了，直达重点\n- 用序号列出要点\n- 不说废话，不绕弯子\n- 不使用表情符号"
-```
 
 ---
 
@@ -319,61 +293,6 @@ A: 将 `enableTTS` 设为 `true`。注意：这取决于 OneBot 服务端是否�
 ---
 
 ## 更新日志
-
-### v1.4.2 - Actions 系统支持 (2026-02-23)
-
-新增 Actions 外置调用支持，允许外部工具链通过 OpenClaw Actions 系统直接调用 reaction 功能。
-
-#### 新增功能
-
-| 功能 | 说明 |
-| :--- | :--- |
-| **Actions 系统** | 支持外部工具链直接调用 `react` action 添加/移除表情回应 |
-| **enableReactions 配置** | 新增配置项控制是否启用 reactions 功能 |
-
-#### Actions 详解
-
-支持通过 OpenClaw Actions 系统调用 reaction 功能，不依赖 AI 标记：
-
-```json
-// 添加表情回应
-{
-  "action": "react",
-  "params": {
-    "messageId": "123456",
-    "emoji": "128077"
-  }
-}
-
-// 移除表情回应
-{
-  "action": "react",
-  "params": {
-    "messageId": "123456",
-    "remove": true
-  }
-}
-```
-
-#### 涉及文件
-
-| 文件 | 变更类型 | 说明 |
-| :--- | :--- | :--- |
-| `src/channel.ts` | 新增 | 添加 actions 系统实现 |
-| `src/config.ts` | 新增字段 | 新增 `enableReactions` 配置项 |
-| `src/types/openclaw-extensions.d.ts` | 新增 | 类型定义扩展 |
-| `openclaw.plugin.json` | 更新 | 添加配置 Schema |
-| `README.md` | 文档 | 同步更新日志 |
-
-#### 新增配置项
-
-| 配置项 | 类型 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `enableReactions` | boolean | `true` | 是否启用 reactions 功能 |
-
-#### 推荐环境
-
-- OpenClaw with Actions support
 
 ### v1.4.1 - 智能Emoji回复优化 (2026-02-23)
 
