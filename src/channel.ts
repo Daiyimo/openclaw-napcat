@@ -241,24 +241,56 @@ function processAntiRisk(text: string): string {
     return text.replace(/(https?:\/\/)/gi, "$1 ");
 }
 
-/** Local detection: determines if a message should get an OK emoji reaction.
- *  Uses a deny-list approach: only pure greetings/thanks are excluded.
- *  Also includes explicit task patterns for clarity and documentation. */
-function isTaskLikeMessage(text: string): boolean {
+/** Local detection: pick an emoji based on message content.
+ *  Returns emoji ID string, or null if no emoji (pure greetings/thanks).
+ *  Emoji IDs reference: https://bot.q.qq.com/wiki/develop/api-v2/openapi/emoji/model.html
+ *  Type 1 (QQ system, short ID): 76=赞, 124=OK, 99=鼓掌, 66=爱心, etc.
+ *  Type 2 (Unicode, long ID): 128077=👍, 128076=👌, 128514=😂, etc. */
+function pickLocalEmoji(text: string): string | null {
     const trimmed = text.replace(/@\S+\s*/g, "").trim();
-    if (!trimmed) return false;
+    if (!trimmed) return null;
     // Pure greetings — no emoji
-    if (/^(你好|hello|hi|hey|在吗|在不在|早上好|晚上好|早安|晚安|嗨|哈喽|下午好|中午好)[\s!！。.~～]*$/i.test(trimmed)) return false;
+    if (/^(你好|hello|hi|hey|在吗|在不在|早上好|晚上好|早安|晚安|嗨|哈喽|下午好|中午好)[\s!！。.~～]*$/i.test(trimmed)) return null;
     // Pure thanks — no emoji
-    if (/^(谢谢|感谢|多谢|thanks|thank you|thx|蟹蟹|3q)[\s!！。.~～]*$/i.test(trimmed)) return false;
-    // Everything else gets OK emoji. The patterns below are kept for documentation:
-    // - Slash commands: /help, /status, etc.
-    // - Chinese request verbs: 帮我/请帮/查询/查找/查看/翻译/设置/打开/关闭/发送/提醒/计算/搜索/下载/上传/生成/创建/删除/修改/更新/运行/执行/分析/总结/整理/推荐/对比/比较/转发/获取
-    // - Chinese question words: 怎么办/如何/什么是/是什么/多少/为什么/怎样/怎么/哪里/哪个/几点/几号/谁是/有没有/能否/是否/可不可以
-    // - Question endings: ?？吗呢吧么
-    // - URLs: http:// or https:// (sharing a link usually implies a task)
-    // - English patterns: help/please/can you/how to/translate/search/find, etc.
-    return true;
+    if (/^(谢谢|感谢|多谢|thanks|thank you|thx|蟹蟹|3q)[\s!！。.~～]*$/i.test(trimmed)) return null;
+
+    // --- Emotion / sentiment matching (most specific first) ---
+
+    // Sad / crying → 😭 大哭 (128557) or QQ系统:流泪(5)
+    if (/(难过|伤心|哭了|呜呜|555|崩溃|心疼|痛苦|好惨|可怜|委屈|哭死|泪目|emo|破防)/.test(trimmed)) return "128557";
+    // Laughing / funny → 😂 激动 (128514) or QQ系统:笑哭(182)
+    if (/(哈哈|笑死|搞笑|太逗|乐了|笑喷|好好笑|lol|hahaha|233|xswl|笑不活)/.test(trimmed)) return "128514";
+    // Praise / admiration → 👍 厉害 (128077)
+    if (/(厉害|牛[逼比啊]?|强|棒|优秀|大佬|膜拜|佩服|666|nb|nice|amazing|awesome|绝绝子|yyds)/.test(trimmed)) return "128077";
+    // Shock / disbelief → 🔥 火 (128293)
+    if (/(卧槽|天哪|我去|绝了|离谱|无语|震惊|不敢信|what|omg|wow|我靠|真的假的|服了|裂开)/.test(trimmed)) return "128293";
+    // Encouragement / fighting → 💪 肌肉 (128170)
+    if (/(加油|冲[!！鸭呀]?|奋斗|努力|坚持|fighting|go|干巴爹|拼了|冲冲冲)/.test(trimmed)) return "128170";
+    // Love / affection → 💓 爱心 (128147)
+    if (/(喜欢|爱你|爱了|么么|mua|比心|❤|💕|亲亲|宝贝|老婆|老公|心动|恋爱)/.test(trimmed)) return "128147";
+    // Celebration / congrats → 🎉 庆祝 (127881)
+    if (/(恭喜|祝贺|太好了|成功|过了|上岸|录取|中了|赢了|发财|好运|撒花|万岁)/.test(trimmed)) return "127881";
+    // Cute / shy → 😊 嘿嘿 (128522)
+    if (/(嘿嘿|害羞|脸红|可爱|萌|卖萌|略略|嘻嘻|hiahia|撒娇)/.test(trimmed)) return "128522";
+    // Angry / annoyed → QQ系统:生气(326) — type 1 短ID
+    if (/(生气|气死|烦死|讨厌|滚|怒|垃圾|狗屎|fuck|shit|mmp)/.test(trimmed)) return "128293";
+    // Sleepy / tired → 😌 羞涩 (128524) or QQ系统:困(25)
+    if (/(困了|好累|累死|好困|打哈欠|要睡了|晚安|摸鱼|划水|摆烂|躺平)/.test(trimmed)) return "128164";
+    // Doge / meme → QQ系统:doge(179)
+    if (/(doge|狗头|滑稽|手动狗头)/.test(trimmed)) return "128077";
+    // Eating / food → QQ系统:干杯(127867)
+    if (/(吃[了饭]|好饿|饿了|干饭|美食|好吃|真香|馋)/.test(trimmed)) return "127867";
+    // Sparkle / wow → ✨ 闪光 (10024)
+    if (/(闪闪|好看|漂亮|美丽|好美|颜值|仙女|帅|酷|炫|华丽|amazing)/.test(trimmed)) return "10024";
+
+    // --- Task / question patterns → 👌 好的 (128076) ---
+    if (/[?？吗呢吧么]$/.test(trimmed)) return "128076";
+    if (trimmed.startsWith('/')) return "128076";
+    if (/https?:\/\//.test(trimmed)) return "128076";
+    if (/^(帮我|请帮|能不能|可以帮|麻烦|请问|查|翻译|设置|打开|关闭|发送|提醒|计算|搜索|下载|上传|生成|创建|删除|修改|更新|运行|执行|分析|总结|整理|推荐|对比|比较|转发|获取)/.test(trimmed)) return "128076";
+
+    // --- Default fallback → ✨ 闪光 (10024) ---
+    return "10024";
 }
 
 async function resolveMediaUrl(url: string): Promise<string> {
@@ -782,14 +814,15 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             // Auto reaction mode: local OK emoji for non-greeting messages + AI [reaction:ID] for emotion
             const isAutoReaction = config.reactionEmoji === "auto";
 
-            // Local detection: immediately send OK emoji for non-greeting/thanks messages
-            let taskEmojiAlreadySent = false;
+            // Local detection: immediately send context-aware emoji for non-greeting/thanks messages
+            let localEmojiSent: string | null = null;
             if (isAutoReaction && event.message_id) {
                 const cleanText = cleanCQCodes(text).trim();
-                if (isTaskLikeMessage(cleanText)) {
+                const emojiId = pickLocalEmoji(cleanText);
+                if (emojiId) {
                     try {
-                        await client.setMsgEmojiLike(event.message_id, "128076");
-                        taskEmojiAlreadySent = true;
+                        await client.setMsgEmojiLike(event.message_id, emojiId);
+                        localEmojiSent = emojiId;
                     } catch (e) {}
                 }
             }
@@ -855,22 +888,24 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                      if (isAutoReaction && event.message_id) {
                          const taskEmojiOnlyMatch = processed.match(/^\[task:emoji_only\]\s*/);
                          if (taskEmojiOnlyMatch) {
-                             if (!taskEmojiAlreadySent) {
+                             if (!localEmojiSent) {
                                  try { await client.setMsgEmojiLike(event.message_id, "128076"); } catch (e) {}
                              }
                              processed = processed.slice(taskEmojiOnlyMatch[0].length);
                          } else {
                              const taskMatch = processed.match(/^\[task:ok\]\s*/);
                              if (taskMatch) {
-                                 if (!taskEmojiAlreadySent) {
+                                 if (!localEmojiSent) {
                                      try { await client.setMsgEmojiLike(event.message_id, "128076"); } catch (e) {}
                                  }
                                  processed = processed.slice(taskMatch[0].length);
                              } else {
-                                 // AI-chosen emotion emoji — always send (different from OK, no duplicate issue)
+                                 // AI-chosen emotion emoji — send if different from local emoji
                                  const reactionMatch = processed.match(/^\[reaction:(\d+)\]\s*/);
                                  if (reactionMatch) {
-                                     try { await client.setMsgEmojiLike(event.message_id, reactionMatch[1]); } catch (e) {}
+                                     if (reactionMatch[1] !== localEmojiSent) {
+                                         try { await client.setMsgEmojiLike(event.message_id, reactionMatch[1]); } catch (e) {}
+                                     }
                                      processed = processed.slice(reactionMatch[0].length);
                                  }
                              }
