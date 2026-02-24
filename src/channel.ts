@@ -256,9 +256,11 @@ function pickLocalEmoji(text: string): string | null {
 
     // --- Emotion / sentiment matching (most specific first) ---
 
-    // Sad / crying → 😭 大哭 (128557) or QQ系统:流泪(5)
+    // Asking about bot / model / identity → QQ系统:喵喵(307)
+    if (/(什么模型|哪家模型|哪个模型|用的什么|用的啥|什么大模型|哪个大模型|什么ai|哪家ai|什么llm|你是谁|你是什么|你叫什么|你是哪个|你是啥|是gpt|是claude|是gemini|是通义|是文心|是豆包|是minimax|是kimi|谁开发的|谁做的|谁训练的|什么版本)/.test(trimmed)) return "307";
+    // Sad / crying → 😭 大哭 (128557)
     if (/(难过|伤心|哭了|呜呜|555|崩溃|心疼|痛苦|好惨|可怜|委屈|哭死|泪目|emo|破防)/.test(trimmed)) return "128557";
-    // Laughing / funny → 😂 激动 (128514) or QQ系统:笑哭(182)
+    // Laughing / funny → 😂 激动 (128514)
     if (/(哈哈|笑死|搞笑|太逗|乐了|笑喷|好好笑|lol|hahaha|233|xswl|笑不活)/.test(trimmed)) return "128514";
     // Praise / admiration → 👍 厉害 (128077)
     if (/(厉害|牛[逼比啊]?|强|棒|优秀|大佬|膜拜|佩服|666|nb|nice|amazing|awesome|绝绝子|yyds)/.test(trimmed)) return "128077";
@@ -272,16 +274,18 @@ function pickLocalEmoji(text: string): string | null {
     if (/(恭喜|祝贺|太好了|成功|过了|上岸|录取|中了|赢了|发财|好运|撒花|万岁)/.test(trimmed)) return "127881";
     // Cute / shy → 😊 嘿嘿 (128522)
     if (/(嘿嘿|害羞|脸红|可爱|萌|卖萌|略略|嘻嘻|hiahia|撒娇)/.test(trimmed)) return "128522";
-    // Angry / annoyed → QQ系统:生气(326) — type 1 短ID
+    // Angry / annoyed → 🔥 火 (128293)
     if (/(生气|气死|烦死|讨厌|滚|怒|垃圾|狗屎|fuck|shit|mmp)/.test(trimmed)) return "128293";
-    // Sleepy / tired → 😌 羞涩 (128524) or QQ系统:困(25)
+    // Sleepy / tired → 💤 睡觉 (128164)
     if (/(困了|好累|累死|好困|打哈欠|要睡了|晚安|摸鱼|划水|摆烂|躺平)/.test(trimmed)) return "128164";
-    // Doge / meme → QQ系统:doge(179)
+    // Doge / meme → 👍 厉害 (128077)
     if (/(doge|狗头|滑稽|手动狗头)/.test(trimmed)) return "128077";
-    // Eating / food → QQ系统:干杯(127867)
+    // Eating / food → 🍻 干杯 (127867)
     if (/(吃[了饭]|好饿|饿了|干饭|美食|好吃|真香|馋)/.test(trimmed)) return "127867";
-    // Sparkle / wow → ✨ 闪光 (10024)
-    if (/(闪闪|好看|漂亮|美丽|好美|颜值|仙女|帅|酷|炫|华丽|amazing)/.test(trimmed)) return "10024";
+    // Sparkle / pretty → ✨ 闪光 (10024)
+    if (/(闪闪|好看|漂亮|美丽|好美|颜值|仙女|帅|炫|华丽)/.test(trimmed)) return "10024";
+    // Curious / chatty / playful → QQ系统:喵喵(307)
+    if (/(为什么|怎么回事|怎么了|咋了|啥意思|什么意思|说说|聊聊|讲讲|想知道|好奇|有趣|好玩|无聊|随便|陪我|逗我)/.test(trimmed)) return "307";
 
     // --- Task / question patterns → 👌 好的 (128076) ---
     if (/[?？吗呢吧么]$/.test(trimmed)) return "128076";
@@ -289,8 +293,8 @@ function pickLocalEmoji(text: string): string | null {
     if (/https?:\/\//.test(trimmed)) return "128076";
     if (/^(帮我|请帮|能不能|可以帮|麻烦|请问|查|翻译|设置|打开|关闭|发送|提醒|计算|搜索|下载|上传|生成|创建|删除|修改|更新|运行|执行|分析|总结|整理|推荐|对比|比较|转发|获取)/.test(trimmed)) return "128076";
 
-    // --- Default fallback → ✨ 闪光 (10024) ---
-    return "10024";
+    // --- Default fallback → QQ系统:喵喵(307) ---
+    return "307";
 }
 
 async function resolveMediaUrl(url: string): Promise<string> {
@@ -882,7 +886,6 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             const deliver = async (payload: ReplyPayload) => {
                  const send = async (msg: string) => {
                      let processed = msg;
-                     console.log(`[QQ] AI reply (first 100 chars): "${processed.slice(0, 100)}"`);
 
                      // Extract reaction/task marker from AI reply (supplements local detection)
                      if (isAutoReaction && event.message_id) {
