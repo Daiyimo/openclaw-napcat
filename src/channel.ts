@@ -766,8 +766,70 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                 try { repliedMsg = await client.getMsg(replyMsgId); } catch (err) {}
             }
 
-            if (!isGuild && isAdmin && text.trim().startsWith('/')) {
-                const parts = text.trim().split(/\s+/);
+            // Extract first at-target from message segments or raw_message for command use
+            function getCommandAtTarget(): number | null {
+                // First try message segments (most reliable)
+                if (Array.isArray(event.message)) {
+                    for (const seg of event.message as OneBotMessageSegment[]) {
+                        if (seg.type === "at" && seg.data?.qq && seg.data.qq !== "all") {
+                            // Skip at-mentions targeting the bot itself
+                            const selfId = client.getSelfId();
+                            if (selfId && String(seg.data.qq) === String(selfId)) continue;
+                            const id = parseInt(String(seg.data.qq), 10);
+                            if (!isNaN(id)) return id;
+                        }
+                    }
+                }
+                // Fallback to CQ code in raw_message
+                const rawMatch = event.raw_message?.match(/\[CQ:at,qq=(\d+)\]/);
+                if (rawMatch) {
+                    const id = parseInt(rawMatch[1], 10);
+                    const selfId = client.getSelfId();
+                    if (selfId && id === selfId) return null;
+                    return id;
+                }
+                return null;
+            }
+
+            // Strip @mentions and leading whitespace to extract the command
+            const cmdText = text.replace(/@\S+\s*/g, "").trim();
+
+            // 中文关键词 → 斜杠命令映射
+            const cmdAliasMap: Record<string, string> = {
+                "群打卡": "/signin", "打卡": "/signin", "签到": "/signin",
+                "戳一戳": "/poke", "戳他": "/poke", "戳她": "/poke",
+                "点赞": "/like", "赞他": "/like", "赞她": "/like",
+                "禁言": "/mute", "解除禁言": "/unmute", "解禁": "/unmute",
+                "全员禁言": "/muteall", "解除全员禁言": "/unmuteall",
+                "踢人": "/kick", "踢出": "/kick",
+                "设管理": "/admin", "取消管理": "/unadmin",
+                "设头衔": "/title", "设置头衔": "/title",
+                "设名片": "/card", "设置名片": "/card", "改名片": "/card",
+                "改群名": "/groupname", "修改群名": "/groupname",
+                "发公告": "/notice", "群公告": "/notice",
+                "群荣誉": "/honor", "荣誉": "/honor",
+                "精华消息": "/essence", "精华列表": "/essence",
+                "设精华": "/setessence", "设为精华": "/setessence",
+                "取消精华": "/delessence", "移出精华": "/delessence",
+                "禁言列表": "/banlist", "查禁言": "/banlist",
+                "全体剩余": "/atall",
+                "清缓存": "/cache", "清理缓存": "/cache",
+                "状态": "/status", "帮助": "/help", "命令": "/help",
+            };
+
+            // Try to resolve Chinese alias: match the longest prefix
+            let resolvedCmdText = cmdText;
+            if (!cmdText.startsWith('/')) {
+                for (const [alias, slashCmd] of Object.entries(cmdAliasMap)) {
+                    if (cmdText === alias || cmdText.startsWith(alias + " ") || cmdText.startsWith(alias + "\n")) {
+                        resolvedCmdText = slashCmd + cmdText.slice(alias.length);
+                        break;
+                    }
+                }
+            }
+
+            if (!isGuild && isAdmin && resolvedCmdText.startsWith('/')) {
+                const parts = resolvedCmdText.split(/\s+/);
                 const cmd = parts[0];
                 if (cmd === '/status') {
                     const statusMsg = `[OpenClawd QQ]\nState: Connected\nSelf ID: ${client.getSelfId()}\nMemory: ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB`;
@@ -777,48 +839,48 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                 if (cmd === '/help') {
                     const helpMsg = `[OpenClawd QQ]\n` +
                         `--- 基础命令 ---\n` +
-                        `/status - 机器人状态\n` +
-                        `/help - 显示帮助\n` +
-                        `/cache - 清理缓存\n` +
+                        `/status (状态) - 机器人状态\n` +
+                        `/help (帮助) - 显示帮助\n` +
+                        `/cache (清缓存) - 清理缓存\n` +
                         `--- 群管理 ---\n` +
-                        `/mute @用户 [分钟] - 禁言\n` +
-                        `/unmute @用户 - 解除禁言\n` +
-                        `/muteall - 全员禁言\n` +
-                        `/unmuteall - 解除全员禁言\n` +
-                        `/kick @用户 - 踢出\n` +
-                        `/admin @用户 - 设置管理员\n` +
-                        `/unadmin @用户 - 取消管理员\n` +
-                        `/title @用户 头衔 - 设置专属头衔\n` +
-                        `/card @用户 名片 - 设置群名片\n` +
-                        `/groupname 名称 - 修改群名\n` +
-                        `/notice 公告 - 发送群公告\n` +
+                        `/mute (禁言) @用户 [分钟]\n` +
+                        `/unmute (解禁) @用户\n` +
+                        `/muteall (全员禁言)\n` +
+                        `/unmuteall (解除全员禁言)\n` +
+                        `/kick (踢人) @用户\n` +
+                        `/admin (设管理) @用户\n` +
+                        `/unadmin (取消管理) @用户\n` +
+                        `/title (设头衔) @用户 头衔\n` +
+                        `/card (设名片) @用户 名片\n` +
+                        `/groupname (改群名) 名称\n` +
+                        `/notice (发公告) 公告内容\n` +
                         `--- 互动功能 ---\n` +
-                        `/poke @用户 - 戳一戳\n` +
-                        `/like @用户 [次数] - 点赞\n` +
-                        `/signin - 群打卡\n` +
+                        `/poke (戳一戳) @用户\n` +
+                        `/like (点赞) @用户 [次数]\n` +
+                        `/signin (打卡/签到)\n` +
                         `--- 信息查询 ---\n` +
-                        `/honor - 群荣誉\n` +
-                        `/banlist - 禁言列表\n` +
-                        `/atall - @全体剩余次数\n` +
+                        `/honor (群荣誉)\n` +
+                        `/banlist (禁言列表)\n` +
+                        `/atall (全体剩余)\n` +
                         `--- 精华消息 ---\n` +
-                        `/essence - 精华消息列表\n` +
-                        `/setessence (回复) - 设为精华\n` +
-                        `/delessence (回复) - 移出精华`;
+                        `/essence (精华列表)\n` +
+                        `/setessence (设精华) - 回复消息使用\n` +
+                        `/delessence (取消精华) - 回复消息使用\n` +
+                        `\n支持斜杠命令和中文关键词两种触发方式`;
                     if (isGroup) client.sendGroupMsg(groupId, helpMsg); else client.sendPrivateMsg(userId, helpMsg);
                     return;
                 }
                 if (isGroup && (cmd === '/mute' || cmd === '/ban')) {
-                    const targetMatch = text.match(/\[CQ:at,qq=(\d+)\]/);
-                    const targetId = targetMatch ? parseInt(targetMatch[1]) : (parts[1] ? parseInt(parts[1]) : null);
+                    const targetId = getCommandAtTarget() || (parts[1] ? parseInt(parts[1]) : null);
                     if (targetId) {
-                        client.setGroupBan(groupId, targetId, parts[2] ? parseInt(parts[2]) * 60 : 1800);
+                        const duration = parts[parts.length - 1] ? parseInt(parts[parts.length - 1]) : NaN;
+                        client.setGroupBan(groupId, targetId, !isNaN(duration) && duration > 0 ? duration * 60 : 1800);
                         client.sendGroupMsg(groupId, `已禁言。`);
                     }
                     return;
                 }
                 if (isGroup && cmd === '/kick') {
-                    const targetMatch = text.match(/\[CQ:at,qq=(\d+)\]/);
-                    const targetId = targetMatch ? parseInt(targetMatch[1]) : (parts[1] ? parseInt(parts[1]) : null);
+                    const targetId = getCommandAtTarget() || (parts[1] ? parseInt(parts[1]) : null);
                     if (targetId) {
                         client.setGroupKick(groupId, targetId);
                         client.sendGroupMsg(groupId, `已踢出。`);
@@ -827,8 +889,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                 }
                 // /unmute @用户 - 解除禁言
                 if (isGroup && cmd === '/unmute') {
-                    const targetMatch = text.match(/\[CQ:at,qq=(\d+)\]/);
-                    const targetId = targetMatch ? parseInt(targetMatch[1]) : (parts[1] ? parseInt(parts[1]) : null);
+                    const targetId = getCommandAtTarget() || (parts[1] ? parseInt(parts[1]) : null);
                     if (targetId) {
                         client.setGroupBan(groupId, targetId, 0);
                         client.sendGroupMsg(groupId, `已解除禁言。`);
@@ -857,8 +918,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                 }
                 // /poke @用户 - 戳一戳
                 if (isGroup && cmd === '/poke') {
-                    const targetMatch = text.match(/\[CQ:at,qq=(\d+)\]/);
-                    const targetId = targetMatch ? parseInt(targetMatch[1]) : (parts[1] ? parseInt(parts[1]) : null);
+                    const targetId = getCommandAtTarget() || (parts[1] ? parseInt(parts[1]) : null);
                     if (targetId) {
                         try {
                             await client.sendPoke(targetId, groupId);
@@ -872,12 +932,12 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                 }
                 // /like @用户 [次数] - 点赞
                 if (cmd === '/like') {
-                    const targetMatch = text.match(/\[CQ:at,qq=(\d+)\]/);
-                    const targetId = targetMatch ? parseInt(targetMatch[1]) : (parts[1] ? parseInt(parts[1]) : null);
+                    const targetId = getCommandAtTarget() || (parts[1] ? parseInt(parts[1]) : null);
                     if (targetId) {
-                        // Try to find times in the remaining text after the at-mention or as the last numeric arg
-                        const timesMatch = text.match(/\]\s+(\d+)\s*$/) || text.match(/\s(\d+)\s*$/);
-                        const times = timesMatch ? Math.min(parseInt(timesMatch[1]) || 10, 20) : 10;
+                        // Last numeric part is the times count
+                        const lastPart = parts[parts.length - 1];
+                        const timesNum = lastPart ? parseInt(lastPart) : NaN;
+                        const times = !isNaN(timesNum) && timesNum > 0 ? Math.min(timesNum, 20) : 10;
                         try {
                             await client.sendLike(targetId, times);
                             const reply = `已给 ${targetId} 点赞 ${times} 次。`;
@@ -891,8 +951,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                 }
                 // /admin @用户 - 设置管理员
                 if (isGroup && cmd === '/admin') {
-                    const targetMatch = text.match(/\[CQ:at,qq=(\d+)\]/);
-                    const targetId = targetMatch ? parseInt(targetMatch[1]) : (parts[1] ? parseInt(parts[1]) : null);
+                    const targetId = getCommandAtTarget() || (parts[1] ? parseInt(parts[1]) : null);
                     if (targetId) {
                         try {
                             await client.setGroupAdmin(groupId, targetId, true);
@@ -905,8 +964,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                 }
                 // /unadmin @用户 - 取消管理员
                 if (isGroup && cmd === '/unadmin') {
-                    const targetMatch = text.match(/\[CQ:at,qq=(\d+)\]/);
-                    const targetId = targetMatch ? parseInt(targetMatch[1]) : (parts[1] ? parseInt(parts[1]) : null);
+                    const targetId = getCommandAtTarget() || (parts[1] ? parseInt(parts[1]) : null);
                     if (targetId) {
                         try {
                             await client.setGroupAdmin(groupId, targetId, false);
@@ -919,20 +977,13 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                 }
                 // /title @用户 头衔 - 设置专属头衔
                 if (isGroup && cmd === '/title') {
-                    const targetMatch = text.match(/\[CQ:at,qq=(\d+)\]/);
-                    const targetId = targetMatch ? parseInt(targetMatch[1]) : null;
-                    // Extract title text after the @mention or after the user ID
-                    let titleText = "";
-                    if (targetMatch) {
-                        titleText = text.slice(text.indexOf(targetMatch[0]) + targetMatch[0].length).trim();
-                    } else if (parts.length >= 3) {
-                        titleText = parts.slice(2).join(" ");
-                    }
-                    const uid = targetId || (parts[1] ? parseInt(parts[1]) : null);
-                    if (uid) {
+                    const targetId = getCommandAtTarget() || (parts[1] ? parseInt(parts[1]) : null);
+                    // parts: ["/title", "QQ号或@名", "头衔..."] — 取第2个之后的部分作为头衔
+                    const titleText = parts.slice(2).join(" ") || (parts[1] && isNaN(parseInt(parts[1])) ? "" : "");
+                    if (targetId) {
                         try {
-                            await client.setGroupSpecialTitle(groupId, uid, titleText || "");
-                            client.sendGroupMsg(groupId, titleText ? `已设置 ${uid} 的头衔为: ${titleText}` : `已清除 ${uid} 的头衔。`);
+                            await client.setGroupSpecialTitle(groupId, targetId, titleText);
+                            client.sendGroupMsg(groupId, titleText ? `已设置 ${targetId} 的头衔为: ${titleText}` : `已清除 ${targetId} 的头衔。`);
                         } catch (e) {
                             client.sendGroupMsg(groupId, `设置头衔失败: ${e}`);
                         }
@@ -941,19 +992,12 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                 }
                 // /card @用户 名片 - 设置群名片
                 if (isGroup && cmd === '/card') {
-                    const targetMatch = text.match(/\[CQ:at,qq=(\d+)\]/);
-                    const targetId = targetMatch ? parseInt(targetMatch[1]) : null;
-                    let cardText = "";
-                    if (targetMatch) {
-                        cardText = text.slice(text.indexOf(targetMatch[0]) + targetMatch[0].length).trim();
-                    } else if (parts.length >= 3) {
-                        cardText = parts.slice(2).join(" ");
-                    }
-                    const uid = targetId || (parts[1] ? parseInt(parts[1]) : null);
-                    if (uid) {
+                    const targetId = getCommandAtTarget() || (parts[1] ? parseInt(parts[1]) : null);
+                    const cardText = parts.slice(2).join(" ") || "";
+                    if (targetId) {
                         try {
-                            await client.setGroupCard(groupId, uid, cardText || "");
-                            client.sendGroupMsg(groupId, cardText ? `已设置 ${uid} 的群名片为: ${cardText}` : `已清除 ${uid} 的群名片。`);
+                            await client.setGroupCard(groupId, targetId, cardText);
+                            client.sendGroupMsg(groupId, cardText ? `已设置 ${targetId} 的群名片为: ${cardText}` : `已清除 ${targetId} 的群名片。`);
                         } catch (e) {
                             client.sendGroupMsg(groupId, `设置群名片失败: ${e}`);
                         }
@@ -962,7 +1006,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                 }
                 // /groupname 名称 - 修改群名
                 if (isGroup && cmd === '/groupname') {
-                    const newName = text.slice(cmd.length).trim();
+                    const newName = resolvedCmdText.slice(cmd.length).trim();
                     if (newName) {
                         try {
                             await client.setGroupName(groupId, newName);
@@ -1008,7 +1052,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                 }
                 // NapCat 4.17.25 新命令
                 if (isGroup && cmd === '/notice') {
-                    const noticeText = text.slice(cmd.length).trim();
+                    const noticeText = resolvedCmdText.slice(cmd.length).trim();
                     if (noticeText) {
                         try {
                             await client.sendGroupNotice(groupId, noticeText);
