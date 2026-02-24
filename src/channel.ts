@@ -241,6 +241,26 @@ function processAntiRisk(text: string): string {
     return text.replace(/(https?:\/\/)/gi, "$1 ");
 }
 
+/** Local detection: determines if a message should get an OK emoji reaction.
+ *  Uses a deny-list approach: only pure greetings/thanks are excluded.
+ *  Also includes explicit task patterns for clarity and documentation. */
+function isTaskLikeMessage(text: string): boolean {
+    const trimmed = text.replace(/@\S+\s*/g, "").trim();
+    if (!trimmed) return false;
+    // Pure greetings — no emoji
+    if (/^(你好|hello|hi|hey|在吗|在不在|早上好|晚上好|早安|晚安|嗨|哈喽|下午好|中午好)[\s!！。.~～]*$/i.test(trimmed)) return false;
+    // Pure thanks — no emoji
+    if (/^(谢谢|感谢|多谢|thanks|thank you|thx|蟹蟹|3q)[\s!！。.~～]*$/i.test(trimmed)) return false;
+    // Everything else gets OK emoji. The patterns below are kept for documentation:
+    // - Slash commands: /help, /status, etc.
+    // - Chinese request verbs: 帮我/请帮/查询/查找/查看/翻译/设置/打开/关闭/发送/提醒/计算/搜索/下载/上传/生成/创建/删除/修改/更新/运行/执行/分析/总结/整理/推荐/对比/比较/转发/获取
+    // - Chinese question words: 怎么办/如何/什么是/是什么/多少/为什么/怎样/怎么/哪里/哪个/几点/几号/谁是/有没有/能否/是否/可不可以
+    // - Question endings: ?？吗呢吧么
+    // - URLs: http:// or https:// (sharing a link usually implies a task)
+    // - English patterns: help/please/can you/how to/translate/search/find, etc.
+    return true;
+}
+
 async function resolveMediaUrl(url: string): Promise<string> {
     if (url.startsWith("file:")) {
         try {
@@ -759,8 +779,20 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                 try { await client.setMsgEmojiLike(event.message_id, config.reactionEmoji); } catch (e) {}
             }
 
-            // Auto reaction mode: AI decides reaction via [reaction:ID] or [task:ok] markers
+            // Auto reaction mode: local OK emoji for non-greeting messages + AI [reaction:ID] for emotion
             const isAutoReaction = config.reactionEmoji === "auto";
+
+            // Local detection: immediately send OK emoji for non-greeting/thanks messages
+            let taskEmojiAlreadySent = false;
+            if (isAutoReaction && event.message_id) {
+                const cleanText = cleanCQCodes(text).trim();
+                if (isTaskLikeMessage(cleanText)) {
+                    try {
+                        await client.setMsgEmojiLike(event.message_id, "128076");
+                        taskEmojiAlreadySent = true;
+                    } catch (e) {}
+                }
+            }
 
             // NapCat 4.17.25: URL safety check
             if (config.enableUrlCheck && Array.isArray(event.message)) {
@@ -819,18 +851,23 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                      let processed = msg;
                      console.log(`[QQ] AI reply (first 100 chars): "${processed.slice(0, 100)}"`);
 
-                     // Extract reaction/task marker from AI reply
+                     // Extract reaction/task marker from AI reply (supplements local detection)
                      if (isAutoReaction && event.message_id) {
                          const taskEmojiOnlyMatch = processed.match(/^\[task:emoji_only\]\s*/);
                          if (taskEmojiOnlyMatch) {
-                             try { await client.setMsgEmojiLike(event.message_id, "128076"); } catch (e) {}
+                             if (!taskEmojiAlreadySent) {
+                                 try { await client.setMsgEmojiLike(event.message_id, "128076"); } catch (e) {}
+                             }
                              processed = processed.slice(taskEmojiOnlyMatch[0].length);
                          } else {
                              const taskMatch = processed.match(/^\[task:ok\]\s*/);
                              if (taskMatch) {
-                                 try { await client.setMsgEmojiLike(event.message_id, "128076"); } catch (e) {}
+                                 if (!taskEmojiAlreadySent) {
+                                     try { await client.setMsgEmojiLike(event.message_id, "128076"); } catch (e) {}
+                                 }
                                  processed = processed.slice(taskMatch[0].length);
                              } else {
+                                 // AI-chosen emotion emoji — always send (different from OK, no duplicate issue)
                                  const reactionMatch = processed.match(/^\[reaction:(\d+)\]\s*/);
                                  if (reactionMatch) {
                                      try { await client.setMsgEmojiLike(event.message_id, reactionMatch[1]); } catch (e) {}
@@ -920,26 +957,20 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             if (config.systemPrompt) systemBlock += `<system>${config.systemPrompt}</system>\n\n`;
             if (config.reactionEmoji === "auto") {
                 systemBlock += `<reaction-instruction>
-【重要规则】你必须在每条回复的最开头添加一个表情标记，这是强制要求：
+【规则】如果用户消息是闲聊、情感表达、夸奖、吐槽、搞笑等非任务类内容，你必须在回复最开头加上一个表情标记 [reaction:表情ID]。
+任务类请求和普通问候/感谢不需要加标记，正常回复即可。
 
-1. 任务类请求（查询、翻译、提醒、设置、帮忙、操作等）→ 开头必须写 [task:ok]
-2. 闲聊/情感/夸奖/吐槽/搞笑 → 开头必须写 [reaction:表情ID]
-3. 仅限问候语（你好、在吗）和简单感谢（谢谢）→ 不加标记
+可用表情ID：128077(👍) 128079(👏) 128293(🔥) 128516(😄) 128514(😂) 128522(😊) 128536(😘) 128170(💪) 128147(❤) 10024(✨) 127881(🎉) 128557(😭)
 
-可用表情ID：128077(👍) 128079(👏) 128293(🔥) 128516(😄) 128514(😂) 128522(😊) 128536(😘) 128170(💪) 128147(❤) 10024(✨) 127881(🎉) 128557(😭) 128076(👌)
-
-示例（你必须严格按此格式输出）：
-用户：帮我查天气 → 你的回复：[task:ok]好的，我帮你查一下天气
-用户：翻译hello → 你的回复：[task:ok]hello的意思是"你好"
-用户：查询电费 → 你的回复：[task:ok]好的，我来帮你查
-用户：哈哈太搞笑了 → 你的回复：[reaction:128514]确实太好笑了！
-用户：你真厉害 → 你的回复：[reaction:128077]嘿嘿谢谢夸奖~
-用户：好难过 → 你的回复：[reaction:128557]怎么啦？跟我说说
-用户：不客气 → 你的回复：[reaction:128522]有需要随时叫我～
-用户：你好 → 你的回复：你好呀，有什么可以帮你的吗？
-用户：谢谢 → 你的回复：不客气！
-
-再次强调：除了纯问候和纯感谢，所有回复都必须以[task:ok]或[reaction:ID]开头！
+示例（严格按此格式）：
+用户：哈哈太搞笑了 → [reaction:128514]确实太好笑了！
+用户：你真厉害 → [reaction:128077]嘿嘿谢谢~
+用户：好难过 → [reaction:128557]怎么啦？跟我说说
+用户：太棒了 → [reaction:128293]对吧！
+用户：不客气 → [reaction:128522]有需要随时叫我～
+用户：666 → [reaction:128293]嘿嘿~
+用户：帮我查天气 → 好的，我帮你查一下（无标记）
+用户：你好 → 你好呀！（无标记）
 </reaction-instruction>\n\n`;
             }
             if (historyContext) systemBlock += `<history>\n${historyContext}\n</history>\n\n`;
