@@ -817,6 +817,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             const deliver = async (payload: ReplyPayload) => {
                  const send = async (msg: string) => {
                      let processed = msg;
+                     console.log(`[QQ] AI reply (first 100 chars): "${processed.slice(0, 100)}"`);
 
                      // Extract reaction/task marker from AI reply
                      if (isAutoReaction && event.message_id) {
