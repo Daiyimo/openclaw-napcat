@@ -294,6 +294,156 @@ A: 将 `enableTTS` 设为 `true`。注意：这取决于 OneBot 服务端是否�
 
 ## 更新日志
 
+### v1.5.0 - 全面群管升级与中文命令支持 (2026-02-24) — update by Claude-4.6-Opus
+
+大版本升级：新增 15+ 管理员命令、中文自然语言命令触发、10 种群事件通知处理、20+ NapCat API 方法，以及混合两层智能表情回应系统。
+
+#### 新增管理员命令
+
+| 命令 | 中文触发 | 说明 | 适用场景 |
+| :--- | :--- | :--- | :--- |
+| `/unmute @用户` | 解除禁言、解禁 | 解除指定用户禁言 | 群聊 |
+| `/muteall` | 全员禁言 | 开启全员禁言 | 群聊 |
+| `/unmuteall` | 解除全员禁言 | 解除全员禁言 | 群聊 |
+| `/poke @用户` | 戳一戳、戳他/她 | 戳一戳指定用户 | 群聊 |
+| `/like @用户 [次数]` | 点赞、赞他/她 | 给用户点赞（最多20次） | 私聊/群聊 |
+| `/admin @用户` | 设管理 | 设置管理员 | 群聊 |
+| `/unadmin @用户` | 取消管理 | 取消管理员 | 群聊 |
+| `/title @用户 头衔` | 设头衔、设置头衔 | 设置专属头衔 | 群聊 |
+| `/card @用户 名片` | 设名片、改名片 | 设置群名片 | 群聊 |
+| `/groupname 名称` | 改群名、修改群名 | 修改群名称 | 群聊 |
+| `/banlist` | 禁言列表、查禁言 | 查看禁言成员列表 | 群聊 |
+| `/atall` | 全体剩余 | 查看 @全体成员 剩余次数 | 群聊 |
+| `/invite @用户` | 邀请入群、拉人 | 私聊发送群分享卡片邀请入群 | 私聊/群聊 |
+
+#### 中文自然语言命令
+
+支持 40+ 个中文关键词直接触发管理命令，无需记忆斜杠命令：
+
+| 中文 | 映射命令 | 示例 |
+| :--- | :--- | :--- |
+| 打卡/签到/群打卡 | `/signin` | `@Bot 打卡` |
+| 禁言/踢人/踢出 | `/mute` `/kick` | `@Bot 禁言 @张三 10` |
+| 设精华/设置为精华 | `/setessence` | 回复消息 `@Bot 设精华` |
+| 邀请/拉人/拉入群 | `/invite` | `@Bot 邀请 @李四` |
+| 状态/帮助/命令 | `/status` `/help` | `@Bot 状态` |
+
+完整映射列表涵盖：打卡、戳一戳、点赞、禁言、解禁、全员禁言、踢人、设管理、设头衔、设名片、改群名、发公告、群荣誉、精华消息、禁言列表、清缓存、邀请入群、状态、帮助等。
+
+#### 群事件通知处理
+
+新增 10 种 OneBot 事件的结构化处理：
+
+| 事件 | 说明 |
+| :--- | :--- |
+| `essence` (add/delete) | 群精华消息设置/移出通知，`enableEssenceMsg` 开启时自动播报 |
+| `group_admin` (set/unset) | 群管理员变动日志 |
+| `group_increase` | 群成员加入，自动刷新成员缓存 |
+| `group_decrease` | 群成员退出/被踢，清理成员缓存 |
+| `group_ban` (ban/lift_ban) | 群禁言通知日志 |
+| `group_upload` | 群文件上传通知日志 |
+| `group_card` | 群名片变更，自动更新本地缓存 |
+| `friend_add` | 好友添加通知日志 |
+| `notify:honor` | 群荣誉变更通知 |
+| `notify:lucky_king` / `notify:title` | 红包运气王 / 头衔变更通知 |
+
+#### 新增 NapCat API 方法（client.ts）
+
+新增 20+ 个 API 方法：
+
+| 方法 | 说明 |
+| :--- | :--- |
+| `sendPoke()` | 通用戳一戳（群聊/私聊） |
+| `setGroupSign()` | 群签到（NapCat 推荐 API） |
+| `setGroupMsgAsRead()` | 设置群消息已读 |
+| `getArkShareGroup()` | 获取群分享卡片（Ark 消息） |
+| `getArkSharePeer()` | 获取好友/群分享卡片 |
+| `forwardGroupSingleMsg()` | 转发单条消息到群聊 |
+| `forwardFriendSingleMsg()` | 转发单条消息到好友 |
+| `setOnlineStatus()` | 设置在线状态 |
+| `getFriendsWithCategory()` | 获取分类好友列表 |
+| `setQQAvatar()` | 设置 QQ 头像 |
+| `sendForwardMsg()` | 发送合并转发消息 |
+| `getProfileLike()` | 获取自身点赞列表 |
+| `getAiRecord()` | AI 文字转语音 |
+| `getAiCharactersList()` | 获取 AI 语音角色列表 |
+| `getRecentContact()` | 获取最近联系人 |
+| `getFriendMsgHistory()` | 获取私聊历史记录 |
+| `translateEn2Zh()` | 英译中 |
+| `setMsgEmojiLikeWithSet()` | 设置/取消表情回复 |
+| `fetchCustomFace()` | 获取自定义表情 |
+| `getRobotUinRange()` | 获取机器人账号范围 |
+| `getGroupMemberInfo()` | 获取群成员信息 |
+| `setGroupWholeBan()` | 全员禁言/解除 |
+| `setGroupLeave()` | 退出群聊 |
+| `setGroupAnonymousBan()` | 群匿名禁言 |
+
+#### 混合两层智能表情回应（`reactionEmoji: "auto"`）
+
+采用本地即时 + AI 补充的双层架构，兼顾响应速度和情感准确度：
+
+**第一层：本地即时语义匹配（毫秒级）— `pickLocalEmoji()`**
+
+| 消息内容 | 表情 | ID |
+| :--- | :--- | :--- |
+| 问模型/你是谁/什么ai | 🐱 喵喵 | 307 |
+| 难过/伤心/崩溃/破防/emo | 😭 大哭 | 128557 |
+| 哈哈/笑死/搞笑/233/xswl | 😂 激动 | 128514 |
+| 厉害/牛/666/nb/yyds | 👍 厉害 | 128077 |
+| 卧槽/绝了/离谱/omg | 🔥 火 | 128293 |
+| 加油/冲/fighting | 💪 肌肉 | 128170 |
+| 喜欢/爱你/比心/心动 | 💓 爱心 | 128147 |
+| 恭喜/太好了/成功/撒花 | 🎉 庆祝 | 127881 |
+| 嘿嘿/可爱/卖萌/撒娇 | 😊 嘿嘿 | 128522 |
+| 困了/好累/摸鱼/摆烂 | 💤 睡觉 | 128164 |
+| 好吃/干饭/馋/真香 | 🍻 干杯 | 127867 |
+| 好看/漂亮/帅/颜值 | ✨ 闪光 | 10024 |
+| 好奇/有趣/无聊/怎么回事 | 🐱 喵喵 | 307 |
+| 疑问句（?？吗呢吧么） | 👌 好的 | 128076 |
+| 任务请求/斜杠命令/含URL | 👌 好的 | 128076 |
+| 其他（默认） | 🐱 喵喵 | 307 |
+
+| 排除规则（不贴表情） | 示例 |
+| :--- | :--- |
+| 纯问候语 | 你好、hello、hi、早安、晚安… |
+| 纯感谢语 | 谢谢、感谢、thanks… |
+
+**第二层：AI 补充情感表情（与本地不同时才贴，防重复）**
+
+AI 回复中若包含 `[reaction:ID]` 标记，且 ID 与本地已贴表情不同，则额外补贴一个情感表情。
+
+#### Bug 修复
+
+| Bug | 说明 |
+| :--- | :--- |
+| **`replyMsgId` 声明顺序错误** | 移至管理员命令块之前，修复 `/setessence` 和 `/delessence` 的 ReferenceError |
+| **`/cache` 私聊报错** | 根据场景自动选择 `sendGroupMsg` 或 `sendPrivateMsg` |
+| **`setMsgEmojiLike` 调用方式** | 改用 `sendAction`（HTTP 优先、WS 降级），`message_id` 强转 Number，补充 `await` |
+| **`/setessence` `/delessence` 无提示** | 未回复消息时给出友好提示而非静默忽略 |
+| **`/signin` 打卡 API 兼容** | 先尝试 `set_group_sign`（NapCat 推荐），失败再降级 `send_group_sign_in` |
+| **`/help` 信息不完整** | 重写帮助菜单，分类展示全部命令，标注中文触发支持 |
+
+#### 其他改进
+
+| 改进 | 说明 |
+| :--- | :--- |
+| **`getCommandAtTarget()` 函数** | 统一从消息段或 CQ 码提取 @目标，自动跳过 @Bot 自身，替代分散的正则匹配 |
+| **中文别名解析** | 精确匹配 → 包含匹配（最长优先），支持自然语句如"把这条消息设置为精华" |
+| **未知命令处理** | 未识别的 `/xxx` 命令直接忽略，不再传给 AI 生成无意义回复 |
+| **AI reaction prompt 优化** | 精简提示词，仅要求闲聊/情感类加标记，任务和问候不加标记 |
+| **OneBotEvent 类型扩展** | 新增 `sender_id`、`title`、`card_new`、`card_old` 字段 |
+
+#### 涉及文件
+
+| 文件 | 变更类型 | 说明 |
+| :--- | :--- | :--- |
+| `src/channel.ts` | 重构 + 新增 | `pickLocalEmoji()` 智能语义匹配、15+ 新命令、中文别名映射、10 种事件处理、混合表情回应 |
+| `src/client.ts` | 新增 + 修复 | 20+ NapCat API 方法、`setMsgEmojiLike` 修复 |
+| `src/types.ts` | 增强 | OneBotEvent 新增 `sender_id`、`title`、`card_new`、`card_old` |
+| `README.md` | 文档 | 同步 v1.5.0 更新日志 |
+
+---
+
 ### v1.4.2 - Bug修复与智能表情回应 (2025-02-24) — update by Claude-4.6-Opus
 
 修复多个已知 Bug，采用混合模式实现表情回应：本地即时语义匹配贴表情 + AI 补充情感表情。
