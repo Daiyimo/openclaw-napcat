@@ -56,6 +56,7 @@ export type OneBotEvent = {
   file?: any;
   user_ids?: number[];
   operator_id?: number;
+  sender_id?: number;
   duration?: number;
   anonymous?: { flag: string; name: string; id: number };
   role?: "owner" | "admin" | "member";
@@ -65,4 +66,7 @@ export type OneBotEvent = {
   current_nickname?: string;
   status?: any;
   ability?: any;
+  title?: string;
+  card_new?: string;
+  card_old?: string;
 };
