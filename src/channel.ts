@@ -1169,7 +1169,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                 if (cmd === '/invite') {
                     const targetId = getCommandAtTarget() || (parts[1] ? parseInt(parts[1]) : null);
                     if (!targetId) {
-                        const msg = `用法: /invite @用户 或 /invite QQ号\n机器人会私聊对方发送加群链接，对方加群后自动审批通过。`;
+                        const msg = `用法: /invite @用户 或 /invite QQ号\n机器人会私聊对方发送群分享卡片，对方加群后自动审批通过。`;
                         if (isGroup) client.sendGroupMsg(groupId, msg); else client.sendPrivateMsg(userId, msg);
                         return;
                     }
@@ -1187,20 +1187,34 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                         return;
                     }
                     try {
-                        // 查询群信息获取群名
-                        let groupName = String(inviteGroupId);
+                        // 方案1: 用 ArkShareGroup 获取群分享卡片（可点击加群）
+                        let sent = false;
                         try {
-                            const groups = await client.getGroupList();
-                            const g = groups?.find((g: any) => g.group_id === inviteGroupId);
-                            if (g?.group_name) groupName = g.group_name;
-                        } catch {}
+                            const ark = await client.getArkShareGroup(inviteGroupId);
+                            if (ark) {
+                                const arkData = typeof ark === 'string' ? ark : (ark.data ? (typeof ark.data === 'string' ? ark.data : JSON.stringify(ark.data)) : JSON.stringify(ark));
+                                await client.sendPrivateMsg(targetId, [{ type: "json", data: { data: arkData } }] as any);
+                                sent = true;
+                            }
+                        } catch (e) {
+                            console.log(`[QQ] ArkShareGroup failed for ${inviteGroupId}: ${e}`);
+                        }
 
-                        const inviteMsg = `你好！邀请你加入QQ群【${groupName}】\n` +
-                            `群号: ${inviteGroupId}\n` +
-                            `加群链接: https://qm.qq.com/cgi-bin/qm/qr?k=&group=${inviteGroupId}\n` +
-                            `请搜索群号 ${inviteGroupId} 加入，申请后会自动通过！`;
-                        await client.sendPrivateMsg(targetId, inviteMsg);
-                        const reply = `已私聊 ${targetId} 发送群 ${groupName}(${inviteGroupId}) 的邀请，对方加群后将自动审批。`;
+                        // 方案2: 卡片失败则发送文本邀请
+                        if (!sent) {
+                            let groupName = String(inviteGroupId);
+                            try {
+                                const groups = await client.getGroupList();
+                                const g = groups?.find((g: any) => g.group_id === inviteGroupId);
+                                if (g?.group_name) groupName = g.group_name;
+                            } catch {}
+                            const inviteMsg = `你好！邀请你加入QQ群【${groupName}】\n` +
+                                `群号: ${inviteGroupId}\n` +
+                                `请在QQ中搜索群号 ${inviteGroupId} 申请加入，会自动通过！`;
+                            await client.sendPrivateMsg(targetId, inviteMsg);
+                        }
+
+                        const reply = `已私聊 ${targetId} 发送群 ${inviteGroupId} 的邀请，对方加群后将自动审批。`;
                         if (isGroup) client.sendGroupMsg(groupId, reply); else client.sendPrivateMsg(userId, reply);
                     } catch (e) {
                         const reply = `发送邀请失败（需要机器人与对方是好友）: ${e}`;
