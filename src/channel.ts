@@ -798,7 +798,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
 
             // 中文关键词 → 斜杠命令映射
             const cmdAliasMap: Record<string, string> = {
-                "群打卡": "/signin", "打卡": "/signin", "签到": "/signin",
+                "群打卡": "/signin", "打卡": "/signin", "签到": "/signin", "群签到": "/signin",
                 "戳一戳": "/poke", "戳他": "/poke", "戳她": "/poke",
                 "点赞": "/like", "赞他": "/like", "赞她": "/like",
                 "禁言": "/mute", "解除禁言": "/unmute", "解禁": "/unmute",
@@ -811,30 +811,43 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                 "发公告": "/notice", "群公告": "/notice",
                 "群荣誉": "/honor", "荣誉": "/honor",
                 "精华消息": "/essence", "精华列表": "/essence",
-                "设精华": "/setessence", "设为精华": "/setessence",
-                "取消精华": "/delessence", "移出精华": "/delessence",
+                "设精华": "/setessence", "设为精华": "/setessence", "设置精华": "/setessence", "把这条消息设置为精华": "/setessence", "设置为精华": "/setessence",
+                "取消精华": "/delessence", "移出精华": "/delessence", "删除精华": "/delessence",
                 "禁言列表": "/banlist", "查禁言": "/banlist",
                 "全体剩余": "/atall",
                 "清缓存": "/cache", "清理缓存": "/cache",
                 "状态": "/status", "帮助": "/help", "命令": "/help",
             };
 
-            // Try to resolve Chinese alias: match the longest prefix
+            // Try to resolve Chinese alias: exact match first, then contains match
             let resolvedCmdText = cmdText;
             if (!cmdText.startsWith('/')) {
+                // 1. Exact or prefix match (highest priority)
+                let matched = false;
                 for (const [alias, slashCmd] of Object.entries(cmdAliasMap)) {
                     if (cmdText === alias || cmdText.startsWith(alias + " ") || cmdText.startsWith(alias + "\n")) {
                         resolvedCmdText = slashCmd + cmdText.slice(alias.length);
+                        matched = true;
                         break;
                     }
                 }
+                // 2. Contains match — for natural phrases like "把这条消息设置为精华"
+                if (!matched) {
+                    // Sort aliases by length descending to match longest first
+                    const sortedAliases = Object.entries(cmdAliasMap).sort((a, b) => b[0].length - a[0].length);
+                    for (const [alias, slashCmd] of sortedAliases) {
+                        if (cmdText.includes(alias)) {
+                            resolvedCmdText = slashCmd;
+                            matched = true;
+                            break;
+                        }
+                    }
+                }
             }
-            console.log(`[QQ][CMD-DEBUG] text="${text.slice(0, 80)}", cmdText="${cmdText}", cmdTextHex=[${Buffer.from(cmdText).toString('hex')}], resolvedCmdText="${resolvedCmdText}", isAdmin=${isAdmin}, isGuild=${isGuild}`);
 
             if (!isGuild && isAdmin && resolvedCmdText.startsWith('/')) {
                 const parts = resolvedCmdText.split(/\s+/);
                 const cmd = parts[0];
-                console.log(`[QQ][CMD] matched command: cmd=${cmd}, cmdText="${cmdText}", resolvedCmdText="${resolvedCmdText}", isAdmin=${isAdmin}, userId=${userId}`);
                 if (cmd === '/status') {
                     const statusMsg = `[OpenClawd QQ]\nState: Connected\nSelf ID: ${client.getSelfId()}\nMemory: ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB`;
                     if (isGroup) client.sendGroupMsg(groupId, statusMsg); else client.sendPrivateMsg(userId, statusMsg);
@@ -981,9 +994,11 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                 }
                 // /title @用户 头衔 - 设置专属头衔
                 if (isGroup && cmd === '/title') {
-                    const targetId = getCommandAtTarget() || (parts[1] ? parseInt(parts[1]) : null);
-                    // parts: ["/title", "QQ号或@名", "头衔..."] — 取第2个之后的部分作为头衔
-                    const titleText = parts.slice(2).join(" ") || (parts[1] && isNaN(parseInt(parts[1])) ? "" : "");
+                    const atTarget = getCommandAtTarget();
+                    const targetId = atTarget || (parts[1] ? parseInt(parts[1]) : null);
+                    // If target came from @-mention segment, title starts at parts[1]; otherwise at parts[2]
+                    const argStart = atTarget ? 1 : 2;
+                    const titleText = parts.slice(argStart).join(" ");
                     if (targetId) {
                         try {
                             await client.setGroupSpecialTitle(groupId, targetId, titleText);
@@ -996,8 +1011,10 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                 }
                 // /card @用户 名片 - 设置群名片
                 if (isGroup && cmd === '/card') {
-                    const targetId = getCommandAtTarget() || (parts[1] ? parseInt(parts[1]) : null);
-                    const cardText = parts.slice(2).join(" ") || "";
+                    const atTarget = getCommandAtTarget();
+                    const targetId = atTarget || (parts[1] ? parseInt(parts[1]) : null);
+                    const argStart = atTarget ? 1 : 2;
+                    const cardText = parts.slice(argStart).join(" ");
                     if (targetId) {
                         try {
                             await client.setGroupCard(groupId, targetId, cardText);
@@ -1109,7 +1126,11 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                     }
                     return;
                 }
-                if (isGroup && cmd === '/setessence' && replyMsgId) {
+                if (isGroup && cmd === '/setessence') {
+                    if (!replyMsgId) {
+                        client.sendGroupMsg(groupId, `请回复一条消息后再使用 /setessence 命令。`);
+                        return;
+                    }
                     try {
                         await client.setEssenceMsg(replyMsgId);
                         client.sendGroupMsg(groupId, `已设为精华消息。`);
@@ -1118,7 +1139,11 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                     }
                     return;
                 }
-                if (isGroup && cmd === '/delessence' && replyMsgId) {
+                if (isGroup && cmd === '/delessence') {
+                    if (!replyMsgId) {
+                        client.sendGroupMsg(groupId, `请回复一条消息后再使用 /delessence 命令。`);
+                        return;
+                    }
                     try {
                         await client.deleteEssenceMsg(replyMsgId);
                         client.sendGroupMsg(groupId, `已移出精华消息。`);
@@ -1128,20 +1153,20 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                     return;
                 }
                 if (cmd === '/cache') {
-                    if (isAdmin) {
-                        try {
-                            await client.cleanCache();
-                            const cacheMsg = `缓存已清理。`;
-                            if (isGroup) client.sendGroupMsg(groupId, cacheMsg); else client.sendPrivateMsg(userId, cacheMsg);
-                        } catch (e) {
-                            const errMsg = `清理缓存失败: ${e}`;
-                            if (isGroup) client.sendGroupMsg(groupId, errMsg); else client.sendPrivateMsg(userId, errMsg);
-                        }
+                    try {
+                        await client.cleanCache();
+                        const cacheMsg = `缓存已清理。`;
+                        if (isGroup) client.sendGroupMsg(groupId, cacheMsg); else client.sendPrivateMsg(userId, cacheMsg);
+                    } catch (e) {
+                        const errMsg = `清理缓存失败: ${e}`;
+                        if (isGroup) client.sendGroupMsg(groupId, errMsg); else client.sendPrivateMsg(userId, errMsg);
                     }
                     return;
                 }
+                // Unknown slash command — don't pass to AI, just ignore
+                if (resolvedCmdText.startsWith('/')) return;
             }
-            
+
             let historyContext = "";
             if (isGroup && config.historyLimit !== 0) {
                  try {
