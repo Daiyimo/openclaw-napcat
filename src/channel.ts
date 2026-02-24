@@ -772,7 +772,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
 
             // React with emoji if configured (static mode, not "auto")
             if (config.reactionEmoji && config.reactionEmoji !== "auto" && event.message_id) {
-                try { client.setMsgEmojiLike(event.message_id, config.reactionEmoji); } catch (e) {}
+                try { await client.setMsgEmojiLike(event.message_id, config.reactionEmoji); } catch (e) {}
             }
 
             // Auto reaction mode: task messages get OK emoji on original, chat messages get reaction on reply
@@ -783,7 +783,14 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             if (isAutoReaction && event.message_id) {
                 const cleanText = cleanCQCodes(text).trim();
                 if (isTaskLikeMessage(cleanText)) {
-                    try { client.setMsgEmojiLike(event.message_id, "128076"); taskEmojiAlreadySent = true; } catch (e) {}
+                    try {
+                        console.log(`[QQ] Task-like message detected: "${cleanText.slice(0, 50)}", sending OK emoji on msg ${event.message_id}`);
+                        await client.setMsgEmojiLike(event.message_id, "128076");
+                        taskEmojiAlreadySent = true;
+                        console.log(`[QQ] OK emoji sent successfully`);
+                    } catch (e) {
+                        console.error(`[QQ] Failed to send OK emoji:`, e);
+                    }
                 }
             }
 
@@ -849,7 +856,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                          if (taskEmojiOnlyMatch) {
                              // Legacy: AI still output [task:emoji_only] — send OK only if not already sent
                              if (!taskEmojiAlreadySent) {
-                                 try { client.setMsgEmojiLike(event.message_id, "128076"); } catch (e) {}
+                                 try { await client.setMsgEmojiLike(event.message_id, "128076"); } catch (e) {}
                              }
                              processed = processed.slice(taskEmojiOnlyMatch[0].length);
                          } else {
@@ -857,14 +864,14 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                              if (taskMatch) {
                                  // Legacy: AI still output [task:ok] — send OK only if not already sent
                                  if (!taskEmojiAlreadySent) {
-                                     try { client.setMsgEmojiLike(event.message_id, "128076"); } catch (e) {}
+                                     try { await client.setMsgEmojiLike(event.message_id, "128076"); } catch (e) {}
                                  }
                                  processed = processed.slice(taskMatch[0].length);
                              } else {
                                  // Chat/emotion reaction — AI-chosen emoji
                                  const reactionMatch = processed.match(/^\[reaction:(\d+)\]\s*/);
                                  if (reactionMatch) {
-                                     try { client.setMsgEmojiLike(event.message_id, reactionMatch[1]); } catch (e) {}
+                                     try { await client.setMsgEmojiLike(event.message_id, reactionMatch[1]); } catch (e) {}
                                      processed = processed.slice(reactionMatch[0].length);
                                  }
                              }
