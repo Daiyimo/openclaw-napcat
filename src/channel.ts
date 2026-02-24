@@ -242,7 +242,8 @@ function processAntiRisk(text: string): string {
 }
 
 function isTaskLikeMessage(text: string): boolean {
-    const trimmed = text.trim();
+    // Strip @mentions before matching (e.g. "@青青蛙 帮我查天气" → "帮我查天气")
+    const trimmed = text.replace(/@\S+\s*/g, "").trim();
     if (!trimmed) return false;
     // Slash commands
     if (trimmed.startsWith('/')) return true;
