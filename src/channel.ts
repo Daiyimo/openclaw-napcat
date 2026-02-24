@@ -827,10 +827,12 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                     }
                 }
             }
+            console.log(`[QQ][CMD-DEBUG] text="${text.slice(0, 80)}", cmdText="${cmdText}", resolvedCmdText="${resolvedCmdText}", isAdmin=${isAdmin}, isGuild=${isGuild}`);
 
             if (!isGuild && isAdmin && resolvedCmdText.startsWith('/')) {
                 const parts = resolvedCmdText.split(/\s+/);
                 const cmd = parts[0];
+                console.log(`[QQ][CMD] matched command: cmd=${cmd}, cmdText="${cmdText}", resolvedCmdText="${resolvedCmdText}", isAdmin=${isAdmin}, userId=${userId}`);
                 if (cmd === '/status') {
                     const statusMsg = `[OpenClawd QQ]\nState: Connected\nSelf ID: ${client.getSelfId()}\nMemory: ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB`;
                     if (isGroup) client.sendGroupMsg(groupId, statusMsg); else client.sendPrivateMsg(userId, statusMsg);
