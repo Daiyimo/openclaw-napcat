@@ -778,12 +778,15 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
 
             // Auto reaction mode: task messages get OK emoji on original, chat messages get reaction on reply
             const isAutoReaction = config.reactionEmoji === "auto";
+            console.log(`[QQ] Message from ${userId} in ${isGroup ? 'group' : 'private'}, reactionEmoji="${config.reactionEmoji}", isAutoReaction=${isAutoReaction}, message_id=${event.message_id}, text="${text.slice(0, 60)}"`);
 
             // Immediate OK emoji for task-like messages (no need to wait for AI)
             let taskEmojiAlreadySent = false;
             if (isAutoReaction && event.message_id) {
                 const cleanText = cleanCQCodes(text).trim();
-                if (isTaskLikeMessage(cleanText)) {
+                const strippedText = cleanText.replace(/@\S+\s*/g, "").trim();
+                console.log(`[QQ] cleanText="${cleanText.slice(0, 60)}", strippedText="${strippedText.slice(0, 60)}", isTask=${isTaskLikeMessage(strippedText)}`);
+                if (isTaskLikeMessage(strippedText)) {
                     try {
                         console.log(`[QQ] Task-like message detected: "${cleanText.slice(0, 50)}", sending OK emoji on msg ${event.message_id}`);
                         await client.setMsgEmojiLike(event.message_id, "128076");
