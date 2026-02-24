@@ -792,7 +792,9 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             }
 
             // Strip @mentions and leading whitespace to extract the command
-            const cmdText = text.replace(/@\S+\s*/g, "").trim();
+            const cmdText = text.replace(/@\S+\s*/g, "")
+                .replace(/[\u200b\u200c\u200d\u200e\u200f\ufeff\u00a0]/g, "") // strip zero-width / non-breaking spaces
+                .trim();
 
             // 中文关键词 → 斜杠命令映射
             const cmdAliasMap: Record<string, string> = {
@@ -827,7 +829,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                     }
                 }
             }
-            console.log(`[QQ][CMD-DEBUG] text="${text.slice(0, 80)}", cmdText="${cmdText}", resolvedCmdText="${resolvedCmdText}", isAdmin=${isAdmin}, isGuild=${isGuild}`);
+            console.log(`[QQ][CMD-DEBUG] text="${text.slice(0, 80)}", cmdText="${cmdText}", cmdTextHex=[${Buffer.from(cmdText).toString('hex')}], resolvedCmdText="${resolvedCmdText}", isAdmin=${isAdmin}, isGuild=${isGuild}`);
 
             if (!isGuild && isAdmin && resolvedCmdText.startsWith('/')) {
                 const parts = resolvedCmdText.split(/\s+/);
