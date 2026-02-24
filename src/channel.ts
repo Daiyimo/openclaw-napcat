@@ -241,23 +241,6 @@ function processAntiRisk(text: string): string {
     return text.replace(/(https?:\/\/)/gi, "$1 ");
 }
 
-function isTaskLikeMessage(text: string): boolean {
-    // Strip @mentions before matching (e.g. "@青青蛙 帮我查天气" → "帮我查天气")
-    const trimmed = text.replace(/@\S+\s*/g, "").trim();
-    if (!trimmed) return false;
-    // Slash commands
-    if (trimmed.startsWith('/')) return true;
-    // Chinese request words
-    if (/^(帮我|请帮|能不能|可以帮|麻烦|请问|查一下|查查|翻译|设置|打开|关闭|发送|提醒|计算|搜索|搜一下|告诉我|给我)/.test(trimmed)) return true;
-    // Chinese question words
-    if (/(怎么办|如何|什么是|是什么|多少|为什么|怎样|怎么|哪里|哪个|几点|几号|谁是|有没有)/.test(trimmed)) return true;
-    // Ends with question marks or Chinese particles indicating a question
-    if (/[?？吗呢吧么]$/.test(trimmed)) return true;
-    // English command/request patterns
-    if (/^(help|please|can you|could you|how to|how do|what is|what's|where|when|show me|tell me|find|search|look up|translate|set|get|list)/i.test(trimmed)) return true;
-    return false;
-}
-
 async function resolveMediaUrl(url: string): Promise<string> {
     if (url.startsWith("file:")) {
         try {
@@ -776,27 +759,8 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                 try { await client.setMsgEmojiLike(event.message_id, config.reactionEmoji); } catch (e) {}
             }
 
-            // Auto reaction mode: task messages get OK emoji on original, chat messages get reaction on reply
+            // Auto reaction mode: AI decides reaction via [reaction:ID] or [task:ok] markers
             const isAutoReaction = config.reactionEmoji === "auto";
-            console.log(`[QQ] Message from ${userId} in ${isGroup ? 'group' : 'private'}, reactionEmoji="${config.reactionEmoji}", isAutoReaction=${isAutoReaction}, message_id=${event.message_id}, text="${text.slice(0, 60)}"`);
-
-            // Immediate OK emoji for task-like messages (no need to wait for AI)
-            let taskEmojiAlreadySent = false;
-            if (isAutoReaction && event.message_id) {
-                const cleanText = cleanCQCodes(text).trim();
-                const strippedText = cleanText.replace(/@\S+\s*/g, "").trim();
-                console.log(`[QQ] cleanText="${cleanText.slice(0, 60)}", strippedText="${strippedText.slice(0, 60)}", isTask=${isTaskLikeMessage(strippedText)}`);
-                if (isTaskLikeMessage(strippedText)) {
-                    try {
-                        console.log(`[QQ] Task-like message detected: "${cleanText.slice(0, 50)}", sending OK emoji on msg ${event.message_id}`);
-                        await client.setMsgEmojiLike(event.message_id, "128076");
-                        taskEmojiAlreadySent = true;
-                        console.log(`[QQ] OK emoji sent successfully`);
-                    } catch (e) {
-                        console.error(`[QQ] Failed to send OK emoji:`, e);
-                    }
-                }
-            }
 
             // NapCat 4.17.25: URL safety check
             if (config.enableUrlCheck && Array.isArray(event.message)) {
@@ -858,21 +822,14 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                      if (isAutoReaction && event.message_id) {
                          const taskEmojiOnlyMatch = processed.match(/^\[task:emoji_only\]\s*/);
                          if (taskEmojiOnlyMatch) {
-                             // Legacy: AI still output [task:emoji_only] — send OK only if not already sent
-                             if (!taskEmojiAlreadySent) {
-                                 try { await client.setMsgEmojiLike(event.message_id, "128076"); } catch (e) {}
-                             }
+                             try { await client.setMsgEmojiLike(event.message_id, "128076"); } catch (e) {}
                              processed = processed.slice(taskEmojiOnlyMatch[0].length);
                          } else {
                              const taskMatch = processed.match(/^\[task:ok\]\s*/);
                              if (taskMatch) {
-                                 // Legacy: AI still output [task:ok] — send OK only if not already sent
-                                 if (!taskEmojiAlreadySent) {
-                                     try { await client.setMsgEmojiLike(event.message_id, "128076"); } catch (e) {}
-                                 }
+                                 try { await client.setMsgEmojiLike(event.message_id, "128076"); } catch (e) {}
                                  processed = processed.slice(taskMatch[0].length);
                              } else {
-                                 // Chat/emotion reaction — AI-chosen emoji
                                  const reactionMatch = processed.match(/^\[reaction:(\d+)\]\s*/);
                                  if (reactionMatch) {
                                      try { await client.setMsgEmojiLike(event.message_id, reactionMatch[1]); } catch (e) {}
@@ -962,16 +919,17 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             if (config.systemPrompt) systemBlock += `<system>${config.systemPrompt}</system>\n\n`;
             if (config.reactionEmoji === "auto") {
                 systemBlock += `<reaction-instruction>根据用户消息类型，在回复最开头添加标记：
-- 任务类请求（查询、提醒、设置、执行操作等）：无需添加任何标记，系统已自动处理OK反应
-- 闲聊/情感类消息：从以下列表选择一个最合适的表情ID添加[reaction:表情ID]标记
-- 一般对话（问候、感谢、道歉等）：正常文字回复不需要任何标记
-  可用表情：128077(👍厉害) 128079(👏鼓掌) 128293(🔥火) 128516(😄高兴) 128514(😂激动) 128522(😊嘿嘿) 128536(😘飞吻) 128170(💪加油) 128147(💓爱心) 10024(✨闪光) 127881(🎉庆祝) 128557(😭大哭)
+- 如果是任务类请求（如查询、提醒、设置、执行操作、获取信息、帮助等），在回复开头添加"[task:ok]"标记，机器人会在消息上添加OK表情回应
+- 如果是闲聊/情感类消息，从以下列表选择一个最合适的表情ID添加[reaction:表情ID]标记，机器人会在消息上添加对应表情回应
+- 如果是一般对话（问候、感谢、道歉等），正常文字回复不需要任何标记
+  可用表情：128077(👍厉害) 128079(👏鼓掌) 128293(🔥火) 128516(😄高兴) 128514(😂激动) 128522(😊嘿嘿) 128536(😘飞吻) 128170(💪加油) 128147(💓爱心) 10024(✨闪光) 127881(🎉庆祝) 128557(😭大哭) 128076(👌OK)
 示例：
-- 用户说"帮我查下天气"→回复"好的，我帮你查一下天气"（无标记，系统已自动添加OK反应）
+- 用户说"帮我查下天气"→回复"[task:ok]好的，我帮你查一下天气"
+- 用户说"查询电费 http://..."→回复"[task:ok]好的，我来帮你看看"
 - 用户说"谢谢"→回复"[reaction:128147]不客气！"
 - 用户说"太厉害了"→回复"[reaction:128293]嘿嘿~"
 - 用户说"在吗"→回复"在的，有什么可以帮你的吗？"
-只在闲聊/情感类消息时输出[reaction:ID]标记，其他情况正常回复。</reaction-instruction>\n\n`;
+只输出一个标记或正常文字回复，不要同时输出多个标记。</reaction-instruction>\n\n`;
             }
             if (historyContext) systemBlock += `<history>\n${historyContext}\n</history>\n\n`;
             if (ocrText) systemBlock += `<ocr-text>\n${ocrText}\n</ocr-text>\n\n`;
