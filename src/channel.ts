@@ -580,6 +580,105 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                 } else return;
             }
 
+            // --- 群精华消息通知 ---
+            if (event.post_type === "notice" && event.notice_type === "essence" && event.group_id) {
+                const gid = event.group_id;
+                const subType = event.sub_type; // 'add' | 'delete'
+                const senderId = event.sender_id || event.user_id;
+                const operatorId = event.operator_id;
+                const msgId = event.message_id;
+
+                if (config.enableEssenceMsg) {
+                    let senderName = senderId ? getCachedMemberName(String(gid), String(senderId)) || String(senderId) : "未知";
+                    let operatorName = operatorId ? getCachedMemberName(String(gid), String(operatorId)) || String(operatorId) : "未知";
+
+                    if (subType === "add") {
+                        client.sendGroupMsg(gid, `[精华消息] ${operatorName} 设置了 ${senderName} 的消息为精华消息 (ID: ${msgId})`);
+                    } else if (subType === "delete") {
+                        client.sendGroupMsg(gid, `[精华消息] ${operatorName} 移出了 ${senderName} 的精华消息 (ID: ${msgId})`);
+                    }
+                }
+                console.log(`[QQ] Essence ${subType}: group=${gid}, sender=${senderId}, operator=${operatorId}, msgId=${msgId}`);
+                return;
+            }
+
+            // --- 群管理员变动通知 ---
+            if (event.post_type === "notice" && event.notice_type === "group_admin" && event.group_id) {
+                const gid = event.group_id;
+                const uid = event.user_id;
+                const subType = event.sub_type; // 'set' | 'unset'
+                const name = uid ? getCachedMemberName(String(gid), String(uid)) || String(uid) : "未知";
+                if (subType === "set") {
+                    console.log(`[QQ] Group admin set: group=${gid}, user=${uid}`);
+                } else {
+                    console.log(`[QQ] Group admin unset: group=${gid}, user=${uid}`);
+                }
+                return;
+            }
+
+            // --- 群成员增减通知 ---
+            if (event.post_type === "notice" && (event.notice_type === "group_increase" || event.notice_type === "group_decrease") && event.group_id) {
+                const gid = event.group_id;
+                const uid = event.user_id;
+                const operatorId = event.operator_id;
+                if (event.notice_type === "group_increase") {
+                    console.log(`[QQ] Group member joined: group=${gid}, user=${uid}, operator=${operatorId}`);
+                    // Refresh member cache
+                    bulkCachedGroups.delete(String(gid));
+                } else {
+                    console.log(`[QQ] Group member left: group=${gid}, user=${uid}, sub_type=${event.sub_type}, operator=${operatorId}`);
+                    memberCache.delete(`${gid}:${uid}`);
+                    bulkCachedGroups.delete(String(gid));
+                }
+                return;
+            }
+
+            // --- 群禁言通知 ---
+            if (event.post_type === "notice" && event.notice_type === "group_ban" && event.group_id) {
+                const gid = event.group_id;
+                const uid = event.user_id;
+                const operatorId = event.operator_id;
+                const duration = event.duration || 0;
+                const subType = event.sub_type; // 'ban' | 'lift_ban'
+                console.log(`[QQ] Group ban ${subType}: group=${gid}, user=${uid}, operator=${operatorId}, duration=${duration}`);
+                return;
+            }
+
+            // --- 群文件上传通知 ---
+            if (event.post_type === "notice" && event.notice_type === "group_upload" && event.group_id) {
+                console.log(`[QQ] Group file upload: group=${event.group_id}, user=${event.user_id}`);
+                return;
+            }
+
+            // --- 群名片变更通知 ---
+            if (event.post_type === "notice" && event.notice_type === "group_card" && event.group_id) {
+                const uid = event.user_id;
+                const gid = event.group_id;
+                if (uid && event.card_new) {
+                    setCachedMemberName(String(gid), String(uid), event.card_new);
+                }
+                console.log(`[QQ] Group card changed: group=${gid}, user=${uid}, old=${event.card_old}, new=${event.card_new}`);
+                return;
+            }
+
+            // --- 好友添加通知 ---
+            if (event.post_type === "notice" && event.notice_type === "friend_add") {
+                console.log(`[QQ] Friend added: user=${event.user_id}`);
+                return;
+            }
+
+            // --- 群荣誉变更/红包运气王/头衔变更通知 ---
+            if (event.post_type === "notice" && event.notice_type === "notify" && event.sub_type !== "poke") {
+                if (event.sub_type === "honor") {
+                    console.log(`[QQ] Group honor: group=${event.group_id}, user=${event.user_id}, honor_type=${event.honor_type}`);
+                } else if (event.sub_type === "lucky_king") {
+                    console.log(`[QQ] Lucky king: group=${event.group_id}, user=${event.user_id}, target=${event.target_id}`);
+                } else if (event.sub_type === "title") {
+                    console.log(`[QQ] Title change: group=${event.group_id}, user=${event.user_id}, title=${event.title}`);
+                }
+                return;
+            }
+
             if (event.post_type !== "message") return;
             
             // 2. Dynamic self-message filtering
@@ -676,7 +775,35 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                     return;
                 }
                 if (cmd === '/help') {
-                    const helpMsg = `[OpenClawd QQ]\n/status - 状态\n/mute @用户 [分] - 禁言\n/kick @用户 - 踢出\n/notice 公告 - 发送群公告\n/signin - 群打卡\n/honor - 群荣誉\n/essence - 精华消息\n/cache - 清理缓存\n/help - 帮助`;
+                    const helpMsg = `[OpenClawd QQ]\n` +
+                        `--- 基础命令 ---\n` +
+                        `/status - 机器人状态\n` +
+                        `/help - 显示帮助\n` +
+                        `/cache - 清理缓存\n` +
+                        `--- 群管理 ---\n` +
+                        `/mute @用户 [分钟] - 禁言\n` +
+                        `/unmute @用户 - 解除禁言\n` +
+                        `/muteall - 全员禁言\n` +
+                        `/unmuteall - 解除全员禁言\n` +
+                        `/kick @用户 - 踢出\n` +
+                        `/admin @用户 - 设置管理员\n` +
+                        `/unadmin @用户 - 取消管理员\n` +
+                        `/title @用户 头衔 - 设置专属头衔\n` +
+                        `/card @用户 名片 - 设置群名片\n` +
+                        `/groupname 名称 - 修改群名\n` +
+                        `/notice 公告 - 发送群公告\n` +
+                        `--- 互动功能 ---\n` +
+                        `/poke @用户 - 戳一戳\n` +
+                        `/like @用户 [次数] - 点赞\n` +
+                        `/signin - 群打卡\n` +
+                        `--- 信息查询 ---\n` +
+                        `/honor - 群荣誉\n` +
+                        `/banlist - 禁言列表\n` +
+                        `/atall - @全体剩余次数\n` +
+                        `--- 精华消息 ---\n` +
+                        `/essence - 精华消息列表\n` +
+                        `/setessence (回复) - 设为精华\n` +
+                        `/delessence (回复) - 移出精华`;
                     if (isGroup) client.sendGroupMsg(groupId, helpMsg); else client.sendPrivateMsg(userId, helpMsg);
                     return;
                 }
@@ -698,6 +825,187 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                     }
                     return;
                 }
+                // /unmute @用户 - 解除禁言
+                if (isGroup && cmd === '/unmute') {
+                    const targetMatch = text.match(/\[CQ:at,qq=(\d+)\]/);
+                    const targetId = targetMatch ? parseInt(targetMatch[1]) : (parts[1] ? parseInt(parts[1]) : null);
+                    if (targetId) {
+                        client.setGroupBan(groupId, targetId, 0);
+                        client.sendGroupMsg(groupId, `已解除禁言。`);
+                    }
+                    return;
+                }
+                // /muteall - 全员禁言
+                if (isGroup && cmd === '/muteall') {
+                    try {
+                        await client.setGroupWholeBan(groupId, true);
+                        client.sendGroupMsg(groupId, `已开启全员禁言。`);
+                    } catch (e) {
+                        client.sendGroupMsg(groupId, `全员禁言失败: ${e}`);
+                    }
+                    return;
+                }
+                // /unmuteall - 解除全员禁言
+                if (isGroup && cmd === '/unmuteall') {
+                    try {
+                        await client.setGroupWholeBan(groupId, false);
+                        client.sendGroupMsg(groupId, `已解除全员禁言。`);
+                    } catch (e) {
+                        client.sendGroupMsg(groupId, `解除全员禁言失败: ${e}`);
+                    }
+                    return;
+                }
+                // /poke @用户 - 戳一戳
+                if (isGroup && cmd === '/poke') {
+                    const targetMatch = text.match(/\[CQ:at,qq=(\d+)\]/);
+                    const targetId = targetMatch ? parseInt(targetMatch[1]) : (parts[1] ? parseInt(parts[1]) : null);
+                    if (targetId) {
+                        try {
+                            await client.sendPoke(targetId, groupId);
+                            client.sendGroupMsg(groupId, `已戳 ${targetId}。`);
+                        } catch (e) {
+                            // Fallback to group_poke
+                            client.sendGroupPoke(groupId, targetId);
+                        }
+                    }
+                    return;
+                }
+                // /like @用户 [次数] - 点赞
+                if (cmd === '/like') {
+                    const targetMatch = text.match(/\[CQ:at,qq=(\d+)\]/);
+                    const targetId = targetMatch ? parseInt(targetMatch[1]) : (parts[1] ? parseInt(parts[1]) : null);
+                    if (targetId) {
+                        // Try to find times in the remaining text after the at-mention or as the last numeric arg
+                        const timesMatch = text.match(/\]\s+(\d+)\s*$/) || text.match(/\s(\d+)\s*$/);
+                        const times = timesMatch ? Math.min(parseInt(timesMatch[1]) || 10, 20) : 10;
+                        try {
+                            await client.sendLike(targetId, times);
+                            const reply = `已给 ${targetId} 点赞 ${times} 次。`;
+                            if (isGroup) client.sendGroupMsg(groupId, reply); else client.sendPrivateMsg(userId, reply);
+                        } catch (e) {
+                            const reply = `点赞失败: ${e}`;
+                            if (isGroup) client.sendGroupMsg(groupId, reply); else client.sendPrivateMsg(userId, reply);
+                        }
+                    }
+                    return;
+                }
+                // /admin @用户 - 设置管理员
+                if (isGroup && cmd === '/admin') {
+                    const targetMatch = text.match(/\[CQ:at,qq=(\d+)\]/);
+                    const targetId = targetMatch ? parseInt(targetMatch[1]) : (parts[1] ? parseInt(parts[1]) : null);
+                    if (targetId) {
+                        try {
+                            await client.setGroupAdmin(groupId, targetId, true);
+                            client.sendGroupMsg(groupId, `已设置 ${targetId} 为管理员。`);
+                        } catch (e) {
+                            client.sendGroupMsg(groupId, `设置管理员失败: ${e}`);
+                        }
+                    }
+                    return;
+                }
+                // /unadmin @用户 - 取消管理员
+                if (isGroup && cmd === '/unadmin') {
+                    const targetMatch = text.match(/\[CQ:at,qq=(\d+)\]/);
+                    const targetId = targetMatch ? parseInt(targetMatch[1]) : (parts[1] ? parseInt(parts[1]) : null);
+                    if (targetId) {
+                        try {
+                            await client.setGroupAdmin(groupId, targetId, false);
+                            client.sendGroupMsg(groupId, `已取消 ${targetId} 的管理员。`);
+                        } catch (e) {
+                            client.sendGroupMsg(groupId, `取消管理员失败: ${e}`);
+                        }
+                    }
+                    return;
+                }
+                // /title @用户 头衔 - 设置专属头衔
+                if (isGroup && cmd === '/title') {
+                    const targetMatch = text.match(/\[CQ:at,qq=(\d+)\]/);
+                    const targetId = targetMatch ? parseInt(targetMatch[1]) : null;
+                    // Extract title text after the @mention or after the user ID
+                    let titleText = "";
+                    if (targetMatch) {
+                        titleText = text.slice(text.indexOf(targetMatch[0]) + targetMatch[0].length).trim();
+                    } else if (parts.length >= 3) {
+                        titleText = parts.slice(2).join(" ");
+                    }
+                    const uid = targetId || (parts[1] ? parseInt(parts[1]) : null);
+                    if (uid) {
+                        try {
+                            await client.setGroupSpecialTitle(groupId, uid, titleText || "");
+                            client.sendGroupMsg(groupId, titleText ? `已设置 ${uid} 的头衔为: ${titleText}` : `已清除 ${uid} 的头衔。`);
+                        } catch (e) {
+                            client.sendGroupMsg(groupId, `设置头衔失败: ${e}`);
+                        }
+                    }
+                    return;
+                }
+                // /card @用户 名片 - 设置群名片
+                if (isGroup && cmd === '/card') {
+                    const targetMatch = text.match(/\[CQ:at,qq=(\d+)\]/);
+                    const targetId = targetMatch ? parseInt(targetMatch[1]) : null;
+                    let cardText = "";
+                    if (targetMatch) {
+                        cardText = text.slice(text.indexOf(targetMatch[0]) + targetMatch[0].length).trim();
+                    } else if (parts.length >= 3) {
+                        cardText = parts.slice(2).join(" ");
+                    }
+                    const uid = targetId || (parts[1] ? parseInt(parts[1]) : null);
+                    if (uid) {
+                        try {
+                            await client.setGroupCard(groupId, uid, cardText || "");
+                            client.sendGroupMsg(groupId, cardText ? `已设置 ${uid} 的群名片为: ${cardText}` : `已清除 ${uid} 的群名片。`);
+                        } catch (e) {
+                            client.sendGroupMsg(groupId, `设置群名片失败: ${e}`);
+                        }
+                    }
+                    return;
+                }
+                // /groupname 名称 - 修改群名
+                if (isGroup && cmd === '/groupname') {
+                    const newName = text.slice(cmd.length).trim();
+                    if (newName) {
+                        try {
+                            await client.setGroupName(groupId, newName);
+                            client.sendGroupMsg(groupId, `群名已修改为: ${newName}`);
+                        } catch (e) {
+                            client.sendGroupMsg(groupId, `修改群名失败: ${e}`);
+                        }
+                    }
+                    return;
+                }
+                // /banlist - 查看禁言列表
+                if (isGroup && cmd === '/banlist') {
+                    try {
+                        const banList = await client.getGroupBanList(groupId);
+                        if (banList && banList.length > 0) {
+                            let msg = `[禁言列表] 共${banList.length}人\n`;
+                            for (const b of banList.slice(0, 20)) {
+                                const name = getCachedMemberName(String(groupId), String(b.user_id)) || String(b.user_id);
+                                msg += `${name} (${b.user_id})`;
+                                if (b.ban_time) msg += ` - 剩余${Math.ceil(b.ban_time / 60)}分钟`;
+                                msg += "\n";
+                            }
+                            client.sendGroupMsg(groupId, msg.trim());
+                        } else {
+                            client.sendGroupMsg(groupId, `当前无禁言成员。`);
+                        }
+                    } catch (e) {
+                        client.sendGroupMsg(groupId, `获取禁言列表失败: ${e}`);
+                    }
+                    return;
+                }
+                // /atall - 查看@全体剩余次数
+                if (isGroup && cmd === '/atall') {
+                    try {
+                        const remain = await client.getGroupAtAllRemain(groupId);
+                        if (remain) {
+                            client.sendGroupMsg(groupId, `[@ 全体成员] 今日剩余: 群内 ${remain.can_at_all ? '可用' : '不可用'}，剩余 ${remain.remain_at_all_count_for_group ?? '未知'} 次 (管理员剩余 ${remain.remain_at_all_count_for_uin ?? '未知'} 次)`);
+                        }
+                    } catch (e) {
+                        client.sendGroupMsg(groupId, `获取@全体剩余次数失败: ${e}`);
+                    }
+                    return;
+                }
                 // NapCat 4.17.25 新命令
                 if (isGroup && cmd === '/notice') {
                     const noticeText = text.slice(cmd.length).trim();
@@ -713,7 +1021,12 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                 }
                 if (isGroup && cmd === '/signin') {
                     try {
-                        await client.sendGroupSignIn(groupId);
+                        // 尝试 set_group_sign (NapCat推荐) 和 send_group_sign_in 两种API
+                        try {
+                            await client.setGroupSign(groupId);
+                        } catch {
+                            await client.sendGroupSignIn(groupId);
+                        }
                         client.sendGroupMsg(groupId, `打卡成功！`);
                     } catch (e) {
                         client.sendGroupMsg(groupId, `打卡失败: ${e}`);
