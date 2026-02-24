@@ -919,18 +919,28 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             let systemBlock = "";
             if (config.systemPrompt) systemBlock += `<system>${config.systemPrompt}</system>\n\n`;
             if (config.reactionEmoji === "auto") {
-                systemBlock += `<reaction-instruction>根据用户消息类型，在回复最开头添加标记：
-- 如果是任务类请求（如查询、提醒、设置、执行操作、获取信息、帮助等），在回复开头添加"[task:ok]"标记，机器人会在消息上添加OK表情回应
-- 如果是闲聊/情感类消息，从以下列表选择一个最合适的表情ID添加[reaction:表情ID]标记，机器人会在消息上添加对应表情回应
-- 如果是一般对话（问候、感谢、道歉等），正常文字回复不需要任何标记
-  可用表情：128077(👍厉害) 128079(👏鼓掌) 128293(🔥火) 128516(😄高兴) 128514(😂激动) 128522(😊嘿嘿) 128536(😘飞吻) 128170(💪加油) 128147(💓爱心) 10024(✨闪光) 127881(🎉庆祝) 128557(😭大哭) 128076(👌OK)
-示例：
-- 用户说"帮我查下天气"→回复"[task:ok]好的，我帮你查一下天气"
-- 用户说"查询电费 http://..."→回复"[task:ok]好的，我来帮你看看"
-- 用户说"谢谢"→回复"[reaction:128147]不客气！"
-- 用户说"太厉害了"→回复"[reaction:128293]嘿嘿~"
-- 用户说"在吗"→回复"在的，有什么可以帮你的吗？"
-只输出一个标记或正常文字回复，不要同时输出多个标记。</reaction-instruction>\n\n`;
+                systemBlock += `<reaction-instruction>
+【重要规则】你必须在每条回复的最开头添加一个表情标记，这是强制要求：
+
+1. 任务类请求（查询、翻译、提醒、设置、帮忙、操作等）→ 开头必须写 [task:ok]
+2. 闲聊/情感/夸奖/吐槽/搞笑 → 开头必须写 [reaction:表情ID]
+3. 仅限问候语（你好、在吗）和简单感谢（谢谢）→ 不加标记
+
+可用表情ID：128077(👍) 128079(👏) 128293(🔥) 128516(😄) 128514(😂) 128522(😊) 128536(😘) 128170(💪) 128147(❤) 10024(✨) 127881(🎉) 128557(😭) 128076(👌)
+
+示例（你必须严格按此格式输出）：
+用户：帮我查天气 → 你的回复：[task:ok]好的，我帮你查一下天气
+用户：翻译hello → 你的回复：[task:ok]hello的意思是"你好"
+用户：查询电费 → 你的回复：[task:ok]好的，我来帮你查
+用户：哈哈太搞笑了 → 你的回复：[reaction:128514]确实太好笑了！
+用户：你真厉害 → 你的回复：[reaction:128077]嘿嘿谢谢夸奖~
+用户：好难过 → 你的回复：[reaction:128557]怎么啦？跟我说说
+用户：不客气 → 你的回复：[reaction:128522]有需要随时叫我～
+用户：你好 → 你的回复：你好呀，有什么可以帮你的吗？
+用户：谢谢 → 你的回复：不客气！
+
+再次强调：除了纯问候和纯感谢，所有回复都必须以[task:ok]或[reaction:ID]开头！
+</reaction-instruction>\n\n`;
             }
             if (historyContext) systemBlock += `<history>\n${historyContext}\n</history>\n\n`;
             if (ocrText) systemBlock += `<ocr-text>\n${ocrText}\n</ocr-text>\n\n`;
