@@ -35,7 +35,11 @@ echo "修复 npm 目录权限..."
 sudo chown -R "$(id -u):$(id -g)" ~/.npm 2>/dev/null || true
 sudo chown -R "$(id -u):$(id -g)" ~/.npm-global 2>/dev/null || true
 
-# 4. 安装依赖
+# 4. 强制 git 使用 HTTPS 替代 SSH（避免服务器无 SSH key 导致依赖安装失败）
+git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+git config --global url."https://github.com/".insteadOf "git@github.com:"
+
+# 5. 安装依赖
 echo "安装依赖..."
 npm install ws zod --no-package-lock --omit=dev --no-audit --registry=https://registry.npmmirror.com
 
