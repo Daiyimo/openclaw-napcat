@@ -454,6 +454,128 @@ export class OneBotClient extends EventEmitter {
       await this.sendAction("set_input_status", { type, id, status });
   }
 
+  // 通用戳一戳 (group_id 存在则群聊戳，否则私聊戳)
+  async sendPoke(userId: number, groupId?: number) {
+      const params: any = { user_id: userId };
+      if (groupId) params.group_id = groupId;
+      await this.sendAction("send_poke", params);
+  }
+
+  // 群签到 (set_group_sign)
+  async setGroupSign(groupId: number) {
+      await this.sendAction("set_group_sign", { group_id: String(groupId) });
+  }
+
+  // 设置群聊已读 (set_group_msg_as_read)
+  async setGroupMsgAsRead(groupId: number) {
+      await this.sendAction("set_group_msg_as_read", { group_id: groupId });
+  }
+
+  // 获取推荐群聊卡片
+  async getArkShareGroup(groupId: number): Promise<any> {
+      return this.sendWithResponse("ArkShareGroup", { group_id: String(groupId) });
+  }
+
+  // 获取推荐好友/群聊卡片
+  async getArkSharePeer(options: { user_id?: string; group_id?: string; phoneNumber?: string }): Promise<any> {
+      return this.sendWithResponse("ArkSharePeer", options);
+  }
+
+  // 转发单条消息到群聊
+  async forwardGroupSingleMsg(messageId: number, groupId: number) {
+      await this.sendAction("forward_group_single_msg", { message_id: messageId, group_id: groupId });
+  }
+
+  // 转发单条消息到好友
+  async forwardFriendSingleMsg(messageId: number, userId: number) {
+      await this.sendAction("forward_friend_single_msg", { message_id: messageId, user_id: userId });
+  }
+
+  // 设置在线状态 (NapCat扩展)
+  async setOnlineStatus(status: number, extStatus: number, batteryStatus: number = 0) {
+      await this.sendAction("set_online_status", { status, ext_status: extStatus, battery_status: batteryStatus });
+  }
+
+  // 获取分类好友列表
+  async getFriendsWithCategory(): Promise<any[]> {
+      return this.sendWithResponse("get_friends_with_category", {});
+  }
+
+  // 设置QQ头像
+  async setQQAvatar(file: string) {
+      await this.sendAction("set_qq_avatar", { file });
+  }
+
+  // 发送合并转发
+  async sendForwardMsg(options: { message_type: string; user_id?: number; group_id?: number; messages: any[] }): Promise<any> {
+      return this.sendWithResponse("send_forward_msg", options);
+  }
+
+  // 获取自身点赞列表
+  async getProfileLike(): Promise<any> {
+      return this.sendWithResponse("get_profile_like", {});
+  }
+
+  // AI文字转语音
+  async getAiRecord(character: string, groupId: number, text: string): Promise<any> {
+      return this.sendWithResponse("get_ai_record", { character, group_id: groupId, text });
+  }
+
+  // 获取AI语音角色列表 (带 group_id)
+  async getAiCharactersList(groupId: number): Promise<any> {
+      return this.sendWithResponse("get_ai_characters", { group_id: groupId });
+  }
+
+  // 获取最近联系人
+  async getRecentContact(count: number = 10): Promise<any[]> {
+      return this.sendWithResponse("get_recent_contact", { count });
+  }
+
+  // 获取私聊历史记录
+  async getFriendMsgHistory(userId: string, messageSeq: string = "0", count: number = 20, reverseOrder: boolean = false): Promise<any> {
+      return this.sendWithResponse("get_friend_msg_history", { user_id: userId, message_seq: messageSeq, count, reverseOrder });
+  }
+
+  // 英译中
+  async translateEn2Zh(words: string[]): Promise<string[]> {
+      return this.sendWithResponse("translate_en2zh", { words });
+  }
+
+  // 设置表情回复
+  async setMsgEmojiLikeWithSet(messageId: number | string, emojiId: string, set: boolean = true) {
+      await this.sendAction("set_msg_emoji_like", { message_id: Number(messageId), emoji_id: emojiId, set });
+  }
+
+  // 获取自定义表情
+  async fetchCustomFace(count: number = 48): Promise<string[]> {
+      return this.sendWithResponse("fetch_custom_face", { count });
+  }
+
+  // 获取机器人账号范围
+  async getRobotUinRange(): Promise<any[]> {
+      return this.sendWithResponse("get_robot_uin_range", {});
+  }
+
+  // 获取群成员信息
+  async getGroupMemberInfo(groupId: number, userId: number, noCache: boolean = false): Promise<any> {
+      return this.sendWithResponse("get_group_member_info", { group_id: groupId, user_id: userId, no_cache: noCache });
+  }
+
+  // 全员禁言
+  async setGroupWholeBan(groupId: number, enable: boolean = true) {
+      await this.sendAction("set_group_whole_ban", { group_id: groupId, enable });
+  }
+
+  // 退出群聊
+  async setGroupLeave(groupId: number, isDismiss: boolean = false) {
+      await this.sendAction("set_group_leave", { group_id: groupId, is_dismiss: isDismiss });
+  }
+
+  // 群匿名禁言
+  async setGroupAnonymousBan(groupId: number, anonymous: any, duration: number = 1800) {
+      await this.sendAction("set_group_anonymous_ban", { group_id: groupId, anonymous, duration });
+  }
+
   // --------------------------------------
 
   setGroupBan(groupId: number, userId: number, duration: number = 1800) {
