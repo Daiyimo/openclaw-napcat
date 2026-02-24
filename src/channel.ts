@@ -816,6 +816,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                 "禁言列表": "/banlist", "查禁言": "/banlist",
                 "全体剩余": "/atall",
                 "清缓存": "/cache", "清理缓存": "/cache",
+                "邀请": "/invite", "邀请入群": "/invite", "拉人": "/invite", "拉入群": "/invite",
                 "状态": "/status", "帮助": "/help", "命令": "/help",
             };
 
@@ -875,6 +876,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                         `/poke (戳一戳) @用户\n` +
                         `/like (点赞) @用户 [次数]\n` +
                         `/signin (打卡/签到)\n` +
+                        `/invite (邀请/拉人) @用户 [群号]\n` +
                         `--- 信息查询 ---\n` +
                         `/honor (群荣誉)\n` +
                         `/banlist (禁言列表)\n` +
@@ -1160,6 +1162,49 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                     } catch (e) {
                         const errMsg = `清理缓存失败: ${e}`;
                         if (isGroup) client.sendGroupMsg(groupId, errMsg); else client.sendPrivateMsg(userId, errMsg);
+                    }
+                    return;
+                }
+                // /invite @用户 或 QQ号 - 私聊发送加群邀请，配合 autoApproveRequests 自动审批
+                if (cmd === '/invite') {
+                    const targetId = getCommandAtTarget() || (parts[1] ? parseInt(parts[1]) : null);
+                    if (!targetId) {
+                        const msg = `用法: /invite @用户 或 /invite QQ号\n机器人会私聊对方发送加群链接，对方加群后自动审批通过。`;
+                        if (isGroup) client.sendGroupMsg(groupId, msg); else client.sendPrivateMsg(userId, msg);
+                        return;
+                    }
+                    // 群号：优先取命令参数中的数字，否则用当前群
+                    let inviteGroupId = isGroup ? groupId : 0;
+                    const atTarget = getCommandAtTarget();
+                    const argStart = atTarget ? 1 : 2;
+                    const groupArg = parts[argStart] ? parseInt(parts[argStart]) : NaN;
+                    if (!isNaN(groupArg) && groupArg > 10000) {
+                        inviteGroupId = groupArg;
+                    }
+                    if (!inviteGroupId) {
+                        const msg = `请在群聊中使用，或指定群号: /invite QQ号 群号`;
+                        if (isGroup) client.sendGroupMsg(groupId, msg); else client.sendPrivateMsg(userId, msg);
+                        return;
+                    }
+                    try {
+                        // 查询群信息获取群名
+                        let groupName = String(inviteGroupId);
+                        try {
+                            const groups = await client.getGroupList();
+                            const g = groups?.find((g: any) => g.group_id === inviteGroupId);
+                            if (g?.group_name) groupName = g.group_name;
+                        } catch {}
+
+                        const inviteMsg = `你好！邀请你加入QQ群【${groupName}】\n` +
+                            `群号: ${inviteGroupId}\n` +
+                            `加群链接: https://qm.qq.com/cgi-bin/qm/qr?k=&group=${inviteGroupId}\n` +
+                            `请搜索群号 ${inviteGroupId} 加入，申请后会自动通过！`;
+                        await client.sendPrivateMsg(targetId, inviteMsg);
+                        const reply = `已私聊 ${targetId} 发送群 ${groupName}(${inviteGroupId}) 的邀请，对方加群后将自动审批。`;
+                        if (isGroup) client.sendGroupMsg(groupId, reply); else client.sendPrivateMsg(userId, reply);
+                    } catch (e) {
+                        const reply = `发送邀请失败（需要机器人与对方是好友）: ${e}`;
+                        if (isGroup) client.sendGroupMsg(groupId, reply); else client.sendPrivateMsg(userId, reply);
                     }
                     return;
                 }
