@@ -85,6 +85,20 @@ if [ $? -eq 0 ]; then
     chown "${REAL_USER}:${REAL_USER}" "$CONFIG_FILE" 2>/dev/null || true
     chmod 600 "$CONFIG_FILE"
     echo "更新成功！配置已应用。"
+
+    # 同步配置到普通用户目录，确保非 root 下 openclaw gateway 能正常读取
+    USER_HOME=$(eval echo "~$REAL_USER")
+    USER_CONFIG_DIR="$USER_HOME/.openclaw"
+    USER_CONFIG_FILE="$USER_CONFIG_DIR/openclaw.json"
+
+    if [ "$CONFIG_FILE" != "$USER_CONFIG_FILE" ]; then
+        echo "正在同步配置到用户目录: $USER_CONFIG_FILE ..."
+        mkdir -p "$USER_CONFIG_DIR"
+        cp "$CONFIG_FILE" "$USER_CONFIG_FILE"
+        chown -R "${REAL_USER}:${REAL_USER}" "$USER_CONFIG_DIR"
+        chmod 600 "$USER_CONFIG_FILE"
+        echo "同步完成，普通用户现在可直接执行 openclaw gateway。"
+    fi
 else
     echo "更新失败，正在恢复备份..."
     mv "$BACKUP_FILE" "$CONFIG_FILE"
