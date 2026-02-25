@@ -1,17 +1,9 @@
 #!/bin/bash
 
-# 使用说明: ./update_strict.sh <用户名> <配置文件绝对路径>
-if [ -z "$1" ] || [ -z "$2" ]; then
-    echo "错误: 缺少参数"
-    echo "用法: $0 <用户名> <配置文件路径>"
-    exit 1
-fi
+# 获取脚本执行时的真实用户（解决 sudo 下的权限归属问题）
+REAL_USER=${SUDO_USER:-$USER}
 
-TARGET_USER="$1"
-CONFIG_FILE="$2"
-BACKUP_FILE="${CONFIG_FILE}.bak.$(date +%F_%H%M%S)"
-
-echo "正在处理: $CONFIG_FILE (用户: $TARGET_USER)"
+echo "=== OpenClaw 配置更新工具 ==="
 
 # 检查依赖
 if ! command -v jq &> /dev/null; then
@@ -19,10 +11,18 @@ if ! command -v jq &> /dev/null; then
     exit 1
 fi
 
-if [ ! -f "$CONFIG_FILE" ]; then
-    echo "错误: 文件不存在 $CONFIG_FILE"
+# 自动查找 openclaw.json
+echo "正在自动查找 openclaw.json ..."
+CONFIG_FILE=$(find / -name "openclaw.json" 2>/dev/null | head -n 1)
+
+if [ -z "$CONFIG_FILE" ]; then
+    echo "错误: 未找到 openclaw.json，请确认 openclaw 已正确安装。"
     exit 1
 fi
+
+echo "找到配置文件: $CONFIG_FILE (用户: $REAL_USER)"
+
+BACKUP_FILE="${CONFIG_FILE}.bak.$(date +%F_%H%M%S)"
 
 # 备份
 cp "$CONFIG_FILE" "$BACKUP_FILE"
@@ -82,7 +82,7 @@ jq '
 
 if [ $? -eq 0 ]; then
     mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
-    chown "${TARGET_USER}:${TARGET_USER}" "$CONFIG_FILE" 2>/dev/null || true
+    chown "${REAL_USER}:${REAL_USER}" "$CONFIG_FILE" 2>/dev/null || true
     chmod 600 "$CONFIG_FILE"
     echo "更新成功！配置已应用。"
 else
