@@ -1496,50 +1496,59 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
     }
   },
   outbound: {
-    deliveryMode: "gateway",
-    sendText: async ({ to, text, accountId, replyToId }) => {
+    sendText: async ({ to, text, accountId, replyTo }) => {
         // Ignore non-routable targets (e.g. framework heartbeat probes)
         if (!to || to === "heartbeat") {
-            return { channel: "qq", messageId: "" };
+            return { channel: "qq", sent: true };
         }
         console.log(`[QQ][outbound.sendText] called: to=${to}, accountId=${accountId}, text=${text?.slice(0, 100)}`);
         const resolvedAccountId = accountId || DEFAULT_ACCOUNT_ID;
         const client = getClientForAccount(resolvedAccountId);
         console.log(`[QQ][outbound.sendText] client lookup: accountId=${resolvedAccountId}, found=${!!client}, clients keys=[${[...clients.keys()].join(",")}]`);
-        if (!client) throw new Error("Client not connected");
-        const target = parseTarget(to);
-        console.log(`[QQ][outbound.sendText] parsed target: type=${target.type}, to=${to}`);
-        const chunks = splitMessage(text, 4000);
-        for (let i = 0; i < chunks.length; i++) {
-            let message: OneBotMessage | string = chunks[i];
-            if (replyToId && i === 0) message = [ { type: "reply", data: { id: String(replyToId) } }, { type: "text", data: { text: chunks[i] } } ];
+        if (!client) return { channel: "qq", sent: false, error: "Client not connected" };
+        try {
+            const target = parseTarget(to);
+            console.log(`[QQ][outbound.sendText] parsed target: type=${target.type}, to=${to}`);
+            const chunks = splitMessage(text, 4000);
+            for (let i = 0; i < chunks.length; i++) {
+                let message: OneBotMessage | string = chunks[i];
+                if (replyTo && i === 0) message = [ { type: "reply", data: { id: String(replyTo) } }, { type: "text", data: { text: chunks[i] } } ];
 
-            console.log(`[QQ][outbound.sendText] sending chunk ${i + 1}/${chunks.length} to ${to} (${target.type})`);
-            await dispatchMessage(client, target, message);
+                console.log(`[QQ][outbound.sendText] sending chunk ${i + 1}/${chunks.length} to ${to} (${target.type})`);
+                await dispatchMessage(client, target, message);
 
-            if (chunks.length > 1) await sleep(1000);
+                if (chunks.length > 1) await sleep(1000);
+            }
+            console.log(`[QQ][outbound.sendText] success: to=${to}`);
+            return { channel: "qq", sent: true };
+        } catch (err) {
+            console.error("[QQ][outbound.sendText] FAILED:", err);
+            return { channel: "qq", sent: false, error: String(err) };
         }
-        console.log(`[QQ][outbound.sendText] success: to=${to}`);
-        return { channel: "qq", messageId: to };
     },
-    sendMedia: async ({ to, text, mediaUrl, accountId, replyToId }) => {
+    sendMedia: async ({ to, text, mediaUrl, accountId, replyTo }) => {
          // Ignore non-routable targets (e.g. framework heartbeat probes)
          if (!to || to === "heartbeat") {
-             return { channel: "qq", messageId: "" };
+             return { channel: "qq", sent: true };
          }
          const client = getClientForAccount(accountId || DEFAULT_ACCOUNT_ID);
-         if (!client) throw new Error("Client not connected");
-         const target = parseTarget(to);
-         const finalUrl = await resolveMediaUrl(mediaUrl);
+         if (!client) return { channel: "qq", sent: false, error: "Client not connected" };
+         try {
+             const target = parseTarget(to);
+             const finalUrl = await resolveMediaUrl(mediaUrl);
 
-         const message: OneBotMessage = [];
-         if (replyToId) message.push({ type: "reply", data: { id: String(replyToId) } });
-         if (text) message.push({ type: "text", data: { text } });
-         if (isImageFile(mediaUrl)) message.push({ type: "image", data: { file: finalUrl } });
-         else message.push({ type: "text", data: { text: `[CQ:file,file=${finalUrl},url=${finalUrl}]` } });
+             const message: OneBotMessage = [];
+             if (replyTo) message.push({ type: "reply", data: { id: String(replyTo) } });
+             if (text) message.push({ type: "text", data: { text } });
+             if (isImageFile(mediaUrl)) message.push({ type: "image", data: { file: finalUrl } });
+             else message.push({ type: "text", data: { text: `[CQ:file,file=${finalUrl},url=${finalUrl}]` } });
 
-         await dispatchMessage(client, target, message);
-         return { channel: "qq", messageId: to };
+             await dispatchMessage(client, target, message);
+             return { channel: "qq", sent: true };
+         } catch (err) {
+             console.error("[QQ] outbound.sendMedia failed:", err);
+             return { channel: "qq", sent: false, error: String(err) };
+         }
     },
     // @ts-ignore
     deleteMessage: async ({ messageId, accountId }) => {
