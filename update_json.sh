@@ -26,16 +26,16 @@ echo "找到配置文件: $CONFIG_FILE (用户: $REAL_USER)"
 
 # wsUrl
 echo ""
-read -r -p "请输入 WebSocket 地址 (留空使用默认值 ws://127.0.0.1:3001): " INPUT_WS_URL
+read -r -p "请输入 WebSocket 地址 (留空使用默认值 ws://127.0.0.1:3001): " INPUT_WS_URL </dev/tty
 WS_URL="${INPUT_WS_URL:-ws://127.0.0.1:3001}"
 
 # httpUrl
-read -r -p "请输入 HTTP API 地址 (留空使用默认值 http://127.0.0.1:3000): " INPUT_HTTP_URL
+read -r -p "请输入 HTTP API 地址 (留空使用默认值 http://127.0.0.1:3000): " INPUT_HTTP_URL </dev/tty
 HTTP_URL="${INPUT_HTTP_URL:-http://127.0.0.1:3000}"
 
 # admins（必填，循环直到输入合法 QQ 号）
 while true; do
-    read -r -p "请输入管理员 QQ 号 (必填，仅限数字): " INPUT_ADMIN
+    read -r -p "请输入管理员 QQ 号 (必填，仅限数字): " INPUT_ADMIN </dev/tty
     if [[ "$INPUT_ADMIN" =~ ^[0-9]+$ ]]; then
         ADMIN_QQ="$INPUT_ADMIN"
         break
