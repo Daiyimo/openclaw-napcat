@@ -11,9 +11,16 @@ if ! command -v jq &> /dev/null; then
     exit 1
 fi
 
-# 自动查找 openclaw.json
+# 自动查找 openclaw.json，优先使用普通用户目录下的配置
 echo "正在自动查找 openclaw.json ..."
-CONFIG_FILE=$(find / -name "openclaw.json" 2>/dev/null | head -n 1)
+USER_HOME=$(eval echo "~$REAL_USER")
+USER_CONFIG_FILE="$USER_HOME/.openclaw/openclaw.json"
+
+if [ -f "$USER_CONFIG_FILE" ]; then
+    CONFIG_FILE="$USER_CONFIG_FILE"
+else
+    CONFIG_FILE=$(find / -name "openclaw.json" 2>/dev/null | grep -v "\.bak" | head -n 1)
+fi
 
 if [ -z "$CONFIG_FILE" ]; then
     echo "错误: 未找到 openclaw.json，请确认 openclaw 已正确安装。"
@@ -120,17 +127,15 @@ if [ $? -eq 0 ]; then
     chmod 600 "$CONFIG_FILE"
     echo "更新成功！配置已应用。"
 
-    # 同步配置到普通用户目录，使普通用户可直接执行 openclaw gateway stop/start
-    USER_HOME=$(eval echo "~$REAL_USER")
-    USER_CONFIG_DIR="$USER_HOME/.openclaw"
-    USER_CONFIG_FILE="$USER_CONFIG_DIR/openclaw.json"
+    # 同步配置到 root 目录，确保特权模式下 openclaw gateway 读取的也是最新配置
+    ROOT_CONFIG_DIR="/root/.openclaw"
+    ROOT_CONFIG_FILE="$ROOT_CONFIG_DIR/openclaw.json"
 
-    if [ "$CONFIG_FILE" != "$USER_CONFIG_FILE" ]; then
-        echo "正在同步配置到用户目录: $USER_CONFIG_FILE ..."
-        mkdir -p "$USER_CONFIG_DIR"
-        cp "$CONFIG_FILE" "$USER_CONFIG_FILE"
-        chown -R "${REAL_USER}:${REAL_USER}" "$USER_CONFIG_DIR"
-        chmod 600 "$USER_CONFIG_FILE"
+    if [ "$CONFIG_FILE" != "$ROOT_CONFIG_FILE" ]; then
+        echo "正在同步配置到 root 目录: $ROOT_CONFIG_FILE ..."
+        mkdir -p "$ROOT_CONFIG_DIR"
+        cp "$CONFIG_FILE" "$ROOT_CONFIG_FILE"
+        chmod 600 "$ROOT_CONFIG_FILE"
         echo "同步完成。"
     fi
 else
