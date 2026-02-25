@@ -8,19 +8,24 @@ if ! command -v jq &> /dev/null; then
     exit 1
 fi
 
-# 配置文件路径 (固定在用户目录)
-CONFIG_FILE="$HOME/.openclaw/openclaw.json"
+# 获取真实用户和家目录 (应对 curl | sudo bash 环境变量漂移)
+REAL_USER="${SUDO_USER:-$USER}"
+REAL_HOME=$(eval echo "~$REAL_USER")
+
+# 配置文件路径
+CONFIG_FILE="$REAL_HOME/.openclaw/openclaw.json"
 
 if [ ! -f "$CONFIG_FILE" ]; then
-    echo "错误: 未找到 $CONFIG_FILE，请确认 openclaw 已正确安装。"
+    echo "错误: 未找到 $CONFIG_FILE，请确认 openclaw 已在用户 $REAL_USER 下正确安装。"
     exit 1
 fi
 
-echo "配置文件: $CONFIG_FILE"
+echo "目标配置文件: $CONFIG_FILE"
 
 # ── 交互式配置收集 ──────────────────────────────────────────
 
 echo ""
+# 注意：这里的 < /dev/tty 是 curl | bash 模式下能正常弹窗交互的关键
 read -r -p "请输入 WebSocket 地址 (留空使用默认值 ws://127.0.0.1:3001): " INPUT_WS_URL </dev/tty
 WS_URL="${INPUT_WS_URL:-ws://127.0.0.1:3001}"
 
@@ -51,12 +56,11 @@ cp "$CONFIG_FILE" "$BACKUP_FILE"
 echo "备份已保存至: $BACKUP_FILE"
 
 # 执行更新
-jq \
+sudo -u "$REAL_USER" jq \
   --arg wsUrl "$WS_URL" \
   --arg httpUrl "$HTTP_URL" \
   --argjson adminQq "$ADMIN_QQ" \
 '
-# 1. 写入完整的 channels 配置
 .channels = {
   "qq": {
     "wsUrl": $wsUrl,
@@ -89,14 +93,8 @@ jq \
     "enableEssenceMsg": true
   }
 } |
-
-# 2. 写入 gateway.controlUi
 .gateway.controlUi = {"allowInsecureAuth": true} |
-
-# 3. 写入 gateway.trustedProxies
 .gateway.trustedProxies = ["127.0.0.1", "192.168.110.0/24"] |
-
-# 4. 写入 plugins 配置
 .plugins = {
   "entries": {
     "qq": {
@@ -108,6 +106,8 @@ jq \
 
 if [ $? -eq 0 ]; then
     mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
+    # 确保文件权限还是属于真实用户的，避免被 root 抢占
+    chown "$REAL_USER:$REAL_USER" "$CONFIG_FILE"
     chmod 600 "$CONFIG_FILE"
     echo "更新成功！配置已应用。"
 else
@@ -119,16 +119,14 @@ fi
 
 # 检查 QQ 插件是否已加载
 echo "正在检查 QQ 插件状态..."
-PLUGIN_LIST=$(openclaw plugins list 2>&1)
+# 用真实用户权限执行检查，防止 root 找不到环境变量中的 openclaw 路径
+PLUGIN_LIST=$(sudo -u "$REAL_USER" openclaw plugins list 2>&1)
 
 if echo "$PLUGIN_LIST" | grep -i "qq" | grep -i "loaded" &> /dev/null; then
     echo "QQ插件配置正常。"
     echo "正在重启网关服务..."
     
-    # 获取调用脚本的原始用户身份 (应对 sudo 执行的情况)
-    REAL_USER="${SUDO_USER:-$USER}"
-    
-    # 1. 退出特权，在用户模式先执行 stop
+    # 1. 在用户模式先执行 stop
     echo "-> 正在以普通用户 ($REAL_USER) 身份停止服务..."
     sudo -u "$REAL_USER" openclaw gateway stop
     
