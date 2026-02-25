@@ -22,6 +22,37 @@ fi
 
 echo "找到配置文件: $CONFIG_FILE (用户: $REAL_USER)"
 
+# ── 交互式配置收集 ──────────────────────────────────────────
+
+# wsUrl
+echo ""
+read -r -p "请输入 WebSocket 地址 (留空使用默认值 ws://127.0.0.1:3001): " INPUT_WS_URL
+WS_URL="${INPUT_WS_URL:-ws://127.0.0.1:3001}"
+
+# httpUrl
+read -r -p "请输入 HTTP API 地址 (留空使用默认值 http://127.0.0.1:3000): " INPUT_HTTP_URL
+HTTP_URL="${INPUT_HTTP_URL:-http://127.0.0.1:3000}"
+
+# admins（必填，循环直到输入合法 QQ 号）
+while true; do
+    read -r -p "请输入管理员 QQ 号 (必填，仅限数字): " INPUT_ADMIN
+    if [[ "$INPUT_ADMIN" =~ ^[0-9]+$ ]]; then
+        ADMIN_QQ="$INPUT_ADMIN"
+        break
+    else
+        echo "错误: 管理员 QQ 号不能为空且只能包含数字，请重新输入。"
+    fi
+done
+
+echo ""
+echo "配置预览:"
+echo "  wsUrl  : $WS_URL"
+echo "  httpUrl: $HTTP_URL"
+echo "  admins : [$ADMIN_QQ]"
+echo ""
+
+# ────────────────────────────────────────────────────────────
+
 BACKUP_FILE="${CONFIG_FILE}.bak.$(date +%F_%H%M%S)"
 
 # 备份
@@ -29,14 +60,18 @@ cp "$CONFIG_FILE" "$BACKUP_FILE"
 echo "备份已保存至: $BACKUP_FILE"
 
 # 执行更新
-jq '
+jq \
+  --arg wsUrl "$WS_URL" \
+  --arg httpUrl "$HTTP_URL" \
+  --argjson adminQq "$ADMIN_QQ" \
+'
 # 1. 写入完整的 channels 配置
 .channels = {
   "qq": {
-    "wsUrl": "ws://127.0.0.1:3001",
-    "httpUrl": "http://127.0.0.1:3000",
+    "wsUrl": $wsUrl,
+    "httpUrl": $httpUrl,
     "accessToken": "123456",
-    "admins": [],
+    "admins": [$adminQq],
     "allowedGroups": [],
     "blockedUsers": [999999],
     "systemPrompt": "好好干，你不干，有的是其他AI干。",
