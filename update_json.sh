@@ -4,7 +4,7 @@ echo "=== OpenClaw 配置更新工具 ==="
 
 # 检查依赖
 if ! command -v jq &> /dev/null; then
-    echo "错误: 未找到 jq 工具，请先安装。"
+    echo "错误: 未找到 jq 工具，请先安装 (例如: sudo apt install jq 或 brew install jq)。"
     exit 1
 fi
 
@@ -12,7 +12,7 @@ fi
 CONFIG_FILE="$HOME/.openclaw/openclaw.json"
 
 if [ ! -f "$CONFIG_FILE" ]; then
-    echo "错误: 未找到 $CONFIG_FILE，请确认 openclaw 已正确安装。"
+    echo "错误: 未找到 $CONFIG_FILE，请确认 openclaw 已正确安装或初始化。"
     exit 1
 fi
 
@@ -46,6 +46,7 @@ echo ""
 
 # ────────────────────────────────────────────────────────────
 
+# 备份配置
 BACKUP_FILE="${CONFIG_FILE}.bak.$(date +%F_%H%M%S)"
 cp "$CONFIG_FILE" "$BACKUP_FILE"
 echo "备份已保存至: $BACKUP_FILE"
@@ -109,7 +110,7 @@ jq \
 if [ $? -eq 0 ]; then
     mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
     chmod 600 "$CONFIG_FILE"
-    echo "更新成功！配置已应用。"
+    echo "配置更新成功！"
 else
     echo "更新失败，正在恢复备份..."
     mv "$BACKUP_FILE" "$CONFIG_FILE"
@@ -117,14 +118,35 @@ else
     exit 1
 fi
 
-# 检查 QQ 插件是否已加载
+# ── 服务状态检查与启动建议 ────────────────────────────────────
+
+echo ""
 echo "正在检查 QQ 插件状态..."
+# 注意：这里假设 openclaw 命令在 PATH 中，且无需 sudo 即可查询状态
 PLUGIN_LIST=$(openclaw plugins list 2>&1)
 
 if echo "$PLUGIN_LIST" | grep -i "qq" | grep -i "loaded" &> /dev/null; then
-    echo "QQ插件配置正常。"
+    echo "检测到 QQ 插件当前处于 loaded 状态。"
+    echo "由于配置已更改，您需要重启 OpenClaw 服务以应用新配置。"
+    echo ""
+    read -r -p "是否现在尝试重启服务？(需要 sudo 权限) [y/N]: " CONFIRM_RESTART
+    if [[ "$CONFIRM_RESTART" =~ ^[Yy]$ ]]; then
+        echo "正在停止旧进程并启动新服务..."
+        sudo openclaw gateway
+        if [ $? -eq 0 ]; then
+            echo "服务启动命令已执行。"
+        else
+            echo "服务启动失败，请检查是否有进程占用端口或权限问题。"
+        fi
+    else
+        echo "跳过自动启动。请手动运行以下命令重启服务："
+        echo "   sudo openclaw gateway"
+    fi
 else
-    echo "警告: 未检测到 QQ 插件处于 loaded 状态，请检查配置是否正确。"
-    echo "插件列表输出:"
-    echo "$PLUGIN_LIST"
-fi
+    echo "未检测到运行中的 QQ 插件或服务。"
+    echo "正在尝试启动 OpenClaw 网关..."
+    read -r -p "是否现在启动？[Y/n]: " CONFIRM_START
+    if [[ ! "$CONFIRM_START" =~ ^[Nn]$ ]]; then
+        sudo openclaw gateway
+        if [ $? -eq 0 ]; then
+            echo "服务启动命令已执行。
