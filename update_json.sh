@@ -128,3 +128,31 @@ else
     echo "插件列表输出:"
     echo "$PLUGIN_LIST"
 fi
+
+# ── 停止和启动服务 ──────────────────────────────────────────
+
+echo ""
+echo "正在停止 openclaw gateway ..."
+
+# 用当前用户停止
+openclaw gateway stop 2>/dev/null || true
+
+# 强制释放端口，防止旧进程残留
+GATEWAY_PORT=18789
+if command -v lsof &>/dev/null; then
+    PIDS=$(lsof -ti:"$GATEWAY_PORT" 2>/dev/null)
+    if [ -n "$PIDS" ]; then
+        echo "检测到端口 $GATEWAY_PORT 被占用，正在强制释放..."
+        echo "$PIDS" | xargs kill -9 2>/dev/null || true
+        sleep 1
+    fi
+elif command -v fuser &>/dev/null; then
+    fuser -k "${GATEWAY_PORT}/tcp" 2>/dev/null || true
+    sleep 1
+fi
+
+echo "正在启动 openclaw gateway (sudo) ..."
+sudo openclaw gateway &
+
+sleep 2
+echo "服务已启动！"
