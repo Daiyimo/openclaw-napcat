@@ -68,7 +68,16 @@ jq '
 .gateway.controlUi = {"allowInsecureAuth": true} |
 
 # 3. 写入 gateway.trustedProxies
-.gateway.trustedProxies = ["127.0.0.1", "192.168.110.0/24"]
+.gateway.trustedProxies = ["127.0.0.1", "192.168.110.0/24"] |
+
+# 4. 写入 plugins 配置
+.plugins = {
+  "entries": {
+    "qq": {
+      "enabled": true
+    }
+  }
+}
 ' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp"
 
 if [ $? -eq 0 ]; then
@@ -81,4 +90,16 @@ else
     mv "$BACKUP_FILE" "$CONFIG_FILE"
     rm -f "${CONFIG_FILE}.tmp"
     exit 1
+fi
+
+# 检查 QQ 插件是否已加载
+echo "正在检查 QQ 插件状态..."
+PLUGIN_LIST=$(openclaw plugins list 2>&1)
+
+if echo "$PLUGIN_LIST" | grep -i "qq" | grep -i "loaded" &> /dev/null; then
+    echo "QQ插件配置正常，重启openclaw即可使用。"
+else
+    echo "警告: 未检测到 QQ 插件处于 loaded 状态，请检查配置是否正确。"
+    echo "插件列表输出:"
+    echo "$PLUGIN_LIST"
 fi
