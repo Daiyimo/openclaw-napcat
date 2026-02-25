@@ -1,62 +1,76 @@
 #!/bin/bash
 
-echo "=== OpenClaw 配置更新工具 ==="
+echo "=== OpenClaw Configuration Update Tool ==="
 
-# 检查依赖
-if ! command -v jq &> /dev/null; then
-    echo "错误: 未找到 jq 工具，请先安装。"
+# Check if running as root
+if [ "$EUID" -ne 0 ]; then
+    echo "Error: This script requires sudo privileges."
+    echo "Usage: sudo $0"
     exit 1
 fi
 
-# 配置文件路径 (固定在用户目录)
-CONFIG_FILE="$HOME/.openclaw/openclaw.json"
+ORIGINAL_USER="${SUDO_USER:-$USER}"
+if [ -z "$ORIGINAL_USER" ]; then
+    echo "Error: Cannot determine original user."
+    exit 1
+fi
+
+echo "Running as root. Will switch back to user: $ORIGINAL_USER"
+
+# Check dependencies
+if ! command -v jq &> /dev/null; then
+    echo "Error: jq not found. Please install it."
+    exit 1
+fi
+
+# Determine config path
+USER_HOME=$(eval echo ~$ORIGINAL_USER)
+CONFIG_FILE="$USER_HOME/.openclaw/openclaw.json"
 
 if [ ! -f "$CONFIG_FILE" ]; then
-    echo "错误: 未找到 $CONFIG_FILE，请确认 openclaw 已正确安装。"
+    echo "Error: Config file not found at $CONFIG_FILE"
     exit 1
 fi
 
-echo "配置文件: $CONFIG_FILE"
+echo "Config file: $CONFIG_FILE"
 
-# ── 交互式配置收集 ──────────────────────────────────────────
-
+# Interactive Input
 echo ""
-read -r -p "请输入 WebSocket 地址 (留空使用默认值 ws://127.0.0.1:3001): " INPUT_WS_URL </dev/tty
+read -r -p "Enter WebSocket URL (default: ws://127.0.0.1:3001): " INPUT_WS_URL </dev/tty
 WS_URL="${INPUT_WS_URL:-ws://127.0.0.1:3001}"
 
-read -r -p "请输入 HTTP API 地址 (留空使用默认值 http://127.0.0.1:3000): " INPUT_HTTP_URL </dev/tty
+read -r -p "Enter HTTP API URL (default: http://127.0.0.1:3000): " INPUT_HTTP_URL </dev/tty
 HTTP_URL="${INPUT_HTTP_URL:-http://127.0.0.1:3000}"
 
 while true; do
-    read -r -p "请输入管理员 QQ 号 (必填，仅限数字): " INPUT_ADMIN </dev/tty
+    read -r -p "Enter Admin QQ (digits only): " INPUT_ADMIN </dev/tty
     if [[ "$INPUT_ADMIN" =~ ^[0-9]+$ ]]; then
         ADMIN_QQ="$INPUT_ADMIN"
         break
     else
-        echo "错误: 管理员 QQ 号不能为空且只能包含数字，请重新输入。"
+        echo "Error: Invalid input. Digits only."
     fi
 done
 
 echo ""
-echo "配置预览:"
+echo "Preview:"
 echo "  wsUrl  : $WS_URL"
 echo "  httpUrl: $HTTP_URL"
 echo "  admins : [$ADMIN_QQ]"
 echo ""
 
-# ────────────────────────────────────────────────────────────
-
+# Backup
 BACKUP_FILE="${CONFIG_FILE}.bak.$(date +%F_%H%M%S)"
 cp "$CONFIG_FILE" "$BACKUP_FILE"
-echo "备份已保存至: $BACKUP_FILE"
+chown "$ORIGINAL_USER":"$(id -gn $ORIGINAL_USER)" "$BACKUP_FILE"
+echo "Backup saved to: $BACKUP_FILE"
 
-# 执行更新
+# Update Config
 jq \
   --arg wsUrl "$WS_URL" \
   --arg httpUrl "$HTTP_URL" \
   --argjson adminQq "$ADMIN_QQ" \
 '
-# 1. 写入完整的 channels 配置
 .channels = {
   "qq": {
     "wsUrl": $wsUrl,
@@ -89,14 +103,8 @@ jq \
     "enableEssenceMsg": true
   }
 } |
-
-# 2. 写入 gateway.controlUi
 .gateway.controlUi = {"allowInsecureAuth": true} |
-
-# 3. 写入 gateway.trustedProxies
 .gateway.trustedProxies = ["127.0.0.1", "192.168.110.0/24"] |
-
-# 4. 写入 plugins 配置
 .plugins = {
   "entries": {
     "qq": {
@@ -108,51 +116,45 @@ jq \
 
 if [ $? -eq 0 ]; then
     mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
+    chown "$ORIGINAL_USER":"$(id -gn $ORIGINAL_USER)" "$CONFIG_FILE"
     chmod 600 "$CONFIG_FILE"
-    echo "更新成功！配置已应用。"
+    echo "Configuration updated successfully."
 else
-    echo "更新失败，正在恢复备份..."
+    echo "Update failed. Restoring backup..."
     mv "$BACKUP_FILE" "$CONFIG_FILE"
+    chown "$ORIGINAL_USER":"$(id -gn $ORIGINAL_USER)" "$CONFIG_FILE"
     rm -f "${CONFIG_FILE}.tmp"
     exit 1
 fi
 
-# 检查 QQ 插件是否已加载
-echo "正在检查 QQ 插件状态..."
-PLUGIN_LIST=$(openclaw plugins list 2>&1)
+# Check Plugin and Restart Service
+echo ""
+echo "Checking QQ plugin status..."
+
+PLUGIN_LIST=$(su - "$ORIGINAL_USER" -c "openclaw plugins list" 2>&1)
 
 if echo "$PLUGIN_LIST" | grep -i "qq" | grep -i "loaded" &> /dev/null; then
-    echo "QQ插件配置正常。"
-else
-    echo "警告: 未检测到 QQ 插件处于 loaded 状态，请检查配置是否正确。"
-    echo "插件列表输出:"
-    echo "$PLUGIN_LIST"
-fi
-
-# ── 停止和启动服务 ──────────────────────────────────────────
-
-echo ""
-echo "正在停止 openclaw gateway ..."
-
-# 用当前用户停止
-openclaw gateway stop 2>/dev/null || true
-
-# 强制释放端口，防止旧进程残留
-GATEWAY_PORT=18789
-if command -v lsof &>/dev/null; then
-    PIDS=$(lsof -ti:"$GATEWAY_PORT" 2>/dev/null)
-    if [ -n "$PIDS" ]; then
-        echo "检测到端口 $GATEWAY_PORT 被占用，正在强制释放..."
-        echo "$PIDS" | xargs kill -9 2>/dev/null || true
-        sleep 1
+    echo "QQ plugin status: OK (loaded)."
+    echo "Restarting gateway service..."
+    
+    # Stop service
+    su - "$ORIGINAL_USER" -c "openclaw gateway stop"
+    sleep 2
+    
+    # Start service
+    sudo -u "$ORIGINAL_USER" openclaw gateway start
+    
+    if [ $? -eq 0 ]; then
+        echo "Gateway restarted successfully."
+    else
+        echo "Warning: Gateway start command returned non-zero. Check logs."
     fi
-elif command -v fuser &>/dev/null; then
-    fuser -k "${GATEWAY_PORT}/tcp" 2>/dev/null || true
-    sleep 1
+else
+    echo "Warning: QQ plugin not detected as loaded."
+    echo "Plugin list output:"
+    echo "$PLUGIN_LIST"
+    echo "Automatic restart skipped. Please check configuration manually."
+    exit 1
 fi
 
-echo "正在启动 openclaw gateway (sudo) ..."
-sudo openclaw gateway &
-
-sleep 2
-echo "服务已启动！"
+echo "=== Done ==="
