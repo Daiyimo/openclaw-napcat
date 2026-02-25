@@ -3,36 +3,36 @@ set -e
 
 echo "=== OpenClaw QQ 插件一键安装 ==="
 
-# 获取当前用户和家目录
-USER_HOME="$HOME"
+# 获取当前用户
 USER_NAME="$(whoami)"
-
 echo "当前用户: $USER_NAME"
-echo "用户目录: $USER_HOME"
 
-# 1. 查找用户目录下的 npm 全局模块路径
-# 优先查找 .npm-global/lib/node_modules/openclaw
-# 如果不存在则查找 npm prefix -g 显示的路径
+# 1. 自动搜索 openclaw 扩展目录
+echo "正在搜索 openclaw 扩展目录..."
 
-# 方法1: 检查用户自定义的 npm 全局目录
-if [ -d "$USER_HOME/.npm-global/lib/node_modules/openclaw" ]; then
-    OPENCLAW_DIR="$USER_HOME/.npm-global/lib/node_modules/openclaw"
-# 方法2: 使用 npm prefix -g 获取全局路径
-elif OPENCLAW_PREFIX=$(npm prefix -g 2>/dev/null); then
-    OPENCLAW_DIR="$OPENCLAW_PREFIX/lib/node_modules/openclaw"
-# 方法3: 查找系统中已安装的 openclaw
-elif OPENCLAW_BIN=$(which openclaw 2>/dev/null); then
-    OPENCLAW_DIR=$(dirname "$(dirname "$OPENCLAW_BIN")")/lib/node_modules/openclaw
-else
-    echo "错误: 未找到 openclaw 安装路径，请先安装 openclaw 或配置 npm 全局目录"
+# 搜索包含 /node_modules/openclaw/extensions 的目录
+EXT_DIR=$(find /usr /home /opt /var -type d -path "*/node_modules/openclaw/extensions" 2>/dev/null | head -n 1)
+
+# 如果没找到，尝试用 which 定位
+if [ -z "$EXT_DIR" ]; then
+    if OPENCLAW_BIN=$(which openclaw 2>/dev/null); then
+        OPENCLAW_DIR=$(dirname "$(dirname "$OPENCLAW_BIN")")/lib/node_modules/openclaw
+        EXT_DIR="$OPENCLAW_DIR/extensions"
+    fi
+fi
+
+# 检查扩展目录是否存在
+if [ -z "$EXT_DIR" ] || [ ! -d "$EXT_DIR" ]; then
+    echo "错误: 未找到 openclaw 扩展目录，请确保已正确安装 openclaw"
     exit 1
 fi
 
-EXT_DIR="$OPENCLAW_DIR/extensions"
+echo "找到扩展目录: $EXT_DIR"
 
-# 检查扩展目录是否存在
-if [ ! -d "$EXT_DIR" ]; then
-    echo "错误: 扩展目录不存在: $EXT_DIR"
+# 检查写权限
+if [ ! -w "$EXT_DIR" ]; then
+    echo "警告: 当前用户对 $EXT_DIR 没有写权限"
+    echo "请使用 sudo 运行此脚本，或联系管理员添加写权限"
     exit 1
 fi
 
