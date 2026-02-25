@@ -23,8 +23,9 @@ fi
 echo "找到配置文件: $CONFIG_FILE"
 
 # 确保 /root/.openclaw/workspace 目录存在且普通用户有权限写入
-sudo mkdir -p /root/.openclaw/workspace
-sudo chown -R "${REAL_USER}:${REAL_USER}" /root/.openclaw
+mkdir -p /root/.openclaw/workspace
+chown -R "${REAL_USER}:${REAL_USER}" /root/.openclaw
+echo "已设置 /root/.openclaw 目录权限"
 
 # ── 交互式配置收集 ──────────────────────────────────────────
 
