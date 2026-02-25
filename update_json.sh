@@ -9,7 +9,8 @@ REAL_USER="${SUDO_USER:-$USER}"
 # 第一步：以普通用户模式，最先停止服务
 # ────────────────────────────────────────────────────────────
 echo "[1/3] 正在以用户 ($REAL_USER) 身份停止网关服务..."
-sudo -u "$REAL_USER" openclaw gateway stop
+
+openclaw gateway stop
 
 # 稍微等待 2 秒，确保旧进程完全退出，端口彻底释放
 sleep 2 
