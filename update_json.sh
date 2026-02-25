@@ -1,9 +1,5 @@
 #!/bin/bash
 
-# 获取真实普通用户
-REAL_USER=${SUDO_USER:-$USER}
-USER_HOME=$(eval echo "~$REAL_USER")
-
 echo "=== OpenClaw 配置更新工具 ==="
 
 # 检查依赖
@@ -12,20 +8,15 @@ if ! command -v jq &> /dev/null; then
     exit 1
 fi
 
-# 以 root 的配置文件为唯一源头（setup.sh 以 root 安装，配置在此）
-CONFIG_FILE="/root/.openclaw/openclaw.json"
+# 配置文件路径 (固定在用户目录)
+CONFIG_FILE="$HOME/.openclaw/openclaw.json"
 
 if [ ! -f "$CONFIG_FILE" ]; then
     echo "错误: 未找到 $CONFIG_FILE，请确认 openclaw 已正确安装。"
     exit 1
 fi
 
-echo "找到配置文件: $CONFIG_FILE"
-
-# 确保 /root/.openclaw/workspace 目录存在且普通用户有权限写入
-mkdir -p /root/.openclaw/workspace
-chown -R "${REAL_USER}:${REAL_USER}" /root/.openclaw
-echo "已设置 /root/.openclaw 目录权限"
+echo "配置文件: $CONFIG_FILE"
 
 # ── 交互式配置收集 ──────────────────────────────────────────
 
@@ -119,16 +110,6 @@ if [ $? -eq 0 ]; then
     mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
     chmod 600 "$CONFIG_FILE"
     echo "更新成功！配置已应用。"
-
-    # 同步到普通用户目录，owner 归普通用户，权限 644 确保可读
-    USER_CONFIG_DIR="$USER_HOME/.openclaw"
-    USER_CONFIG_FILE="$USER_CONFIG_DIR/openclaw.json"
-    echo "正在同步配置到用户目录: $USER_CONFIG_FILE ..."
-    mkdir -p "$USER_CONFIG_DIR"
-    cp "$CONFIG_FILE" "$USER_CONFIG_FILE"
-    chown -R "${REAL_USER}:${REAL_USER}" "$USER_CONFIG_DIR"
-    chmod 644 "$USER_CONFIG_FILE"
-    echo "同步完成。"
 else
     echo "更新失败，正在恢复备份..."
     mv "$BACKUP_FILE" "$CONFIG_FILE"
@@ -147,31 +128,3 @@ else
     echo "插件列表输出:"
     echo "$PLUGIN_LIST"
 fi
-
-# 停止旧的 gateway 进程
-echo ""
-echo "正在停止 openclaw gateway ..."
-# 直接用普通用户身份 stop（不需要 sudo）
-su - "$REAL_USER" -c "openclaw gateway stop" 2>/dev/null || true
-# 如果当前是 root，尝试用 root 身份再 stop 一次（处理进程用户不匹配的情况）
-if [ "$EUID" -eq 0 ]; then
-    openclaw gateway stop 2>/dev/null || true
-fi
-
-# 强制释放端口，防止旧进程残留
-GATEWAY_PORT=18789
-if command -v lsof &>/dev/null; then
-    PIDS=$(lsof -ti:"$GATEWAY_PORT" 2>/dev/null)
-    if [ -n "$PIDS" ]; then
-        echo "检测到端口 $GATEWAY_PORT 被占用，正在强制释放..."
-        echo "$PIDS" | xargs kill -9 2>/dev/null || true
-        sleep 1
-    fi
-elif command -v fuser &>/dev/null; then
-    fuser -k "${GATEWAY_PORT}/tcp" 2>/dev/null || true
-    sleep 1
-fi
-
-# 以 root 身份启动（sudo 模式下）
-echo "正在启动 openclaw gateway ..."
-exec sudo openclaw gateway
