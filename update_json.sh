@@ -126,21 +126,12 @@ echo "正在检查 QQ 插件状态..."
 PLUGIN_LIST=$(openclaw plugins list 2>&1)
 
 if echo "$PLUGIN_LIST" | grep -i "qq" | grep -i "loaded" &> /dev/null; then
-    echo "检测到 QQ 插件当前处于 loaded 状态。"
-    echo "由于配置已更改，您需要重启 OpenClaw 服务以应用新配置。"
-    echo ""
-    read -r -p "是否现在尝试重启服务？(需要 sudo 权限) [y/N]: " CONFIRM_RESTART
-    if [[ "$CONFIRM_RESTART" =~ ^[Yy]$ ]]; then
-        echo "正在停止旧进程并启动新服务..."
-        sudo openclaw gateway
-        if [ $? -eq 0 ]; then
-            echo "服务启动命令已执行。"
-        else
-            echo "服务启动失败，请检查是否有进程占用端口或权限问题。"
-        fi
+    echo "检测到 QQ 插件当前处于 loaded 状态，正在启动 OpenClaw 网关..."
+    sudo openclaw gateway
+    if [ $? -eq 0 ]; then
+        echo "服务启动命令已执行。"
     else
-        echo "跳过自动启动。请手动运行以下命令重启服务："
-        echo "   sudo openclaw gateway"
+        echo "服务启动失败，请检查是否有进程占用端口或权限问题。"
     fi
 else
     echo "未检测到运行中的 QQ 插件或服务。"
