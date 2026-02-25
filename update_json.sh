@@ -149,4 +149,9 @@ else
     if [[ ! "$CONFIRM_START" =~ ^[Nn]$ ]]; then
         sudo openclaw gateway
         if [ $? -eq 0 ]; then
-            echo "服务启动命令已执行。
+            echo "服务启动命令已执行。"
+        else
+            echo "服务启动失败。"
+        fi
+    fi
+fi
