@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# 获取脚本执行时的真实用户（解决 sudo 下的权限归属问题）
-REAL_USER=${SUDO_USER:-$USER}
-
 echo "=== OpenClaw 配置更新工具 ==="
 
 # 检查依赖
@@ -20,7 +17,7 @@ if [ -z "$CONFIG_FILE" ]; then
     exit 1
 fi
 
-echo "找到配置文件: $CONFIG_FILE (用户: $REAL_USER)"
+echo "找到配置文件: $CONFIG_FILE"
 
 # ── 交互式配置收集 ──────────────────────────────────────────
 
@@ -117,23 +114,8 @@ jq \
 
 if [ $? -eq 0 ]; then
     mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
-    chown "${REAL_USER}:${REAL_USER}" "$CONFIG_FILE" 2>/dev/null || true
     chmod 600 "$CONFIG_FILE"
     echo "更新成功！配置已应用。"
-
-    # 同步配置到普通用户目录，确保非 root 下 openclaw gateway 能正常读取
-    USER_HOME=$(eval echo "~$REAL_USER")
-    USER_CONFIG_DIR="$USER_HOME/.openclaw"
-    USER_CONFIG_FILE="$USER_CONFIG_DIR/openclaw.json"
-
-    if [ "$CONFIG_FILE" != "$USER_CONFIG_FILE" ]; then
-        echo "正在同步配置到用户目录: $USER_CONFIG_FILE ..."
-        mkdir -p "$USER_CONFIG_DIR"
-        cp "$CONFIG_FILE" "$USER_CONFIG_FILE"
-        chown -R "${REAL_USER}:${REAL_USER}" "$USER_CONFIG_DIR"
-        chmod 600 "$USER_CONFIG_FILE"
-        echo "同步完成，普通用户现在可直接执行 openclaw gateway。"
-    fi
 else
     echo "更新失败，正在恢复备份..."
     mv "$BACKUP_FILE" "$CONFIG_FILE"
@@ -146,9 +128,17 @@ echo "正在检查 QQ 插件状态..."
 PLUGIN_LIST=$(openclaw plugins list 2>&1)
 
 if echo "$PLUGIN_LIST" | grep -i "qq" | grep -i "loaded" &> /dev/null; then
-    echo "QQ插件配置正常，重启openclaw即可使用。"
+    echo "QQ插件配置正常。"
 else
     echo "警告: 未检测到 QQ 插件处于 loaded 状态，请检查配置是否正确。"
     echo "插件列表输出:"
     echo "$PLUGIN_LIST"
 fi
+
+# 重启 openclaw gateway
+echo ""
+echo "正在停止 openclaw gateway ..."
+openclaw gateway stop 2>/dev/null || true
+
+echo "正在启动 openclaw gateway ..."
+exec openclaw gateway
