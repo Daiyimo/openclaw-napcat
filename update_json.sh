@@ -1,7 +1,8 @@
 #!/bin/bash
 
-# 获取真实普通用户（用于执行需要 user session 的命令）
+# 获取真实普通用户
 REAL_USER=${SUDO_USER:-$USER}
+USER_HOME=$(eval echo "~$REAL_USER")
 
 echo "=== OpenClaw 配置更新工具 ==="
 
@@ -11,19 +12,11 @@ if ! command -v jq &> /dev/null; then
     exit 1
 fi
 
-# 自动查找 openclaw.json，优先使用普通用户目录下的配置
-echo "正在自动查找 openclaw.json ..."
-USER_HOME=$(eval echo "~$REAL_USER")
-USER_CONFIG_FILE="$USER_HOME/.openclaw/openclaw.json"
+# 以 root 的配置文件为唯一源头（setup.sh 以 root 安装，配置在此）
+CONFIG_FILE="/root/.openclaw/openclaw.json"
 
-if [ -f "$USER_CONFIG_FILE" ]; then
-    CONFIG_FILE="$USER_CONFIG_FILE"
-else
-    CONFIG_FILE=$(find / -name "openclaw.json" 2>/dev/null | grep -v "\.bak" | head -n 1)
-fi
-
-if [ -z "$CONFIG_FILE" ]; then
-    echo "错误: 未找到 openclaw.json，请确认 openclaw 已正确安装。"
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "错误: 未找到 $CONFIG_FILE，请确认 openclaw 已正确安装。"
     exit 1
 fi
 
@@ -31,16 +24,13 @@ echo "找到配置文件: $CONFIG_FILE"
 
 # ── 交互式配置收集 ──────────────────────────────────────────
 
-# wsUrl
 echo ""
 read -r -p "请输入 WebSocket 地址 (留空使用默认值 ws://127.0.0.1:3001): " INPUT_WS_URL </dev/tty
 WS_URL="${INPUT_WS_URL:-ws://127.0.0.1:3001}"
 
-# httpUrl
 read -r -p "请输入 HTTP API 地址 (留空使用默认值 http://127.0.0.1:3000): " INPUT_HTTP_URL </dev/tty
 HTTP_URL="${INPUT_HTTP_URL:-http://127.0.0.1:3000}"
 
-# admins（必填，循环直到输入合法 QQ 号）
 while true; do
     read -r -p "请输入管理员 QQ 号 (必填，仅限数字): " INPUT_ADMIN </dev/tty
     if [[ "$INPUT_ADMIN" =~ ^[0-9]+$ ]]; then
@@ -61,8 +51,6 @@ echo ""
 # ────────────────────────────────────────────────────────────
 
 BACKUP_FILE="${CONFIG_FILE}.bak.$(date +%F_%H%M%S)"
-
-# 备份
 cp "$CONFIG_FILE" "$BACKUP_FILE"
 echo "备份已保存至: $BACKUP_FILE"
 
@@ -124,21 +112,18 @@ jq \
 
 if [ $? -eq 0 ]; then
     mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
-    chown "${REAL_USER}:${REAL_USER}" "$CONFIG_FILE"
-    chmod 644 "$CONFIG_FILE"
+    chmod 600 "$CONFIG_FILE"
     echo "更新成功！配置已应用。"
 
-    # 同步配置到 root 目录，确保特权模式下 openclaw gateway 读取的也是最新配置
-    ROOT_CONFIG_DIR="/root/.openclaw"
-    ROOT_CONFIG_FILE="$ROOT_CONFIG_DIR/openclaw.json"
-
-    if [ "$CONFIG_FILE" != "$ROOT_CONFIG_FILE" ]; then
-        echo "正在同步配置到 root 目录: $ROOT_CONFIG_FILE ..."
-        mkdir -p "$ROOT_CONFIG_DIR"
-        cp "$CONFIG_FILE" "$ROOT_CONFIG_FILE"
-        chmod 600 "$ROOT_CONFIG_FILE"
-        echo "同步完成。"
-    fi
+    # 同步到普通用户目录，owner 归普通用户，权限 644 确保可读
+    USER_CONFIG_DIR="$USER_HOME/.openclaw"
+    USER_CONFIG_FILE="$USER_CONFIG_DIR/openclaw.json"
+    echo "正在同步配置到用户目录: $USER_CONFIG_FILE ..."
+    mkdir -p "$USER_CONFIG_DIR"
+    cp "$CONFIG_FILE" "$USER_CONFIG_FILE"
+    chown -R "${REAL_USER}:${REAL_USER}" "$USER_CONFIG_DIR"
+    chmod 644 "$USER_CONFIG_FILE"
+    echo "同步完成。"
 else
     echo "更新失败，正在恢复备份..."
     mv "$BACKUP_FILE" "$CONFIG_FILE"
@@ -158,7 +143,7 @@ else
     echo "$PLUGIN_LIST"
 fi
 
-# 重启 openclaw gateway
+# 停止旧的 gateway 进程
 echo ""
 echo "正在停止 openclaw gateway ..."
 sudo -u "$REAL_USER" openclaw gateway stop 2>/dev/null || true
@@ -177,6 +162,6 @@ elif command -v fuser &>/dev/null; then
     sleep 1
 fi
 
-echo "正在启动 openclaw gateway ..."
 # 以普通用户身份启动，后续 stop/start 无需 sudo
+echo "正在启动 openclaw gateway ..."
 exec sudo -u "$REAL_USER" openclaw gateway
