@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# 获取真实普通用户（用于执行需要 user session 的命令）
+REAL_USER=${SUDO_USER:-$USER}
+
 echo "=== OpenClaw 配置更新工具 ==="
 
 # 检查依赖
@@ -116,6 +119,20 @@ if [ $? -eq 0 ]; then
     mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
     chmod 600 "$CONFIG_FILE"
     echo "更新成功！配置已应用。"
+
+    # 同步配置到普通用户目录，使普通用户可直接执行 openclaw gateway stop/start
+    USER_HOME=$(eval echo "~$REAL_USER")
+    USER_CONFIG_DIR="$USER_HOME/.openclaw"
+    USER_CONFIG_FILE="$USER_CONFIG_DIR/openclaw.json"
+
+    if [ "$CONFIG_FILE" != "$USER_CONFIG_FILE" ]; then
+        echo "正在同步配置到用户目录: $USER_CONFIG_FILE ..."
+        mkdir -p "$USER_CONFIG_DIR"
+        cp "$CONFIG_FILE" "$USER_CONFIG_FILE"
+        chown -R "${REAL_USER}:${REAL_USER}" "$USER_CONFIG_DIR"
+        chmod 600 "$USER_CONFIG_FILE"
+        echo "同步完成。"
+    fi
 else
     echo "更新失败，正在恢复备份..."
     mv "$BACKUP_FILE" "$CONFIG_FILE"
@@ -138,7 +155,22 @@ fi
 # 重启 openclaw gateway
 echo ""
 echo "正在停止 openclaw gateway ..."
-openclaw gateway stop 2>/dev/null || true
+sudo -u "$REAL_USER" openclaw gateway stop 2>/dev/null || true
+
+# 强制释放端口，防止旧进程残留
+GATEWAY_PORT=18789
+if command -v lsof &>/dev/null; then
+    PIDS=$(lsof -ti:"$GATEWAY_PORT" 2>/dev/null)
+    if [ -n "$PIDS" ]; then
+        echo "检测到端口 $GATEWAY_PORT 被占用，正在强制释放..."
+        echo "$PIDS" | xargs kill -9 2>/dev/null || true
+        sleep 1
+    fi
+elif command -v fuser &>/dev/null; then
+    fuser -k "${GATEWAY_PORT}/tcp" 2>/dev/null || true
+    sleep 1
+fi
 
 echo "正在启动 openclaw gateway ..."
-exec openclaw gateway
+# 以普通用户身份启动，后续 stop/start 无需 sudo
+exec sudo -u "$REAL_USER" openclaw gateway
