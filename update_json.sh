@@ -124,7 +124,8 @@ jq \
 
 if [ $? -eq 0 ]; then
     mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
-    chmod 600 "$CONFIG_FILE"
+    chown "${REAL_USER}:${REAL_USER}" "$CONFIG_FILE"
+    chmod 644 "$CONFIG_FILE"
     echo "更新成功！配置已应用。"
 
     # 同步配置到 root 目录，确保特权模式下 openclaw gateway 读取的也是最新配置
