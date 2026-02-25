@@ -110,10 +110,68 @@ jq \
   "entries": {
     "qq": {
       "enabled": true
+    }
+  }
+}
+' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp"
 
+if [ $? -eq 0 ]; then
+    mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
+    chmod 600 "$CONFIG_FILE"
+    echo "更新成功！配置已应用。"
+
+    # 同步到普通用户目录，owner 归普通用户，权限 644 确保可读
+    USER_CONFIG_DIR="$USER_HOME/.openclaw"
+    USER_CONFIG_FILE="$USER_CONFIG_DIR/openclaw.json"
+    echo "正在同步配置到用户目录: $USER_CONFIG_FILE ..."
+    mkdir -p "$USER_CONFIG_DIR"
+    cp "$CONFIG_FILE" "$USER_CONFIG_FILE"
+    chown -R "${REAL_USER}:${REAL_USER}" "$USER_CONFIG_DIR"
+    chmod 644 "$USER_CONFIG_FILE"
+    echo "同步完成。"
+else
+    echo "更新失败，正在恢复备份..."
+    mv "$BACKUP_FILE" "$CONFIG_FILE"
+    rm -f "${CONFIG_FILE}.tmp"
+    exit 1
+fi
+
+# 检查 QQ 插件是否已加载
+echo "正在检查 QQ 插件状态..."
+PLUGIN_LIST=$(openclaw plugins list 2>&1)
+
+if echo "$PLUGIN_LIST" | grep -i "qq" | grep -i "loaded" &> /dev/null; then
+    echo "QQ插件配置正常。"
+else
+    echo "警告: 未检测到 QQ 插件处于 loaded 状态，请检查配置是否正确。"
+    echo "插件列表输出:"
+    echo "$PLUGIN_LIST"
+fi
+
+# 停止旧的 gateway 进程
+echo ""
+echo "正在停止 openclaw gateway ..."
+# 直接用普通用户身份 stop（不需要 sudo）
+su - "$REAL_USER" -c "openclaw gateway stop" 2>/dev/null || true
+# 如果当前是 root，尝试用 root 身份再 stop 一次（处理进程用户不匹配的情况）
+if [ "$EUID" -eq 0 ]; then
+    openclaw gateway stop 2>/dev/null || true
+fi
+
+# 强制释放端口，防止旧进程残留
+GATEWAY_PORT=18789
+if command -v lsof &>/dev/null; then
+    PIDS=$(lsof -ti:"$GATEWAY_PORT" 2>/dev/null)
+    if [ -n "$PIDS" ]; then
+        echo "检测到端口 $GATEWAY_PORT 被占用，正在强制释放..."
+        echo "$PIDS" | xargs kill -9 2>/dev/null || true
+        sleep 1
+    fi
+elif command -v fuser &>/dev/null; then
+    fuser -k "${GATEWAY_PORT}/tcp" 2>/dev/null || true
     sleep 1
 fi
 
-# 以普通用户身份启动，后续 stop/start 无需 sudo
+# 以 root 身份启动（sudo 模式下）
 echo "正在启动 openclaw gateway ..."
-exec sudo -u "$REAL_USER" openclaw gateway
+exec sudo openclaw gateway
