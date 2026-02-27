@@ -47,7 +47,7 @@ OpenClawd 是一个多功能代理。下面的聊天演示仅展示了最基础�
 2.  **OneBot v11 服务端**：你需要一个运行中的 OneBot v11 实现。
     *   推荐：**[NapCat (Docker)](https://github.com/NapCatQQ/NapCat-Docker)** (4.16.0+) 或 **Lagrange**。
     *   **重要配置**：请务必在 OneBot 配置中将 `message_post_format` 设置为 `array`（数组格式），否则无法解析多媒体消息。
-    *   网络：确保开启了正向 WebSocket 服务（通常端口为 3001）。
+    *   网络：在 NapCat 网络配置中添加 **WebSocket客户端**，指向 OpenClaw 所在机器的反向 WS 端口（默认 3002）。
 
 ---
 
@@ -73,14 +73,13 @@ pnpm install qq
 
 ## ⚙️ 配置说明
 
-### 1. 快速配置 (CLI 向导)
-插件内置了交互式配置脚本，助你快速生成配置文件。
-在插件目录 (`openclaw/extensions/qq`) 下运行：
+### 1. 快速配置 (update_json.sh)
+插件内置了交互式配置脚本，在插件目录下运行：
 
 ```bash
-node bin/onboard.js
+bash update_json.sh
 ```
-按照提示输入 WebSocket 地址（如 `ws://localhost:3001`）、Token 和管理员 QQ 号即可。
+按照提示输入反向 WS 端口、HTTP API 地址和管理员 QQ 号即可。脚本会自动备份并更新 `~/.openclaw/openclaw.json`。
 
 ### 2. 标准化配置 (OpenClaw Setup)
 如果已集成到 OpenClaw CLI，可运行：
@@ -95,9 +94,8 @@ openclaw setup qq
 {
   "channels": {
     "qq": {
-      "wsUrl": "ws://127.0.0.1:3001",
-      "httpUrl": "http://127.0.0.1:3000",
       "reverseWsPort": 3002,
+      "httpUrl": "http://127.0.0.1:3000",
       "accessToken": "123456",
       "admins": [12345678],
       "allowedGroups": [10001, 10002],
