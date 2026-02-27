@@ -85,7 +85,7 @@ jq \
 } |
 
 # 2. 写入 gateway.controlUi
-.gateway.controlUi = {"allowInsecureAuth": true} |
+.gateway.controlUi = {"allowInsecureAuth": true, "dangerouslyAllowHostHeaderOriginFallback": true} |
 
 # 3. 写入 gateway.trustedProxies
 .gateway.trustedProxies = ["127.0.0.1", "192.168.110.0/24"] |
