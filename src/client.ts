@@ -95,8 +95,10 @@ export class OneBotClient extends EventEmitter {
 
   private startHeartbeat() {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
-    // Check every 90 seconds (3x the default 30s NapCat heartbeat interval),
-    // allowing at least 2 missed heartbeats before treating the connection as dead.
+    // Send a WebSocket ping every 45 seconds to keep the TCP connection alive
+    // through NAT/virtual network layers (which often have a 60s idle timeout).
+    // Also check for dead connections: if no message received in 90 seconds
+    // (3x the default 30s NapCat heartbeat interval), force a reconnect.
     this.heartbeatTimer = setInterval(() => {
       if (this.isAlive === false) {
         console.warn("[QQ] Heartbeat timeout, forcing reconnect...");
@@ -104,7 +106,8 @@ export class OneBotClient extends EventEmitter {
         return;
       }
       this.isAlive = false;
-    }, 90000);
+      if (this.ws?.readyState === WebSocket.OPEN) this.ws.ping();
+    }, 45000);
   }
 
   private handleDisconnect() {
