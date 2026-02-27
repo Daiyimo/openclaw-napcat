@@ -90,10 +90,7 @@ jq \
 # 3. 写入 gateway.trustedProxies
 .gateway.trustedProxies = ["127.0.0.1", "192.168.110.0/24"] |
 
-# 4. 写入 gateway.auth (允许 trusted-proxy 绕过配对，适配 2026.2.25+ 版本)
-.gateway.auth = {"allowTrustedProxyPairing": true} |
-
-# 5. 写入 plugins 配置
+# 4. 写入 plugins 配置
 .plugins = {
   "entries": {
     "qq": {
