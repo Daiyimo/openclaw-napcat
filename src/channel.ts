@@ -459,7 +459,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
         const { account, cfg } = ctx;
         const config = account.config;
 
-        if (!config.wsUrl) throw new Error("QQ: wsUrl is required");
+        if (!config.wsUrl && !config.reverseWsPort) throw new Error("QQ: either wsUrl or reverseWsPort is required");
 
         // 1. Prevent multiple clients for the same account
         const existingClient = clients.get(account.accountId);
