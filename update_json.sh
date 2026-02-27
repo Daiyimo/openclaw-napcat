@@ -151,56 +151,24 @@ else
     fi
 fi
 
-# ── 设备配对自动化 (OpenClaw 2026.2.25+) ─────────────────────
+# ── 设备配对引导 (OpenClaw 2026.2.25+) ──────────────────────
 
 echo ""
 echo "================================================"
-echo "  OpenClaw 2026.2.25+ 设备配对自动化"
+echo "  OpenClaw 2026.2.25+ 设备配对引导"
 echo "================================================"
-echo "请在浏览器中打开 WebUI 以触发配对请求："
+echo ""
+echo "新版本要求首次访问 WebUI 前完成设备配对。"
+echo "请按以下步骤操作："
+echo ""
+echo "步骤 1: 在浏览器中打开 WebUI，触发配对请求："
 echo "  http://<本机IP>:18789"
 echo ""
-echo "脚本将自动轮询并审批，等待中... (最多 60 秒，Ctrl+C 可跳过)"
+echo "步骤 2: 新开一个终端，查看待审批的设备请求："
+echo "  sudo openclaw devices list"
 echo ""
-
-AUTO_PAIR_TIMEOUT=60
-AUTO_PAIR_ELAPSED=0
-
-while [ "$AUTO_PAIR_ELAPSED" -lt "$AUTO_PAIR_TIMEOUT" ]; do
-    # 获取 devices list 输出，提取 Request 列所有内容拼接成连续字符串
-    DEVICES_OUTPUT=$(sudo openclaw devices list 2>&1)
-
-    # 从表格 Request 列中提取 UUID：去除表格边框和空白后拼接，匹配标准 UUID
-    REQUEST_ID=$(echo "$DEVICES_OUTPUT" \
-        | awk '/Pending/,/Paired|$/' \
-        | grep '│' \
-        | awk -F'│' '{print $2}' \
-        | tr -d ' \n' \
-        | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
-
-    if [ -n "$REQUEST_ID" ]; then
-        echo "检测到待审批请求: $REQUEST_ID"
-        echo "正在自动审批..."
-        sudo openclaw devices approve "$REQUEST_ID"
-        if [ $? -eq 0 ]; then
-            echo "设备配对成功！刷新浏览器即可正常使用。"
-        else
-            echo "审批失败，请手动执行:"
-            echo "  sudo openclaw devices approve $REQUEST_ID"
-        fi
-        break
-    fi
-
-    sleep 3
-    AUTO_PAIR_ELAPSED=$((AUTO_PAIR_ELAPSED + 3))
-    printf "."
-done
-
-if [ "$AUTO_PAIR_ELAPSED" -ge "$AUTO_PAIR_TIMEOUT" ]; then
-    echo ""
-    echo "超时未检测到配对请求，如需手动配对："
-    echo "  sudo openclaw devices list"
-    echo "  sudo openclaw devices approve <requestId>"
-fi
-
+echo "步骤 3: 找到 Request 表中的 requestId，执行审批："
+echo "  sudo openclaw devices approve <requestId>"
+echo ""
+echo "完成后刷新浏览器即可正常使用。"
 echo "================================================"
