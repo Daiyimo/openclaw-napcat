@@ -53,21 +53,18 @@ OpenClawd 是一个多功能代理。下面的聊天演示仅展示了最基础�
 
 ## 🚀 安装指南
 
-### 方法 1: 使用 OpenClaw CLI (推荐)
+### 方法 : 使用 OpenClaw CLI (推荐)
 如果你的 OpenClaw 版本支持插件市场或 CLI 安装：
 ```bash
 # 进入插件目录
 cd openclaw/extensions
 # 克隆仓库
-git clone -b pre-release https://gh-proxy.com/https://github.com/Daiyimo/openclaw-qq-plugin.git qq
+git clone -b pre-release https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat/tree/main.git qq
 # 进入qq插件目录
 npm install -g pnpm
 # 安装qq
 pnpm install qq
 ```
-
-### 方法 2: Docker 集成
-在你的 `docker-compose.yml` 或 `Dockerfile` 中，将本插件代码复制到 `/app/extensions/qq` 目录，然后重新构建镜像。
 
 ---
 
@@ -269,23 +266,7 @@ A:
 **Q: 如何让 Bot 说话（TTS）？**
 A: 将 `enableTTS` 设为 `true`。注意：这取决于 OneBot 服务端是否支持 TTS 转换。通常 NapCat/Lagrange 对此支持有限，可能需要额外插件。
 
----
 
-## 🆚 与 Telegram 插件的功能区别
-
-如果您习惯使用 OpenClaw 的 Telegram 插件，以下是 `openclaw_qq` 在体验上的主要差异：
-
-| 功能特性 | QQ 插件 (openclaw_qq) | Telegram 插件 | 体验差异说明 |
-| :--- | :--- | :--- | :--- |
-| **消息排版** | **纯文本** | **原生 Markdown** | QQ 不支持加粗、代码块高亮，插件会自动转换排版。 |
-| **流式输出** | ❌ 不支持 | ✅ 支持 | TG 可实时看到 AI 打字；QQ 需等待 AI 生成完毕后整段发送。 |
-| **消息编辑** | ❌ 不支持 | ✅ 支持 | TG 可修改已发内容；QQ 发送后无法修改，只能撤回。 |
-| **交互按钮** | ❌ 暂不支持 | ✅ 支持 | TG 消息下方可带按钮；QQ 目前完全依靠文本指令。 |
-| **风控等级** | 🔴 **极高** | 🟢 **极低** | QQ 极易因回复过快或敏感词封号，插件已内置分片限速。 |
-| **戳一戳** | ✅ **特色支持** | ❌ 不支持 | QQ 特有的社交互动，AI 可感知并回应。 |
-| **转发消息** | ✅ **深度支持** | ❌ 基础支持 | QQ 插件专门优化了对"合并转发"聊天记录的解析。 |
-
----
 
 ## 更新日志
 
