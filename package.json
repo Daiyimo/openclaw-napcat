@@ -1,10 +1,10 @@
 {
-  "name": "@openclaw/qq",
+  "name": "@openclaw/napcat",
   "version": "1.5.0",
   "type": "module",
-  "description": "OpenClaw QQ channel plugin via OneBot v11",
+  "description": "OpenClaw NapCat channel plugin via OneBot v11",
   "bin": {
-    "openclaw-qq-onboard": "./bin/onboard.js"
+    "openclaw-napcat-onboard": "./bin/onboard.js"
   },
   "openclaw": {
     "extensions": [

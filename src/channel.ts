@@ -11,12 +11,12 @@ import {
   migrateBaseNameToDefaultAccount,
 } from "openclaw/plugin-sdk";
 import { OneBotClient } from "./client.js";
-import { QQConfigSchema, type QQConfig } from "./config.js";
-import { getQQRuntime } from "./runtime.js";
+import { NapcatConfigSchema, type NapcatConfig } from "./config.js";
+import { getNapcatRuntime } from "./runtime.js";
 import type { OneBotMessage, OneBotMessageSegment } from "./types.js";
 
-export type ResolvedQQAccount = ChannelAccountSnapshot & {
-  config: QQConfig;
+export type ResolvedNapcatAccount = ChannelAccountSnapshot & {
+  config: NapcatConfig;
   client?: OneBotClient;
 };
 
@@ -177,7 +177,7 @@ function parseTarget(to: string): ParsedTarget {
   const id = parseInt(to, 10);
   if (isNaN(id)) {
     throw new Error(
-      `Cannot determine target type from "${to}". Use "private:<QQ号>", "group:<群号>", or "guild:<频道ID>:<子频道ID>".`
+      `Cannot determine target type from "${to}". Use "private:<user_id>", "group:<group_id>", or "guild:<guild_id>:<channel_id>".`
     );
   }
   return { type: "private", userId: id };
@@ -249,21 +249,21 @@ async function resolveMediaUrl(url: string): Promise<string> {
             const base64 = data.toString("base64");
             return `base64://${base64}`;
         } catch (e) {
-            console.warn(`[QQ] Failed to convert local file to base64: ${e}`);
+            console.warn(`[NapCat] Failed to convert local file to base64: ${e}`);
             return url; // Fallback to original
         }
     }
     return url;
 }
 
-export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
-  id: "qq",
+export const napcatChannel: ChannelPlugin<ResolvedNapcatAccount> = {
+  id: "napcat",
   meta: {
-    id: "qq",
-    label: "QQ (OneBot)",
-    selectionLabel: "QQ",
-    docsPath: "extensions/qq",
-    blurb: "Connect to QQ via OneBot v11",
+    id: "napcat",
+    label: "NapCat (OneBot)",
+    selectionLabel: "NapCat",
+    docsPath: "extensions/napcat",
+    blurb: "Connect to NapCat via OneBot v11",
   },
   capabilities: {
     chatTypes: ["direct", "group"],
@@ -271,23 +271,23 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
     // @ts-ignore
     deleteMessage: true,
   },
-  configSchema: buildChannelConfigSchema(QQConfigSchema),
+  configSchema: buildChannelConfigSchema(NapcatConfigSchema),
   config: {
     listAccountIds: (cfg) => {
         // @ts-ignore
-        const qq = cfg.channels?.qq;
-        if (!qq) return [];
-        if (qq.accounts) return Object.keys(qq.accounts);
+        const napcat = cfg.channels?.napcat;
+        if (!napcat) return [];
+        if (napcat.accounts) return Object.keys(napcat.accounts);
         return [DEFAULT_ACCOUNT_ID];
     },
     resolveAccount: (cfg, accountId) => {
         const id = accountId ?? DEFAULT_ACCOUNT_ID;
         // @ts-ignore
-        const qq = cfg.channels?.qq;
-        const accountConfig = id === DEFAULT_ACCOUNT_ID ? qq : qq?.accounts?.[id];
+        const napcat = cfg.channels?.napcat;
+        const accountConfig = id === DEFAULT_ACCOUNT_ID ? napcat : napcat?.accounts?.[id];
         return {
             accountId: id,
-            name: accountConfig?.name ?? "QQ Default",
+            name: accountConfig?.name ?? "NapCat Default",
             enabled: true,
             configured: Boolean(accountConfig?.wsUrl || accountConfig?.reverseWsPort),
             tokenSource: accountConfig?.accessToken ? "config" : "none",
@@ -320,7 +320,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
           const client = getClientForAccount(accountId || DEFAULT_ACCOUNT_ID);
           if (!client) return [];
           const list: any[] = [];
-          
+
           try {
               const groups = await client.getGroupList();
               list.push(...groups.map(g => ({
@@ -332,13 +332,13 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
           } catch (e) {}
 
           // @ts-ignore
-          const enableGuilds = cfg?.channels?.qq?.enableGuilds ?? true;
+          const enableGuilds = cfg?.channels?.napcat?.enableGuilds ?? true;
           if (enableGuilds) {
               try {
                   const guilds = await client.getGuildList();
                   list.push(...guilds.map(g => ({
                       id: `guild:${g.guild_id}`,
-                      name: `[频道] ${g.guild_name}`,
+                      name: `[Guild] ${g.guild_name}`,
                       type: "group" as const,
                       metadata: { ...g }
                   })));
@@ -402,19 +402,19 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
   },
   setup: {
     resolveAccountId: ({ accountId }) => normalizeAccountId(accountId),
-    applyAccountName: ({ cfg, accountId, name }) => 
-        applyAccountNameToChannelSection({ cfg, channelKey: "qq", accountId, name }),
+    applyAccountName: ({ cfg, accountId, name }) =>
+        applyAccountNameToChannelSection({ cfg, channelKey: "napcat", accountId, name }),
     validateInput: ({ input }) => null,
     applyAccountConfig: ({ cfg, accountId, input }) => {
         const namedConfig = applyAccountNameToChannelSection({
             cfg,
-            channelKey: "qq",
+            channelKey: "napcat",
             accountId,
             name: input.name,
         });
-        
-        const next = accountId !== DEFAULT_ACCOUNT_ID 
-            ? migrateBaseNameToDefaultAccount({ cfg: namedConfig, channelKey: "qq" }) 
+
+        const next = accountId !== DEFAULT_ACCOUNT_ID
+            ? migrateBaseNameToDefaultAccount({ cfg: namedConfig, channelKey: "napcat" })
             : namedConfig;
 
         const newConfig = {
@@ -430,22 +430,22 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                 ...next,
                 channels: {
                     ...next.channels,
-                    qq: { ...next.channels?.qq, ...newConfig }
+                    napcat: { ...next.channels?.napcat, ...newConfig }
                 }
             };
         }
-        
+
         return {
             ...next,
             channels: {
                 ...next.channels,
-                qq: {
-                    ...next.channels?.qq,
+                napcat: {
+                    ...next.channels?.napcat,
                     enabled: true,
                     accounts: {
-                        ...next.channels?.qq?.accounts,
+                        ...next.channels?.napcat?.accounts,
                         [accountId]: {
-                            ...next.channels?.qq?.accounts?.[accountId],
+                            ...next.channels?.napcat?.accounts?.[accountId],
                             ...newConfig
                         }
                     }
@@ -459,12 +459,12 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
         const { account, cfg } = ctx;
         const config = account.config;
 
-        if (!config.wsUrl && !config.reverseWsPort) throw new Error("QQ: either wsUrl or reverseWsPort is required");
+        if (!config.wsUrl && !config.reverseWsPort) throw new Error("NapCat: either wsUrl or reverseWsPort is required");
 
         // 1. Prevent multiple clients for the same account
         const existingClient = clients.get(account.accountId);
         if (existingClient) {
-            console.log(`[QQ] Stopping existing client for account ${account.accountId} before restart`);
+            console.log(`[NapCat] Stopping existing client for account ${account.accountId} before restart`);
             existingClient.disconnect();
         }
 
@@ -483,13 +483,13 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
         }, 3600000);
 
         client.on("connect", async () => {
-             console.log(`[QQ] Connected account ${account.accountId}`);
+             console.log(`[NapCat] Connected account ${account.accountId}`);
              try {
                 const info = await client.getLoginInfo();
                 if (info && info.user_id) client.setSelfId(info.user_id);
-                if (info && info.nickname) console.log(`[QQ] Logged in as: ${info.nickname} (${info.user_id})`);
-                getQQRuntime().channel.activity.record({
-                    channel: "qq", accountId: account.accountId, direction: "inbound", 
+                if (info && info.nickname) console.log(`[NapCat] Logged in as: ${info.nickname} (${info.user_id})`);
+                getNapcatRuntime().channel.activity.record({
+                    channel: "napcat", accountId: account.accountId, direction: "inbound",
                  });
              } catch (err) { }
         });
@@ -618,12 +618,12 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                     const parts = text.trim().split(/\s+/);
                     const cmd = parts[0];
                     if (cmd === '/status') {
-                        const statusMsg = `[OpenClawd QQ]\nState: Connected\nSelf ID: ${client.getSelfId()}\nMemory: ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB`;
+                        const statusMsg = `[OpenClaw NapCat]\nState: Connected\nSelf ID: ${client.getSelfId()}\nMemory: ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB`;
                         if (isGroup) client.sendGroupMsg(groupId, statusMsg); else client.sendPrivateMsg(userId, statusMsg);
                         return;
                     }
                     if (cmd === '/help') {
-                        const helpMsg = `[OpenClawd QQ]\n/status - 状态\n/mute @用户 [分] - 禁言\n/kick @用户 - 踢出\n/help - 帮助`;
+                        const helpMsg = `[OpenClaw NapCat]\n/status - Status\n/mute @user [minutes] - Mute\n/kick @user - Kick\n/help - Help`;
                         if (isGroup) client.sendGroupMsg(groupId, helpMsg); else client.sendPrivateMsg(userId, helpMsg);
                         return;
                     }
@@ -694,16 +694,16 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             }
 
             let fromId = String(userId);
-            let conversationLabel = `QQ User ${userId}`;
+            let conversationLabel = `NapCat User ${userId}`;
             if (isGroup) {
                 fromId = `group:${groupId}`;
-                conversationLabel = `QQ Group ${groupId}`;
+                conversationLabel = `NapCat Group ${groupId}`;
             } else if (isGuild) {
                 fromId = `guild:${guildId}:${channelId}`;
-                conversationLabel = `QQ Guild ${guildId} Channel ${channelId}`;
+                conversationLabel = `NapCat Guild ${guildId} Channel ${channelId}`;
             }
 
-            const runtime = getQQRuntime();
+            const runtime = getNapcatRuntime();
 
             const deliver = async (payload: ReplyPayload) => {
                  const send = async (msg: string) => {
@@ -806,10 +806,10 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             bodyWithReply = systemBlock + bodyWithReply;
 
             const ctxPayload = runtime.channel.reply.finalizeInboundContext({
-                Provider: "qq", Channel: "qq", From: fromId, To: "qq:bot", Body: bodyWithReply, RawBody: text,
+                Provider: "napcat", Channel: "napcat", From: fromId, To: "napcat:bot", Body: bodyWithReply, RawBody: text,
                 SenderId: String(userId), SenderName: event.sender?.nickname || "Unknown", ConversationLabel: conversationLabel,
-                SessionKey: `qq:${fromId}`, AccountId: account.accountId, ChatType: isGroup ? "group" : isGuild ? "channel" : "direct", Timestamp: event.time * 1000,
-                OriginatingChannel: "qq", OriginatingTo: fromId, CommandAuthorized: true,
+                SessionKey: `napcat:${fromId}`, AccountId: account.accountId, ChatType: isGroup ? "group" : isGuild ? "channel" : "direct", Timestamp: event.time * 1000,
+                OriginatingChannel: "napcat", OriginatingTo: fromId, CommandAuthorized: true,
                 ...(extractImageUrls(event.message).length > 0 && { MediaUrls: extractImageUrls(event.message) }),
                 ...(replyMsgId && { ReplyToId: replyMsgId, ReplyToBody: replyToBody, ReplyToSender: replyToSender }),
             });
@@ -817,14 +817,14 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             await runtime.channel.session.recordInboundSession({
                 storePath: runtime.channel.session.resolveStorePath(cfg.session?.store, { agentId: "default" }),
                 sessionKey: ctxPayload.SessionKey!, ctx: ctxPayload,
-                updateLastRoute: { sessionKey: ctxPayload.SessionKey!, channel: "qq", to: fromId, accountId: account.accountId },
-                onRecordError: (err) => console.error("QQ Session Error:", err)
+                updateLastRoute: { sessionKey: ctxPayload.SessionKey!, channel: "napcat", to: fromId, accountId: account.accountId },
+                onRecordError: (err) => console.error("NapCat Session Error:", err)
             });
 
             try { await runtime.channel.reply.dispatchReplyFromConfig({ ctx: ctxPayload, cfg, dispatcher, replyOptions });
             } catch (error) { if (config.enableErrorNotify) deliver({ text: "⚠️ 服务调用失败，请稍后重试。" }); }
           } catch (err) {
-            console.error("[QQ] Critical error in message handler:", err);
+            console.error("[NapCat] Critical error in message handler:", err);
           }
         });
 
@@ -853,40 +853,40 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
     sendText: async ({ to, text, accountId, replyTo }) => {
         // Ignore non-routable targets (e.g. framework heartbeat probes)
         if (!to || to === "heartbeat") {
-            return { channel: "qq", sent: true };
+            return { channel: "napcat", sent: true };
         }
-        console.log(`[QQ][outbound.sendText] called: to=${to}, accountId=${accountId}, text=${text?.slice(0, 100)}`);
+        console.log(`[NapCat][outbound.sendText] called: to=${to}, accountId=${accountId}, text=${text?.slice(0, 100)}`);
         const resolvedAccountId = accountId || DEFAULT_ACCOUNT_ID;
         const client = getClientForAccount(resolvedAccountId);
-        console.log(`[QQ][outbound.sendText] client lookup: accountId=${resolvedAccountId}, found=${!!client}, clients keys=[${[...clients.keys()].join(",")}]`);
-        if (!client) return { channel: "qq", sent: false, error: "Client not connected" };
+        console.log(`[NapCat][outbound.sendText] client lookup: accountId=${resolvedAccountId}, found=${!!client}, clients keys=[${[...clients.keys()].join(",")}]`);
+        if (!client) return { channel: "napcat", sent: false, error: "Client not connected" };
         try {
             const target = parseTarget(to);
-            console.log(`[QQ][outbound.sendText] parsed target: type=${target.type}, to=${to}`);
+            console.log(`[NapCat][outbound.sendText] parsed target: type=${target.type}, to=${to}`);
             const chunks = splitMessage(text, 4000);
             for (let i = 0; i < chunks.length; i++) {
                 let message: OneBotMessage | string = chunks[i];
                 if (replyTo && i === 0) message = [ { type: "reply", data: { id: String(replyTo) } }, { type: "text", data: { text: chunks[i] } } ];
 
-                console.log(`[QQ][outbound.sendText] sending chunk ${i + 1}/${chunks.length} to ${to} (${target.type})`);
+                console.log(`[NapCat][outbound.sendText] sending chunk ${i + 1}/${chunks.length} to ${to} (${target.type})`);
                 await dispatchMessage(client, target, message);
 
                 if (chunks.length > 1) await sleep(1000);
             }
-            console.log(`[QQ][outbound.sendText] success: to=${to}`);
-            return { channel: "qq", sent: true };
+            console.log(`[NapCat][outbound.sendText] success: to=${to}`);
+            return { channel: "napcat", sent: true };
         } catch (err) {
-            console.error("[QQ][outbound.sendText] FAILED:", err);
-            return { channel: "qq", sent: false, error: String(err) };
+            console.error("[NapCat][outbound.sendText] FAILED:", err);
+            return { channel: "napcat", sent: false, error: String(err) };
         }
     },
     sendMedia: async ({ to, text, mediaUrl, accountId, replyTo }) => {
          // Ignore non-routable targets (e.g. framework heartbeat probes)
          if (!to || to === "heartbeat") {
-             return { channel: "qq", sent: true };
+             return { channel: "napcat", sent: true };
          }
          const client = getClientForAccount(accountId || DEFAULT_ACCOUNT_ID);
-         if (!client) return { channel: "qq", sent: false, error: "Client not connected" };
+         if (!client) return { channel: "napcat", sent: false, error: "Client not connected" };
          try {
              const target = parseTarget(to);
              const finalUrl = await resolveMediaUrl(mediaUrl);
@@ -898,25 +898,25 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
              else message.push({ type: "text", data: { text: `[CQ:file,file=${finalUrl},url=${finalUrl}]` } });
 
              await dispatchMessage(client, target, message);
-             return { channel: "qq", sent: true };
+             return { channel: "napcat", sent: true };
          } catch (err) {
-             console.error("[QQ] outbound.sendMedia failed:", err);
-             return { channel: "qq", sent: false, error: String(err) };
+             console.error("[NapCat] outbound.sendMedia failed:", err);
+             return { channel: "napcat", sent: false, error: String(err) };
          }
     },
     // @ts-ignore
     deleteMessage: async ({ messageId, accountId }) => {
         const client = getClientForAccount(accountId || DEFAULT_ACCOUNT_ID);
-        if (!client) return { channel: "qq", success: false, error: "Client not connected" };
-        try { client.deleteMsg(messageId); return { channel: "qq", success: true }; }
-        catch (err) { return { channel: "qq", success: false, error: String(err) }; }
+        if (!client) return { channel: "napcat", success: false, error: "Client not connected" };
+        try { client.deleteMsg(messageId); return { channel: "napcat", success: true }; }
+        catch (err) { return { channel: "napcat", success: false, error: String(err) }; }
     }
   },
   messaging: {
       normalizeTarget,
       targetResolver: {
           looksLikeId: (id) => /^\d{5,12}$/.test(id) || /^(group|guild|private):/.test(id),
-          hint: "QQ号, private:QQ号, group:群号, 或 guild:频道ID:子频道ID",
+          hint: "user_id, private:user_id, group:group_id, or guild:guild_id:channel_id",
       }
   },
   setup: { resolveAccountId: ({ accountId }) => normalizeAccountId(accountId) }
