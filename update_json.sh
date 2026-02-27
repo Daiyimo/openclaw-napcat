@@ -21,8 +21,8 @@ echo "配置文件: $CONFIG_FILE"
 # ── 交互式配置收集 ──────────────────────────────────────────
 
 echo ""
-read -r -p "请输入 WebSocket 地址 (留空使用默认值 ws://127.0.0.1:3001): " INPUT_WS_URL </dev/tty
-WS_URL="${INPUT_WS_URL:-ws://127.0.0.1:3001}"
+read -r -p "请输入反向 WebSocket 监听端口 (留空使用默认值 3002): " INPUT_REVERSE_PORT </dev/tty
+REVERSE_WS_PORT="${INPUT_REVERSE_PORT:-3002}"
 
 read -r -p "请输入 HTTP API 地址 (留空使用默认值 http://127.0.0.1:3000): " INPUT_HTTP_URL </dev/tty
 HTTP_URL="${INPUT_HTTP_URL:-http://127.0.0.1:3000}"
@@ -39,9 +39,9 @@ done
 
 echo ""
 echo "配置预览:"
-echo "  wsUrl  : $WS_URL"
-echo "  httpUrl: $HTTP_URL"
-echo "  admins : [$ADMIN_QQ]"
+echo "  reverseWsPort : $REVERSE_WS_PORT"
+echo "  httpUrl       : $HTTP_URL"
+echo "  admins        : [$ADMIN_QQ]"
 echo ""
 
 # ────────────────────────────────────────────────────────────
@@ -53,14 +53,14 @@ echo "备份已保存至: $BACKUP_FILE"
 
 # 执行更新
 jq \
-  --arg wsUrl "$WS_URL" \
   --arg httpUrl "$HTTP_URL" \
+  --argjson reverseWsPort "$REVERSE_WS_PORT" \
   --argjson adminQq "$ADMIN_QQ" \
 '
 # 1. 写入完整的 channels 配置
 .channels = {
   "qq": {
-    "wsUrl": $wsUrl,
+    "reverseWsPort": $reverseWsPort,
     "httpUrl": $httpUrl,
     "accessToken": "123456",
     "admins": [$adminQq],
@@ -79,15 +79,8 @@ jq \
     "requireMention": true,
     "reactionEmoji": "auto",
     "autoMarkRead": true,
-    "enableReactions": true,
     "enableDeduplication": true,
-    "enableErrorNotify": true,
-    "enableOcr": true,
-    "enableUrlCheck": true,
-    "enableGroupHonor": true,
-    "enableGroupSignIn": true,
-    "autoCleanCache": true,
-    "enableEssenceMsg": true
+    "enableErrorNotify": true
   }
 } |
 
@@ -111,6 +104,10 @@ if [ $? -eq 0 ]; then
     mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
     chmod 600 "$CONFIG_FILE"
     echo "配置更新成功！"
+    echo ""
+    echo "提示: 请在 NapCat 网络配置中添加 WebSocket客户端，URL 填写:"
+    echo "  ws://本机IP:${REVERSE_WS_PORT}"
+    echo "Token 填写: 123456，消息格式选择: array"
 else
     echo "更新失败，正在恢复备份..."
     mv "$BACKUP_FILE" "$CONFIG_FILE"
@@ -122,7 +119,6 @@ fi
 
 echo ""
 echo "正在检查 QQ 插件状态..."
-# 注意：这里假设 openclaw 命令在 PATH 中，且无需 sudo 即可查询状态
 PLUGIN_LIST=$(openclaw plugins list 2>&1)
 
 if echo "$PLUGIN_LIST" | grep -i "qq" | grep -i "loaded" &> /dev/null; then
@@ -135,7 +131,6 @@ if echo "$PLUGIN_LIST" | grep -i "qq" | grep -i "loaded" &> /dev/null; then
     fi
 else
     echo "未检测到运行中的 QQ 插件或服务。"
-    echo "正在尝试启动 OpenClaw 网关..."
     read -r -p "是否现在启动？[Y/n]: " CONFIRM_START
     if [[ ! "$CONFIRM_START" =~ ^[Nn]$ ]]; then
         sudo openclaw gateway
