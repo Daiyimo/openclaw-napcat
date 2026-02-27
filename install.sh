@@ -52,7 +52,10 @@ cd qq
 
 # 3. 安装依赖
 echo "安装依赖..."
-npm install ws zod --no-package-lock --omit=dev --no-audit --registry=https://registry.npmmirror.com
+# Force HTTPS for all git operations to avoid SSH key requirement
+git config --global url."https://".insteadOf ssh://
+git config --global url."https://github.com/".insteadOf git@github.com:
+npm install ws zod --no-package-lock --omit=dev --no-audit --prefer-online --registry=https://registry.npmmirror.com
 
 echo ""
 echo "=== 安装完成 ==="
