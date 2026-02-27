@@ -13,11 +13,8 @@ interface OneBotClientOptions {
 export class OneBotClient extends EventEmitter {
   private ws: WebSocket | null = null;
   private options: OneBotClientOptions;
-  private reconnectAttempts = 0;
-  private maxReconnectDelay = 60000; // Max 1 minute delay
   private selfId: number | null = null;
   private isAlive = false;
-  private reconnectTimer: NodeJS.Timeout | null = null;
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private reverseWss: WebSocketServer | null = null;
   private reverseWs: WebSocket | null = null;
@@ -48,7 +45,6 @@ export class OneBotClient extends EventEmitter {
 
       this.ws.on("open", () => {
         this.isAlive = true;
-        this.reconnectAttempts = 0; // Reset counter on success
         this.emit("connect");
         console.log("[QQ] Connected to OneBot server");
         
@@ -84,10 +80,6 @@ export class OneBotClient extends EventEmitter {
   }
 
   private cleanup() {
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
@@ -117,20 +109,10 @@ export class OneBotClient extends EventEmitter {
 
   private handleDisconnect() {
     this.cleanup();
+    console.log("[QQ] Disconnected from OneBot server");
     this.emit("disconnect");
-    this.scheduleReconnect();
-  }
-
-  private scheduleReconnect() {
-    if (this.reconnectTimer) return; // Already scheduled
-    
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), this.maxReconnectDelay);
-    console.log(`[QQ] Reconnecting in ${delay / 1000}s (Attempt ${this.reconnectAttempts + 1})...`);
-    
-    this.reconnectTimer = setTimeout(() => {
-        this.reconnectAttempts++;
-        this.connect();
-    }, delay);
+    // Reconnection is handled by OpenClaw's health-monitor via startAccount.
+    // Do not self-reconnect here to avoid racing with the host framework.
   }
 
   async sendPrivateMsg(userId: number, message: OneBotMessage | string) {
