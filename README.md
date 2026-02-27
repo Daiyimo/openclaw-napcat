@@ -76,7 +76,15 @@ pnpm install qq
 ```bash
 bash update_json.sh
 ```
-按照提示输入反向 WS 端口、HTTP API 地址和管理员 QQ 号即可。脚本会自动备份并更新 `~/.openclaw/openclaw.json`。
+
+脚本会依次完成以下步骤：
+1. 交互式收集配置（反向 WS 端口、HTTP API 地址、管理员 QQ 号）
+2. 备份并更新 `~/.openclaw/openclaw.json`
+3. 检测 QQ 插件状态，未检测到时询问是否启动
+4. 打印设备配对引导（OpenClaw 2026.2.25+ 要求），等待用户确认
+5. 执行 `sudo openclaw gateway` 启动网关（前台运行，日志直接输出）
+
+启动网关后，按引导在另一个终端完成设备配对即可。
 
 ### 2. 标准化配置 (OpenClaw Setup)
 如果已集成到 OpenClaw CLI，可运行：
