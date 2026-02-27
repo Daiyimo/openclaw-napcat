@@ -190,7 +190,7 @@ export class OneBotClient extends EventEmitter {
   }
 
   sendFriendPoke(userId: number) {
-      this.sendWs("friend_poke", { user_id: userId });
+      this.sendWs("friend_poke", { user_id: userId, target_id: userId });
   }
 
   async setMsgEmojiLike(messageId: number | string, emojiId: string) {
