@@ -1,7 +1,7 @@
 {
-  "id": "qq",
+  "id": "napcat",
   "channels": [
-    "qq"
+    "napcat"
   ],
   "configSchema": {
     "type": "object",
@@ -26,7 +26,7 @@
       "admins": {
         "type": "array",
         "items": { "type": "number" },
-        "description": "Admin QQ numbers"
+        "description": "Admin user IDs"
       },
       "requireMention": {
         "type": "boolean",
@@ -85,7 +85,7 @@
       },
       "enableGuilds": {
         "type": "boolean",
-        "description": "Enable QQ Guild support"
+        "description": "Enable Guild support"
       },
       "rateLimitMs": {
         "type": "number",
