@@ -123,21 +123,52 @@ PLUGIN_LIST=$(openclaw plugins list 2>&1)
 
 if echo "$PLUGIN_LIST" | grep -i "qq" | grep -i "loaded" &> /dev/null; then
     echo "检测到 QQ 插件当前处于 loaded 状态，正在启动 OpenClaw 网关..."
-    sudo openclaw gateway
-    if [ $? -eq 0 ]; then
-        echo "服务启动命令已执行。"
+    sudo openclaw gateway &
+    GATEWAY_PID=$!
+    sleep 3
+    if kill -0 "$GATEWAY_PID" 2>/dev/null; then
+        echo "服务启动成功 (PID $GATEWAY_PID)。"
     else
         echo "服务启动失败，请检查是否有进程占用端口或权限问题。"
+        exit 1
     fi
 else
     echo "未检测到运行中的 QQ 插件或服务。"
-    read -r -p "是否现在启动？[Y/n]: " CONFIRM_START
+    read -r -p "是否现在启动？[Y/n]: " CONFIRM_START </dev/tty
     if [[ ! "$CONFIRM_START" =~ ^[Nn]$ ]]; then
-        sudo openclaw gateway
-        if [ $? -eq 0 ]; then
-            echo "服务启动命令已执行。"
+        sudo openclaw gateway &
+        GATEWAY_PID=$!
+        sleep 3
+        if kill -0 "$GATEWAY_PID" 2>/dev/null; then
+            echo "服务启动成功 (PID $GATEWAY_PID)。"
         else
             echo "服务启动失败。"
+            exit 1
         fi
+    else
+        echo "跳过启动。"
+        exit 0
     fi
 fi
+
+# ── 设备配对引导 (OpenClaw 2026.2.25+) ──────────────────────
+
+echo ""
+echo "================================================"
+echo "  OpenClaw 2026.2.25+ 设备配对引导"
+echo "================================================"
+echo ""
+echo "新版本要求首次访问 WebUI 前完成设备配对。"
+echo "请按以下步骤操作："
+echo ""
+echo "步骤 1: 在浏览器中打开 WebUI，触发配对请求："
+echo "  http://<本机IP>:18789"
+echo ""
+echo "步骤 2: 新开一个终端，查看待审批的设备请求："
+echo "  openclaw devices list"
+echo ""
+echo "步骤 3: 找到 Request 表中的 requestId，执行审批："
+echo "  openclaw devices approve <requestId>"
+echo ""
+echo "完成后刷新浏览器即可正常使用。"
+echo "================================================"
