@@ -289,7 +289,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             accountId: id,
             name: accountConfig?.name ?? "QQ Default",
             enabled: true,
-            configured: Boolean(accountConfig?.wsUrl),
+            configured: Boolean(accountConfig?.wsUrl || accountConfig?.reverseWsPort),
             tokenSource: accountConfig?.accessToken ? "config" : "none",
             config: accountConfig || {},
         };
@@ -349,7 +349,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
   },
   status: {
       probeAccount: async ({ account, timeoutMs }) => {
-          if (!account.config.wsUrl) return { ok: false, error: "Missing wsUrl" };
+          if (!account.config.wsUrl && !account.config.reverseWsPort) return { ok: false, error: "Missing wsUrl or reverseWsPort" };
           
           const client = new OneBotClient({
               wsUrl: account.config.wsUrl,
@@ -418,7 +418,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             : namedConfig;
 
         const newConfig = {
-            wsUrl: input.wsUrl || "ws://localhost:3001",
+            wsUrl: input.wsUrl || undefined,
             httpUrl: input.httpUrl,
             reverseWsPort: input.reverseWsPort,
             accessToken: input.accessToken,
