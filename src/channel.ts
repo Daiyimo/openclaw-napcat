@@ -830,11 +830,20 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
 
         client.connect();
         client.startReverseWs();
-        return () => {
-            clearInterval(cleanupInterval);
-            client.disconnect();
-            clients.delete(account.accountId);
-        };
+
+        // Keep startAccount pending until OpenClaw signals shutdown via abortSignal.
+        // Without this, startAccount returns immediately while the WebSocket is still
+        // connecting, causing health-monitor to see running:true connected:false and
+        // trigger a spurious auto-restart loop (same fix applied in v2026.2.26 to
+        // Google Chat, Nextcloud Talk, LINE, and Telegram channels).
+        await new Promise<void>((resolve) => {
+            if (ctx.abortSignal?.aborted) { resolve(); return; }
+            ctx.abortSignal?.addEventListener("abort", () => resolve(), { once: true });
+        });
+
+        clearInterval(cleanupInterval);
+        client.disconnect();
+        clients.delete(account.accountId);
     },
     logoutAccount: async ({ accountId, cfg }) => {
         return { loggedOut: true, cleared: true };
