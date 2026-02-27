@@ -289,7 +289,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             accountId: id,
             name: accountConfig?.name ?? "QQ Default",
             enabled: true,
-            configured: Boolean(accountConfig?.wsUrl),
+            configured: Boolean(accountConfig?.wsUrl || accountConfig?.reverseWsPort),
             tokenSource: accountConfig?.accessToken ? "config" : "none",
             config: accountConfig || {},
         };
@@ -349,7 +349,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
   },
   status: {
       probeAccount: async ({ account, timeoutMs }) => {
-          if (!account.config.wsUrl) return { ok: false, error: "Missing wsUrl" };
+          if (!account.config.wsUrl && !account.config.reverseWsPort) return { ok: false, error: "Missing wsUrl or reverseWsPort" };
           
           const client = new OneBotClient({
               wsUrl: account.config.wsUrl,
@@ -418,7 +418,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             : namedConfig;
 
         const newConfig = {
-            wsUrl: input.wsUrl || "ws://localhost:3001",
+            wsUrl: input.wsUrl || undefined,
             httpUrl: input.httpUrl,
             reverseWsPort: input.reverseWsPort,
             accessToken: input.accessToken,
@@ -459,7 +459,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
         const { account, cfg } = ctx;
         const config = account.config;
 
-        if (!config.wsUrl) throw new Error("QQ: wsUrl is required");
+        if (!config.wsUrl && !config.reverseWsPort) throw new Error("QQ: either wsUrl or reverseWsPort is required");
 
         // 1. Prevent multiple clients for the same account
         const existingClient = clients.get(account.accountId);
@@ -606,35 +606,45 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             if (config.admins?.length && !isAdmin) return;
 
             if (!isGuild && isAdmin && text.trim().startsWith('/')) {
-                const parts = text.trim().split(/\s+/);
-                const cmd = parts[0];
-                if (cmd === '/status') {
-                    const statusMsg = `[OpenClawd QQ]\nState: Connected\nSelf ID: ${client.getSelfId()}\nMemory: ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB`;
-                    if (isGroup) client.sendGroupMsg(groupId, statusMsg); else client.sendPrivateMsg(userId, statusMsg);
-                    return;
-                }
-                if (cmd === '/help') {
-                    const helpMsg = `[OpenClawd QQ]\n/status - 状态\n/mute @用户 [分] - 禁言\n/kick @用户 - 踢出\n/help - 帮助`;
-                    if (isGroup) client.sendGroupMsg(groupId, helpMsg); else client.sendPrivateMsg(userId, helpMsg);
-                    return;
-                }
-                if (isGroup && (cmd === '/mute' || cmd === '/ban')) {
-                    const targetMatch = text.match(/\[CQ:at,qq=(\d+)\]/);
-                    const targetId = targetMatch ? parseInt(targetMatch[1]) : (parts[1] ? parseInt(parts[1]) : null);
-                    if (targetId) {
-                        client.setGroupBan(groupId, targetId, parts[2] ? parseInt(parts[2]) * 60 : 1800);
-                        client.sendGroupMsg(groupId, `已禁言。`);
+                const isCmdMentioned = !isGroup || (() => {
+                    const sid = client.getSelfId() ?? event.self_id;
+                    if (!sid) return false;
+                    if (Array.isArray(event.message)) {
+                        for (const s of event.message) { if (s.type === "at" && (String(s.data?.qq) === String(sid) || s.data?.qq === "all")) return true; }
                     }
-                    return;
-                }
-                if (isGroup && cmd === '/kick') {
-                    const targetMatch = text.match(/\[CQ:at,qq=(\d+)\]/);
-                    const targetId = targetMatch ? parseInt(targetMatch[1]) : (parts[1] ? parseInt(parts[1]) : null);
-                    if (targetId) {
-                        client.setGroupKick(groupId, targetId);
-                        client.sendGroupMsg(groupId, `已踢出。`);
+                    return text.includes(`[CQ:at,qq=${sid}]`);
+                })();
+                if (isCmdMentioned) {
+                    const parts = text.trim().split(/\s+/);
+                    const cmd = parts[0];
+                    if (cmd === '/status') {
+                        const statusMsg = `[OpenClawd QQ]\nState: Connected\nSelf ID: ${client.getSelfId()}\nMemory: ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB`;
+                        if (isGroup) client.sendGroupMsg(groupId, statusMsg); else client.sendPrivateMsg(userId, statusMsg);
+                        return;
                     }
-                    return;
+                    if (cmd === '/help') {
+                        const helpMsg = `[OpenClawd QQ]\n/status - 状态\n/mute @用户 [分] - 禁言\n/kick @用户 - 踢出\n/help - 帮助`;
+                        if (isGroup) client.sendGroupMsg(groupId, helpMsg); else client.sendPrivateMsg(userId, helpMsg);
+                        return;
+                    }
+                    if (isGroup && (cmd === '/mute' || cmd === '/ban')) {
+                        const targetMatch = text.match(/\[CQ:at,qq=(\d+)\]/);
+                        const targetId = targetMatch ? parseInt(targetMatch[1]) : (parts[1] ? parseInt(parts[1]) : null);
+                        if (targetId) {
+                            client.setGroupBan(groupId, targetId, parts[2] ? parseInt(parts[2]) * 60 : 1800);
+                            client.sendGroupMsg(groupId, `已禁言。`);
+                        }
+                        return;
+                    }
+                    if (isGroup && cmd === '/kick') {
+                        const targetMatch = text.match(/\[CQ:at,qq=(\d+)\]/);
+                        const targetId = targetMatch ? parseInt(targetMatch[1]) : (parts[1] ? parseInt(parts[1]) : null);
+                        if (targetId) {
+                            client.setGroupKick(groupId, targetId);
+                            client.sendGroupMsg(groupId, `已踢出。`);
+                        }
+                        return;
+                    }
                 }
             }
             
@@ -656,22 +666,27 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             }
 
             let isTriggered = !isGroup || text.includes("[动作] 用户戳了你一下");
-            if (!isTriggered && config.keywordTriggers) {
-                for (const kw of config.keywordTriggers) { if (text.includes(kw)) { isTriggered = true; break; } }
-            }
-            
+
             const checkMention = isGroup || isGuild;
-            if (checkMention && config.requireMention && !isTriggered) {
+            let isMentioned = false;
+            if (checkMention) {
                 const selfId = client.getSelfId();
                 const effectiveSelfId = selfId ?? event.self_id;
                 if (!effectiveSelfId) return;
-                let mentioned = false;
                 if (Array.isArray(event.message)) {
-                    for (const s of event.message) { if (s.type === "at" && (String(s.data?.qq) === String(effectiveSelfId) || s.data?.qq === "all")) { mentioned = true; break; } }
-                } else if (text.includes(`[CQ:at,qq=${effectiveSelfId}]`)) mentioned = true;
-                if (!mentioned && repliedMsg?.sender?.user_id === effectiveSelfId) mentioned = true;
-                if (!mentioned) return;
+                    for (const s of event.message) { if (s.type === "at" && (String(s.data?.qq) === String(effectiveSelfId) || s.data?.qq === "all")) { isMentioned = true; break; } }
+                } else if (text.includes(`[CQ:at,qq=${effectiveSelfId}]`)) isMentioned = true;
+                if (!isMentioned && repliedMsg?.sender?.user_id === effectiveSelfId) isMentioned = true;
             }
+
+            // Keyword triggers only fire when the bot is also @mentioned (in group/guild)
+            if (!isTriggered && config.keywordTriggers && (!checkMention || isMentioned)) {
+                for (const kw of config.keywordTriggers) {
+                    if (text.includes(kw)) { isTriggered = true; break; }
+                }
+            }
+
+            if (checkMention && config.requireMention && !isTriggered && !isMentioned) return;
 
             // React with emoji if configured (static mode, not "auto")
             if (config.reactionEmoji && config.reactionEmoji !== "auto" && event.message_id) {
@@ -815,11 +830,20 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
 
         client.connect();
         client.startReverseWs();
-        return () => {
-            clearInterval(cleanupInterval);
-            client.disconnect();
-            clients.delete(account.accountId);
-        };
+
+        // Keep startAccount pending until OpenClaw signals shutdown via abortSignal.
+        // Without this, startAccount returns immediately while the WebSocket is still
+        // connecting, causing health-monitor to see running:true connected:false and
+        // trigger a spurious auto-restart loop (same fix applied in v2026.2.26 to
+        // Google Chat, Nextcloud Talk, LINE, and Telegram channels).
+        await new Promise<void>((resolve) => {
+            if (ctx.abortSignal?.aborted) { resolve(); return; }
+            ctx.abortSignal?.addEventListener("abort", () => resolve(), { once: true });
+        });
+
+        clearInterval(cleanupInterval);
+        client.disconnect();
+        clients.delete(account.accountId);
     },
     logoutAccount: async ({ accountId, cfg }) => {
         return { loggedOut: true, cleared: true };

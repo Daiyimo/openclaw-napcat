@@ -10,7 +10,7 @@ OpenClawd 是一个多功能代理。下面的聊天演示仅展示了最基础�
 *   **历史回溯 (Context)**：在群聊中自动获取最近 N 条历史消息（默认 5 条），让 AI 能理解对话前文，不再“健忘”。
 *   **系统提示词 (System Prompt)**：支持注入自定义提示词，让 Bot 扮演特定角色（如“猫娘”、“严厉的管理员”）。
 *   **转发消息理解**：AI 能够解析并读取用户发送的合并转发聊天记录，处理复杂信息。
-*   **关键词唤醒**：除了 @机器人，支持配置特定的关键词（如“小助手”）来触发对话。
+*   **关键词唤醒**：除了 @机器人，支持配置特定的关键词（如”小助手”）来触发对话。**关键词触发需同时 @机器人**，避免群聊中普通对话意外触发。
 
 ### 🛡️ 强大的管理与风控
 *   **连接自愈**：内置心跳检测与重连指数退避机制，能自动识别并修复“僵尸连接”，确保 7x24 小时在线。
@@ -47,40 +47,44 @@ OpenClawd 是一个多功能代理。下面的聊天演示仅展示了最基础�
 2.  **OneBot v11 服务端**：你需要一个运行中的 OneBot v11 实现。
     *   推荐：**[NapCat (Docker)](https://github.com/NapCatQQ/NapCat-Docker)** (4.16.0+) 或 **Lagrange**。
     *   **重要配置**：请务必在 OneBot 配置中将 `message_post_format` 设置为 `array`（数组格式），否则无法解析多媒体消息。
-    *   网络：确保开启了正向 WebSocket 服务（通常端口为 3001）。
+    *   网络：在 NapCat 网络配置中添加 **WebSocket客户端**，指向 OpenClaw 所在机器的反向 WS 端口（默认 3002）。
 
 ---
 
 ## 🚀 安装指南
 
-### 方法 1: 使用 OpenClaw CLI (推荐)
+### 方法 : 使用 OpenClaw CLI (推荐)
 如果你的 OpenClaw 版本支持插件市场或 CLI 安装：
 ```bash
 # 进入插件目录
 cd openclaw/extensions
 # 克隆仓库
-git clone -b pre-release https://gh-proxy.com/https://github.com/Daiyimo/openclaw-qq-plugin.git qq
+git clone -b pre-release https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat/tree/main.git qq
 # 进入qq插件目录
 npm install -g pnpm
 # 安装qq
 pnpm install qq
 ```
 
-### 方法 2: Docker 集成
-在你的 `docker-compose.yml` 或 `Dockerfile` 中，将本插件代码复制到 `/app/extensions/qq` 目录，然后重新构建镜像。
-
 ---
 
 ## ⚙️ 配置说明
 
-### 1. 快速配置 (CLI 向导)
-插件内置了交互式配置脚本，助你快速生成配置文件。
-在插件目录 (`openclaw/extensions/qq`) 下运行：
+### 1. 快速配置 (update_json.sh)
+插件内置了交互式配置脚本，在插件目录下运行：
 
 ```bash
-node bin/onboard.js
+bash update_json.sh
 ```
-按照提示输入 WebSocket 地址（如 `ws://localhost:3001`）、Token 和管理员 QQ 号即可。
+
+脚本会依次完成以下步骤：
+1. 交互式收集配置（反向 WS 端口、HTTP API 地址、管理员 QQ 号）
+2. 备份并更新 `~/.openclaw/openclaw.json`
+3. 检测 QQ 插件状态，未检测到时询问是否启动
+4. 打印设备配对引导（OpenClaw 2026.2.25+ 要求），等待用户确认
+5. 执行 `sudo openclaw gateway` 启动网关（前台运行，日志直接输出）
+
+启动网关后，按引导在另一个终端完成设备配对即可。
 
 ### 2. 标准化配置 (OpenClaw Setup)
 如果已集成到 OpenClaw CLI，可运行：
@@ -95,9 +99,8 @@ openclaw setup qq
 {
   "channels": {
     "qq": {
-      "wsUrl": "ws://127.0.0.1:3001",
-      "httpUrl": "http://127.0.0.1:3000",
       "reverseWsPort": 3002,
+      "httpUrl": "http://127.0.0.1:3000",
       "accessToken": "123456",
       "admins": [12345678],
       "allowedGroups": [10001, 10002],
@@ -117,6 +120,13 @@ openclaw setup qq
       "aiVoiceId": ""
     }
   },
+  "gateway": {
+    "controlUi": {
+      "allowInsecureAuth": true,
+      "dangerouslyAllowHostHeaderOriginFallback": true
+    },
+    "trustedProxies": ["127.0.0.1", "192.168.110.0/24"]
+  },
   "plugins": {
     "entries": {
       "qq": { "enabled": true }
@@ -125,9 +135,11 @@ openclaw setup qq
 }
 ```
 
+> **注意（OpenClaw 2026.2.25+）**：`gateway` 段为必填项。2026.2.26 新增了 Host 头校验，绑定 `0.0.0.0` 时需配置 `dangerouslyAllowHostHeaderOriginFallback: true`。2026.2.25 封堵了静默自动配对，首次使用 WebUI 前需完成设备配对，见下方[设备配对](#设备配对-openclaw-20262025)章节。
+
 | 配置项 | 类型 | 默认值 | 说明 |
 | :--- | :--- | :--- | :--- |
-| `wsUrl` | string | **必填** | OneBot v11 WebSocket 地址 |
+| `wsUrl` | string | - | OneBot v11 正向 WebSocket 地址。与 `reverseWsPort` 二选一，或同时配置作备用 |
 | `httpUrl` | string | - | OneBot v11 HTTP API 地址（如 `http://localhost:3000`），用于主动发送消息和定时任务 |
 | `reverseWsPort` | number | - | 反向 WebSocket 监听端口（如 `3002`），NapCat 主动连接到此端口接收事件 |
 | `accessToken` | string | - | 连接鉴权 Token |
@@ -137,7 +149,7 @@ openclaw setup qq
 | `blockedUsers` | number[] | `[]` | **用户黑名单**。Bot 将忽略这些用户的消息。 |
 | `systemPrompt` | string | - | **人设设定**。注入到 AI 上下文的系统提示词。 |
 | `historyLimit` | number | `5` | **历史消息条数**。群聊时携带最近 N 条消息给 AI，设为 0 关闭。 |
-| `keywordTriggers` | string[] | `[]` | **关键词触发**。群聊中无需 @，包含这些词也会触发回复。 |
+| `keywordTriggers` | string[] | `[]` | **关键词触发**。群聊中包含这些关键词且同时 @机器人 时触发回复（私聊无此限制）。 |
 | `autoApproveRequests` | boolean | `false` | 是否自动通过好友申请和群邀请。 |
 | `enableGuilds` | boolean | `true` | 是否开启 QQ 频道 (Guild) 支持。 |
 | `enableTTS` | boolean | `false` | (实验性) 是否将 AI 回复转为语音发送 (需服务端支持 TTS)。 |
@@ -151,6 +163,43 @@ openclaw setup qq
 
 ---
 
+## 设备配对 (OpenClaw 2026.2.25+)
+
+OpenClaw 2026.2.25 起，首次通过浏览器访问 WebUI 需要完成设备配对，否则 WebSocket 连接会被拒绝（错误码 4008）。
+
+### 配对步骤
+
+**1. 启动服务后，在浏览器中打开 WebUI**（会显示等待配对的提示）：
+```
+http://<服务器IP>:18789
+```
+
+**2. 新开一个终端，查看待审批的设备请求：**
+```bash
+sudo openclaw devices list
+```
+输出示例（找 `Pending` 表中的 `Request` 列拼接出的 UUID）：
+```
+Pending (1)
+┌────────────────────────────┬────────┬─────...
+│ Request                    │ Device │ ...
+├────────────────────────────┼────────┼─────...
+│ 755e8961-2b4d-4440-81a5-   │ ...    │ ...
+│ a3691f8374ca               │        │ ...
+└────────────────────────────┴────────┴─────...
+```
+
+**3. 审批该请求（Request 列跨行内容拼接为完整 UUID）：**
+```bash
+sudo openclaw devices approve 755e8961-2b4d-4440-81a5-a3691f8374ca
+```
+
+**4. 刷新浏览器**，即可正常访问 WebUI。
+
+> 配对只需做一次，之后同一设备带 token 访问不再需要重复审批。
+
+---
+
 ## 🎮 使用指南
 
 ### 🗣️ 基础聊天
@@ -158,11 +207,11 @@ openclaw setup qq
 *   **群聊**：
     *   **@机器人** + 消息。
     *   回复机器人的消息。
-    *   发送包含**关键词**（如配置中的“小助手”）的消息。
+    *   **@机器人** + 包含**关键词**（如配置中的”小助手”）的消息。
     *   **戳一戳**机器人头像。
 
 ### 👮‍♂️ 管理员指令
-仅配置在 `admins` 列表中的用户可用：
+仅配置在 `admins` 列表中的用户可用。**群聊中需 @机器人**才能触发，私聊中直接发送即可：
 
 *   `/status`
     *   查看机器人运行状态（内存占用、连接状态、Self ID）。
@@ -271,25 +320,69 @@ A:
 **Q: 如何让 Bot 说话（TTS）？**
 A: 将 `enableTTS` 设为 `true`。注意：这取决于 OneBot 服务端是否支持 TTS 转换。通常 NapCat/Lagrange 对此支持有限，可能需要额外插件。
 
----
 
-## 🆚 与 Telegram 插件的功能区别
-
-如果您习惯使用 OpenClaw 的 Telegram 插件，以下是 `openclaw_qq` 在体验上的主要差异：
-
-| 功能特性 | QQ 插件 (openclaw_qq) | Telegram 插件 | 体验差异说明 |
-| :--- | :--- | :--- | :--- |
-| **消息排版** | **纯文本** | **原生 Markdown** | QQ 不支持加粗、代码块高亮，插件会自动转换排版。 |
-| **流式输出** | ❌ 不支持 | ✅ 支持 | TG 可实时看到 AI 打字；QQ 需等待 AI 生成完毕后整段发送。 |
-| **消息编辑** | ❌ 不支持 | ✅ 支持 | TG 可修改已发内容；QQ 发送后无法修改，只能撤回。 |
-| **交互按钮** | ❌ 暂不支持 | ✅ 支持 | TG 消息下方可带按钮；QQ 目前完全依靠文本指令。 |
-| **风控等级** | 🔴 **极高** | 🟢 **极低** | QQ 极易因回复过快或敏感词封号，插件已内置分片限速。 |
-| **戳一戳** | ✅ **特色支持** | ❌ 不支持 | QQ 特有的社交互动，AI 可感知并回应。 |
-| **转发消息** | ✅ **深度支持** | ❌ 基础支持 | QQ 插件专门优化了对"合并转发"聊天记录的解析。 |
-
----
 
 ## 更新日志
+
+### v1.3.2 - 适配 OpenClaw 2026.2.25+ 安全配置 (2026-02-27)
+
+适配 OpenClaw 2026.2.25/2026.2.26 引入的 Gateway 安全策略，修复绑定 `0.0.0.0` 时 WebSocket 连接报 4008 错误的问题。
+
+#### 变更详情
+
+**1. 新增 `gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback`**
+
+OpenClaw 2026.2.26 新增了 Host 头来源校验。当 gateway 绑定到 `0.0.0.0` 时，客户端通过 IP 访问会导致 Host 头不匹配被拒绝，需配置此项绕过。
+
+**2. 关于 4008 配对问题**
+
+OpenClaw 2026.2.25 封堵了非 Control UI 客户端的静默自动配对，首次访问 WebUI 需通过 CLI 完成设备配对：
+
+```bash
+# 查看待审批的设备请求
+openclaw devices list
+
+# 审批指定请求（requestId 从上方列表获取）
+openclaw devices approve <requestId>
+```
+
+配对完成后，带 token 的 WebSocket 连接即可正常建立。`update_json.sh` 脚本启动服务后会自动打印配对操作指引。
+
+#### 涉及文件
+
+| 文件 | 变更类型 | 说明 |
+| :--- | :--- | :--- |
+| `update_json.sh` | 新增 | 写入 `gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback: true` |
+| `README.md` | 文档 | 手动配置示例补充 `gateway` 段及注意事项 |
+
+
+
+### v1.3.1 - 误触发修复 (2026-02-27)
+
+修复群聊中关键词和管理员指令意外触发的问题。
+
+#### 变更详情
+
+**1. 关键词触发需同时 @机器人**
+
+此前 `keywordTriggers` 中的关键词在群聊中只要消息包含该词就会触发，导致和别人聊天中顺带提到关键词（如"签到"）时意外触发机器人。
+
+现在群聊/频道中，关键词触发必须同时满足 @机器人（或回复机器人消息），私聊中不受影响。
+
+**2. 管理员指令需同时 @机器人（群聊）**
+
+此前管理员在群聊中发送以 `/` 开头的消息（如 `/help`）就会触发机器人指令，无论是不是在和机器人说话。
+
+现在群聊中管理员指令（`/status`、`/help`、`/mute`、`/kick`）需要同时 @机器人才会执行，私聊中直接发送仍可触发。
+
+#### 涉及文件
+
+| 文件 | 变更类型 | 说明 |
+| :--- | :--- | :--- |
+| `src/channel.ts` | 修复 | 关键词触发增加 mention 前置检查；管理员命令增加群聊 mention 前置检查 |
+| `README.md` | 文档 | 同步说明关键词触发和管理员指令的触发条件变更 |
+
+
 
 ### v1.3.0 - NapCat API 深度集成 (2026-02-12)
 

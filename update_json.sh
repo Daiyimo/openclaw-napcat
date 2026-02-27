@@ -1,0 +1,159 @@
+#!/bin/bash
+
+echo "=== OpenClaw 配置更新工具 ==="
+
+# 检查依赖
+if ! command -v jq &> /dev/null; then
+    echo "错误: 未找到 jq 工具，请先安装 (例如: sudo apt install jq 或 brew install jq)。"
+    exit 1
+fi
+
+# 配置文件路径 (固定在用户目录)
+CONFIG_FILE="$HOME/.openclaw/openclaw.json"
+
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "错误: 未找到 $CONFIG_FILE，请确认 openclaw 已正确安装或初始化。"
+    exit 1
+fi
+
+echo "配置文件: $CONFIG_FILE"
+
+# ── 交互式配置收集 ──────────────────────────────────────────
+
+echo ""
+read -r -p "请输入反向 WebSocket 监听端口 (留空使用默认值 3002): " INPUT_REVERSE_PORT </dev/tty
+REVERSE_WS_PORT="${INPUT_REVERSE_PORT:-3002}"
+
+read -r -p "请输入 HTTP API 地址 (留空使用默认值 http://127.0.0.1:3000): " INPUT_HTTP_URL </dev/tty
+HTTP_URL="${INPUT_HTTP_URL:-http://127.0.0.1:3000}"
+
+while true; do
+    read -r -p "请输入管理员 QQ 号 (必填，仅限数字): " INPUT_ADMIN </dev/tty
+    if [[ "$INPUT_ADMIN" =~ ^[0-9]+$ ]]; then
+        ADMIN_QQ="$INPUT_ADMIN"
+        break
+    else
+        echo "错误: 管理员 QQ 号不能为空且只能包含数字，请重新输入。"
+    fi
+done
+
+echo ""
+echo "配置预览:"
+echo "  reverseWsPort : $REVERSE_WS_PORT"
+echo "  httpUrl       : $HTTP_URL"
+echo "  admins        : [$ADMIN_QQ]"
+echo ""
+
+# ────────────────────────────────────────────────────────────
+
+# 备份配置
+BACKUP_FILE="${CONFIG_FILE}.bak.$(date +%F_%H%M%S)"
+cp "$CONFIG_FILE" "$BACKUP_FILE"
+echo "备份已保存至: $BACKUP_FILE"
+
+# 执行更新
+jq \
+  --arg httpUrl "$HTTP_URL" \
+  --argjson reverseWsPort "$REVERSE_WS_PORT" \
+  --argjson adminQq "$ADMIN_QQ" \
+'
+# 1. 写入完整的 channels 配置
+.channels = {
+  "qq": {
+    "reverseWsPort": $reverseWsPort,
+    "httpUrl": $httpUrl,
+    "accessToken": "123456",
+    "admins": [$adminQq],
+    "allowedGroups": [],
+    "blockedUsers": [999999],
+    "systemPrompt": "好好干，你不干，有的是其他AI干。",
+    "historyLimit": 5,
+    "keywordTriggers": ["小助手", "帮助"],
+    "autoApproveRequests": true,
+    "enableGuilds": true,
+    "enableTTS": false,
+    "rateLimitMs": 1000,
+    "formatMarkdown": true,
+    "antiRiskMode": false,
+    "maxMessageLength": 4000,
+    "requireMention": true,
+    "reactionEmoji": "auto",
+    "autoMarkRead": true,
+    "enableDeduplication": true,
+    "enableErrorNotify": true
+  }
+} |
+
+# 2. 写入 gateway.controlUi
+.gateway.controlUi = {"allowInsecureAuth": true, "dangerouslyAllowHostHeaderOriginFallback": true} |
+
+# 3. 写入 gateway.trustedProxies
+.gateway.trustedProxies = ["127.0.0.1", "192.168.110.0/24"] |
+
+# 4. 写入 plugins 配置
+.plugins = {
+  "entries": {
+    "qq": {
+      "enabled": true
+    }
+  }
+}
+' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp"
+
+if [ $? -eq 0 ]; then
+    mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
+    chmod 600 "$CONFIG_FILE"
+    echo "配置更新成功！"
+    echo ""
+    echo "提示: 请在 NapCat 网络配置中添加 WebSocket客户端，URL 填写:"
+    echo "  ws://本机IP:${REVERSE_WS_PORT}"
+    echo "Token 填写: 123456，消息格式选择: array"
+else
+    echo "更新失败，正在恢复备份..."
+    mv "$BACKUP_FILE" "$CONFIG_FILE"
+    rm -f "${CONFIG_FILE}.tmp"
+    exit 1
+fi
+
+# ── 服务状态检查与启动建议 ────────────────────────────────────
+
+echo ""
+echo "正在检查 QQ 插件状态..."
+PLUGIN_LIST=$(openclaw plugins list 2>&1)
+
+if echo "$PLUGIN_LIST" | grep -i "qq" | grep -i "loaded" &> /dev/null; then
+    echo "检测到 QQ 插件当前处于 loaded 状态。"
+else
+    echo "未检测到运行中的 QQ 插件或服务。"
+    read -r -p "是否现在启动？[Y/n]: " CONFIRM_START </dev/tty
+    if [[ "$CONFIRM_START" =~ ^[Nn]$ ]]; then
+        echo "跳过启动。"
+        exit 0
+    fi
+fi
+
+# ── 设备配对引导 (OpenClaw 2026.2.25+) ──────────────────────
+
+echo ""
+echo "================================================"
+echo "  OpenClaw 2026.2.25+ 设备配对引导"
+echo "================================================"
+echo ""
+echo "新版本要求首次访问 WebUI 前完成设备配对。"
+echo "请按以下步骤操作："
+echo ""
+echo "步骤 1: 在浏览器中打开 WebUI，触发配对请求："
+echo "  http://<本机IP>:18789"
+echo ""
+echo "步骤 2: 新开一个终端，查看待审批的设备请求："
+echo "  sudo openclaw devices list"
+echo ""
+echo "步骤 3: 找到 Request 表中的 requestId，执行审批："
+echo "  sudo openclaw devices approve <requestId>"
+echo ""
+echo "完成后刷新浏览器即可正常使用。"
+echo "================================================"
+echo ""
+read -r -p "阅读完毕后按 Enter 启动网关..." </dev/tty
+
+sudo openclaw gateway

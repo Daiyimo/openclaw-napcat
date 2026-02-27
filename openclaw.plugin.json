@@ -6,6 +6,131 @@
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
-    "properties": {}
+    "properties": {
+      "wsUrl": {
+        "type": "string",
+        "description": "OneBot v11 WebSocket URL"
+      },
+      "httpUrl": {
+        "type": "string",
+        "description": "OneBot v11 HTTP API URL"
+      },
+      "reverseWsPort": {
+        "type": "number",
+        "description": "Reverse WebSocket port"
+      },
+      "accessToken": {
+        "type": "string",
+        "description": "Access token"
+      },
+      "admins": {
+        "type": "array",
+        "items": { "type": "number" },
+        "description": "Admin QQ numbers"
+      },
+      "requireMention": {
+        "type": "boolean",
+        "description": "Require @mention to trigger"
+      },
+      "systemPrompt": {
+        "type": "string",
+        "description": "Custom system prompt"
+      },
+      "enableDeduplication": {
+        "type": "boolean",
+        "description": "Enable message deduplication"
+      },
+      "enableErrorNotify": {
+        "type": "boolean",
+        "description": "Enable error notifications"
+      },
+      "autoApproveRequests": {
+        "type": "boolean",
+        "description": "Auto approve friend/group requests"
+      },
+      "maxMessageLength": {
+        "type": "number",
+        "description": "Max message length"
+      },
+      "formatMarkdown": {
+        "type": "boolean",
+        "description": "Format markdown to plain text"
+      },
+      "antiRiskMode": {
+        "type": "boolean",
+        "description": "Enable anti-risk processing"
+      },
+      "allowedGroups": {
+        "type": "array",
+        "items": { "type": "number" },
+        "description": "Allowed group IDs"
+      },
+      "blockedUsers": {
+        "type": "array",
+        "items": { "type": "number" },
+        "description": "Blocked user IDs"
+      },
+      "historyLimit": {
+        "type": "number",
+        "description": "History message limit"
+      },
+      "keywordTriggers": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Keyword triggers"
+      },
+      "enableTTS": {
+        "type": "boolean",
+        "description": "Enable TTS"
+      },
+      "enableGuilds": {
+        "type": "boolean",
+        "description": "Enable QQ Guild support"
+      },
+      "rateLimitMs": {
+        "type": "number",
+        "description": "Rate limit in ms"
+      },
+      "reactionEmoji": {
+        "type": "string",
+        "description": "Reaction emoji ID"
+      },
+      "enableReactions": {
+        "type": "boolean",
+        "description": "Enable reactions feature (allow external action calls to add/remove emoji reactions)"
+      },
+      "autoMarkRead": {
+        "type": "boolean",
+        "description": "Auto mark messages as read"
+      },
+      "aiVoiceId": {
+        "type": "string",
+        "description": "NapCat AI voice ID"
+      },
+      "enableOcr": {
+        "type": "boolean",
+        "description": "Enable image OCR recognition"
+      },
+      "enableUrlCheck": {
+        "type": "boolean",
+        "description": "Enable URL safety check"
+      },
+      "enableGroupHonor": {
+        "type": "boolean",
+        "description": "Enable group honor info"
+      },
+      "enableGroupSignIn": {
+        "type": "boolean",
+        "description": "Enable automatic group sign-in"
+      },
+      "autoCleanCache": {
+        "type": "boolean",
+        "description": "Auto clean cache"
+      },
+      "enableEssenceMsg": {
+        "type": "boolean",
+        "description": "Enable essence message management"
+      }
+    }
   }
 }

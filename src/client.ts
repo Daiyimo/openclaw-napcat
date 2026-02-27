@@ -4,7 +4,7 @@ import type { OneBotEvent, OneBotMessage } from "./types.js";
 import type { IncomingMessage } from "http";
 
 interface OneBotClientOptions {
-  wsUrl: string;
+  wsUrl?: string;
   httpUrl?: string;
   reverseWsPort?: number;
   accessToken?: string;
@@ -13,11 +13,8 @@ interface OneBotClientOptions {
 export class OneBotClient extends EventEmitter {
   private ws: WebSocket | null = null;
   private options: OneBotClientOptions;
-  private reconnectAttempts = 0;
-  private maxReconnectDelay = 60000; // Max 1 minute delay
   private selfId: number | null = null;
   private isAlive = false;
-  private reconnectTimer: NodeJS.Timeout | null = null;
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private reverseWss: WebSocketServer | null = null;
   private reverseWs: WebSocket | null = null;
@@ -36,6 +33,7 @@ export class OneBotClient extends EventEmitter {
   }
 
   connect() {
+    if (!this.options.wsUrl) return;
     this.cleanup();
 
     const headers: Record<string, string> = {};
@@ -48,7 +46,6 @@ export class OneBotClient extends EventEmitter {
 
       this.ws.on("open", () => {
         this.isAlive = true;
-        this.reconnectAttempts = 0; // Reset counter on success
         this.emit("connect");
         console.log("[QQ] Connected to OneBot server");
         
@@ -84,10 +81,6 @@ export class OneBotClient extends EventEmitter {
   }
 
   private cleanup() {
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
@@ -103,7 +96,10 @@ export class OneBotClient extends EventEmitter {
 
   private startHeartbeat() {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
-    // Check every 30 seconds
+    // Send a WebSocket ping every 45 seconds to keep the TCP connection alive
+    // through NAT/virtual network layers (which often have a 60s idle timeout).
+    // Also check for dead connections: if no message received in 90 seconds
+    // (3x the default 30s NapCat heartbeat interval), force a reconnect.
     this.heartbeatTimer = setInterval(() => {
       if (this.isAlive === false) {
         console.warn("[QQ] Heartbeat timeout, forcing reconnect...");
@@ -111,27 +107,16 @@ export class OneBotClient extends EventEmitter {
         return;
       }
       this.isAlive = false;
-      // We don't send ping, we rely on OneBot's heartbeat meta_event
-      // or we can send a small API call to verify
-    }, 45000); 
+      if (this.ws?.readyState === WebSocket.OPEN) this.ws.ping();
+    }, 45000);
   }
 
   private handleDisconnect() {
     this.cleanup();
+    console.log("[QQ] Disconnected from OneBot server");
     this.emit("disconnect");
-    this.scheduleReconnect();
-  }
-
-  private scheduleReconnect() {
-    if (this.reconnectTimer) return; // Already scheduled
-    
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), this.maxReconnectDelay);
-    console.log(`[QQ] Reconnecting in ${delay / 1000}s (Attempt ${this.reconnectAttempts + 1})...`);
-    
-    this.reconnectTimer = setTimeout(() => {
-        this.reconnectAttempts++;
-        this.connect();
-    }, delay);
+    // Reconnection is handled by OpenClaw's health-monitor via startAccount.
+    // Do not self-reconnect here to avoid racing with the host framework.
   }
 
   async sendPrivateMsg(userId: number, message: OneBotMessage | string) {
@@ -205,7 +190,7 @@ export class OneBotClient extends EventEmitter {
   }
 
   sendFriendPoke(userId: number) {
-      this.sendWs("friend_poke", { user_id: userId });
+      this.sendWs("friend_poke", { user_id: userId, target_id: userId });
   }
 
   async setMsgEmojiLike(messageId: number | string, emojiId: string) {
