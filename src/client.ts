@@ -4,7 +4,7 @@ import type { OneBotEvent, OneBotMessage } from "./types.js";
 import type { IncomingMessage } from "http";
 
 interface OneBotClientOptions {
-  wsUrl: string;
+  wsUrl?: string;
   httpUrl?: string;
   reverseWsPort?: number;
   accessToken?: string;
@@ -33,6 +33,7 @@ export class OneBotClient extends EventEmitter {
   }
 
   connect() {
+    if (!this.options.wsUrl) return;
     this.cleanup();
 
     const headers: Record<string, string> = {};
