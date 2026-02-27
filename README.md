@@ -127,7 +127,7 @@ openclaw setup qq
 }
 ```
 
-> **注意（OpenClaw 2026.2.25+）**：`gateway` 段为必填项。2026.2.26 新增了 Host 头校验，绑定 `0.0.0.0` 时需配置 `dangerouslyAllowHostHeaderOriginFallback: true`。2026.2.25 封堵了静默自动配对，首次使用 WebUI 前需在服务器上执行 `openclaw auth pair` 完成设备配对。
+> **注意（OpenClaw 2026.2.25+）**：`gateway` 段为必填项。2026.2.26 新增了 Host 头校验，绑定 `0.0.0.0` 时需配置 `dangerouslyAllowHostHeaderOriginFallback: true`。2026.2.25 封堵了静默自动配对，首次使用 WebUI 前需完成设备配对，见下方[设备配对](#设备配对-openclaw-20262025)章节。
 
 | 配置项 | 类型 | 默认值 | 说明 |
 | :--- | :--- | :--- | :--- |
@@ -152,6 +152,40 @@ openclaw setup qq
 | `reactionEmoji` | string | - | 收到触发消息时自动回应的表情 ID（如 `"128077"` 为竖大拇指），留空不启用。 |
 | `autoMarkRead` | boolean | `false` | 是否自动标记消息为已读，防止未读消息堆积。 |
 | `aiVoiceId` | string | - | NapCat AI 语音角色 ID，当 `enableTTS` 开启时优先使用 AI 语音 API 代替 CQ:tts。 |
+
+---
+
+## 设备配对 (OpenClaw 2026.2.25+)
+
+OpenClaw 2026.2.25 起，首次通过浏览器访问 WebUI 需要完成设备配对，否则 WebSocket 连接会被拒绝（错误码 4008）。
+
+### 配对步骤
+
+**1. 启动服务后，在浏览器中打开 WebUI**（会显示等待配对的提示）：
+```
+http://<服务器IP>:18789
+```
+
+**2. 新开一个终端，查看待审批的设备请求：**
+```bash
+openclaw devices list
+```
+输出示例（找 `Requests` 表中的 `requestId`）：
+```
+Requests
+ID                                    Origin         Status
+────────────────────────────────────  ─────────────  ───────
+a1b2c3d4-xxxx-xxxx-xxxx-xxxxxxxxxxxx  127.0.0.1      pending
+```
+
+**3. 审批该请求：**
+```bash
+openclaw devices approve a1b2c3d4-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+```
+
+**4. 刷新浏览器**，即可正常访问 WebUI。
+
+> 配对只需做一次，之后同一设备带 token 访问不再需要重复审批。
 
 ---
 
@@ -294,10 +328,14 @@ OpenClaw 2026.2.26 新增了 Host 头来源校验。当 gateway 绑定到 `0.0.0
 OpenClaw 2026.2.25 封堵了非 Control UI 客户端的静默自动配对，首次访问 WebUI 需通过 CLI 完成设备配对：
 
 ```bash
-openclaw auth pair
+# 查看待审批的设备请求
+openclaw devices list
+
+# 审批指定请求（requestId 从上方列表获取）
+openclaw devices approve <requestId>
 ```
 
-配对完成后，带 token 的 WebSocket 连接即可正常建立。
+配对完成后，带 token 的 WebSocket 连接即可正常建立。`update_json.sh` 脚本启动服务后会自动打印配对操作指引。
 
 #### 涉及文件
 
