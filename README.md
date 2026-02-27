@@ -159,28 +159,35 @@ openclaw setup qq
 
 OpenClaw 2026.2.25 起，首次通过浏览器访问 WebUI 需要完成设备配对，否则 WebSocket 连接会被拒绝（错误码 4008）。
 
-### 配对步骤
+`update_json.sh` 脚本启动服务后会**自动轮询并审批**配对请求，无需手动操作。只需在浏览器打开 WebUI，脚本检测到请求后会自动执行审批。
+
+### 手动配对步骤
+
+如需手动操作：
 
 **1. 启动服务后，在浏览器中打开 WebUI**（会显示等待配对的提示）：
 ```
 http://<服务器IP>:18789
 ```
 
-**2. 新开一个终端，查看待审批的设备请求：**
+**2. 查看待审批的设备请求：**
 ```bash
-openclaw devices list
+sudo openclaw devices list
 ```
-输出示例（找 `Requests` 表中的 `requestId`）：
+输出示例（找 `Pending` 表中的 `Request` 列拼接出的 UUID）：
 ```
-Requests
-ID                                    Origin         Status
-────────────────────────────────────  ─────────────  ───────
-a1b2c3d4-xxxx-xxxx-xxxx-xxxxxxxxxxxx  127.0.0.1      pending
+Pending (1)
+┌────────────────────────────┬────────┬─────...
+│ Request                    │ Device │ ...
+├────────────────────────────┼────────┼─────...
+│ 755e8961-2b4d-4440-81a5-   │ ...    │ ...
+│ a3691f8374ca               │        │ ...
+└────────────────────────────┴────────┴─────...
 ```
 
-**3. 审批该请求：**
+**3. 审批该请求（Request 列跨行内容拼接为完整 UUID）：**
 ```bash
-openclaw devices approve a1b2c3d4-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+sudo openclaw devices approve 755e8961-2b4d-4440-81a5-a3691f8374ca
 ```
 
 **4. 刷新浏览器**，即可正常访问 WebUI。
