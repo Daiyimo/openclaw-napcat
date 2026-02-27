@@ -112,6 +112,16 @@ openclaw setup qq
       "aiVoiceId": ""
     }
   },
+  "gateway": {
+    "controlUi": {
+      "allowInsecureAuth": true,
+      "dangerouslyAllowHostHeaderOriginFallback": true
+    },
+    "trustedProxies": ["127.0.0.1", "192.168.110.0/24"],
+    "auth": {
+      "allowTrustedProxyPairing": true
+    }
+  },
   "plugins": {
     "entries": {
       "qq": { "enabled": true }
@@ -119,6 +129,8 @@ openclaw setup qq
   }
 }
 ```
+
+> **注意（OpenClaw 2026.2.25+）**：`gateway` 段为必填项。2026.2.25 版本引入了强制配对（pairing）机制，未配置 `gateway.auth.allowTrustedProxyPairing` 时，浏览器通过 WebSocket 连接 Control UI 会被拒绝（错误码 4008）。`dangerouslyAllowHostHeaderOriginFallback` 用于绑定 `0.0.0.0` 时绕过 Host 头校验，两者均需配置才能正常使用。
 
 | 配置项 | 类型 | 默认值 | 说明 |
 | :--- | :--- | :--- | :--- |
@@ -269,6 +281,29 @@ A: 将 `enableTTS` 设为 `true`。注意：这取决于 OneBot 服务端是否�
 
 
 ## 更新日志
+
+### v1.3.2 - 适配 OpenClaw 2026.2.25+ 安全配置 (2026-02-27)
+
+适配 OpenClaw 2026.2.25 引入的 Gateway 强制配对机制，修复绑定 `0.0.0.0` 时 WebSocket 连接报 4008 错误的问题。
+
+#### 变更详情
+
+**1. 新增 `gateway.auth.allowTrustedProxyPairing`**
+
+OpenClaw 2026.2.25 引入了强制配对（pairing）机制：使用共享 token 认证的会话必须先完成设备配对，否则 WebSocket 连接直接被拒绝（code=4008）。配置此项后，来自 `trustedProxies` 的连接可绕过配对校验。
+
+**2. 新增 `gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback`**
+
+OpenClaw 2026.2.26 新增了 Host 头来源校验。当 gateway 绑定到 `0.0.0.0` 时，客户端通过 IP 访问会导致 Host 头不匹配被拒绝，需配置此项绕过。
+
+#### 涉及文件
+
+| 文件 | 变更类型 | 说明 |
+| :--- | :--- | :--- |
+| `update_json.sh` | 新增 | 写入 `gateway.auth.allowTrustedProxyPairing: true` |
+| `README.md` | 文档 | 手动配置示例补充完整 `gateway` 段及注意事项 |
+
+
 
 ### v1.3.1 - 误触发修复 (2026-02-27)
 
