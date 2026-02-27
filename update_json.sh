@@ -122,30 +122,11 @@ echo "正在检查 QQ 插件状态..."
 PLUGIN_LIST=$(openclaw plugins list 2>&1)
 
 if echo "$PLUGIN_LIST" | grep -i "qq" | grep -i "loaded" &> /dev/null; then
-    echo "检测到 QQ 插件当前处于 loaded 状态，正在启动 OpenClaw 网关..."
-    sudo openclaw gateway &
-    GATEWAY_PID=$!
-    sleep 3
-    if kill -0 "$GATEWAY_PID" 2>/dev/null; then
-        echo "服务启动成功 (PID $GATEWAY_PID)。"
-    else
-        echo "服务启动失败，请检查是否有进程占用端口或权限问题。"
-        exit 1
-    fi
+    echo "检测到 QQ 插件当前处于 loaded 状态。"
 else
     echo "未检测到运行中的 QQ 插件或服务。"
     read -r -p "是否现在启动？[Y/n]: " CONFIRM_START </dev/tty
-    if [[ ! "$CONFIRM_START" =~ ^[Nn]$ ]]; then
-        sudo openclaw gateway &
-        GATEWAY_PID=$!
-        sleep 3
-        if kill -0 "$GATEWAY_PID" 2>/dev/null; then
-            echo "服务启动成功 (PID $GATEWAY_PID)。"
-        else
-            echo "服务启动失败。"
-            exit 1
-        fi
-    else
+    if [[ "$CONFIRM_START" =~ ^[Nn]$ ]]; then
         echo "跳过启动。"
         exit 0
     fi
@@ -172,3 +153,7 @@ echo "  sudo openclaw devices approve <requestId>"
 echo ""
 echo "完成后刷新浏览器即可正常使用。"
 echo "================================================"
+echo ""
+read -r -p "阅读完毕后按 Enter 启动网关..." </dev/tty
+
+sudo openclaw gateway
