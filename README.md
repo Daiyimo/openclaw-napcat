@@ -41,15 +41,38 @@ This plugin targets OpenClaw `2026.2.26` and uses the same `abortSignal`-based g
 
 ---
 
-## Prerequisites
+## 前置条件
 
-1. **OpenClaw** `2026.2.26+` installed and running.
-2. **NapCat** `4.16.0+` ([Docker](https://github.com/NapCatQQ/NapCat-Docker) recommended) with `message_post_format` set to `array` in its OneBot configuration.
+1.  **OpenClaw**：已安装并运行 OpenClaw 主程序。
+2.  **OneBot v11 服务端**：你需要一个运行中的 OneBot v11 实现。
+    *   推荐：**[NapCat (Docker)](https://github.com/NapCatQQ/NapCat-Docker)** (4.16.0+) 或 **Lagrange**。
+    *   **重要配置**：请务必在 OneBot 配置中将 `message_post_format` 设置为 `array`（数组格式），否则无法解析多媒体消息。
+
+### NapCat 配置参考图
+
+#### 1. HTTP 配置
+![HTTP配置图](docs/images/http配置图.jpg)
+
+#### 2. WebSocket 反向配置
+![WS反向配置图](docs/images/ws反向配置图.jpg)
+
+> **注意**：在 WS 反向配置中，URL 地址需要填 **OpenClaw 所在服务器的 IP**（如 `ws://192.168.110.2:3002`），而不是 `127.0.0.1`。
 
 ---
 
-## Installation
+## 安装指南
 
+### 快速部署 (一行命令)
+
+```bash
+# 一行命令安装 QQ 插件
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/v4.17.25/install.sh | sudo bash
+
+# 一行命令修改 JSON 文件
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/v4.17.25/update_json.sh | sudo bash
+```
+
+### 方法 : 使用 OpenClaw CLI (推荐)
 ```bash
 # From your OpenClaw extensions directory
 git clone https://github.com/Daiyimo/openclaw-napcat napcat
@@ -175,15 +198,17 @@ Available to users listed in `admins`. In groups, the bot must be @mentioned.
 | `/mute @user [minutes]` | Mute a user. Default: 30 minutes. (Group only) |
 | `/kick @user` | Remove a user from the group. (Group only) |
 
-### Outbound / Cron Target Format
+### 📅 定时任务 (Cron) `to` 字段格式
 
-When sending via OpenClaw's cron or outbound API, use these `to` field formats:
+在 OpenClaw 的 cron 定时任务配置中，`to` 字段用于指定消息发送目标。**必须使用正确的前缀来区分目标类型**，否则会默认当作私聊发送，导致 `sendPrivateMsg` 报错"请指定正确的 group_id 或 user_id"。
 
-| Target | Format | Example |
-|---|---|---|
-| Direct message | `user_id` or `private:user_id` | `"12345678"` |
-| Group | `group:group_id` | `"group:88888888"` |
-| Guild channel | `guild:guild_id:channel_id` | `"guild:123456:789012"` |
+| 目标类型 | `to` 字段格式 | 示例 |
+| :--- | :--- | :--- |
+| **私聊** | `QQ号` 或 `private:QQ号` | `"12345678"` 或 `"private:12345678"` |
+| **群聊** | `group:群号` | `"group:88888888"` |
+| **频道** | `guild:频道ID:子频道ID` | `"guild:123456:789012"` |
+
+**配置示例**（`openclaw.json` 中的 cron 部分）：
 
 **Example cron configuration:**
 ```json
