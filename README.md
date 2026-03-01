@@ -47,11 +47,30 @@ OpenClawd 是一个多功能代理。下面的聊天演示仅展示了最基础�
 2.  **OneBot v11 服务端**：你需要一个运行中的 OneBot v11 实现。
     *   推荐：**[NapCat (Docker)](https://github.com/NapCatQQ/NapCat-Docker)** (4.16.0+) 或 **Lagrange**。
     *   **重要配置**：请务必在 OneBot 配置中将 `message_post_format` 设置为 `array`（数组格式），否则无法解析多媒体消息。
-    *   网络：在 NapCat 网络配置中添加 **WebSocket客户端**，指向 OpenClaw 所在机器的反向 WS 端口（默认 3002）。
+
+### NapCat 配置参考图
+
+#### 1. HTTP 配置
+![HTTP配置图](docs/images/http配置图.jpg)
+
+#### 2. WebSocket 反向配置
+![WS反向配置图](docs/images/ws反向配置图.jpg)
+
+> **注意**：在 WS 反向配置中，URL 地址需要填 **OpenClaw 所在服务器的 IP**（如 `ws://192.168.110.2:3002`），而不是 `127.0.0.1`。
 
 ---
 
 ## 🚀 安装指南
+
+### 快速部署 (一行命令)
+
+```bash
+# 一行命令安装 QQ 插件
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/v4.17.25/install.sh | sudo bash
+
+# 一行命令修改 JSON 文件
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/v4.17.25/update_json.sh | sudo bash
+```
 
 ### 方法 : 使用 OpenClaw CLI (推荐)
 如果你的 OpenClaw 版本支持插件市场或 CLI 安装：
@@ -242,10 +261,10 @@ sudo openclaw devices approve 755e8961-2b4d-4440-81a5-a3691f8374ca
     ```bash
     # 发送私聊
     openclaw send qq 12345678 "你好，这是测试消息"
-
+    
     # 发送群聊 (使用 group: 前缀)
     openclaw send qq group:88888888 "大家好"
-
+    
     # 发送频道消息
     openclaw send qq guild:GUILD_ID:CHANNEL_ID "频道消息"
     ```
