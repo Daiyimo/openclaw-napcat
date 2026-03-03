@@ -501,8 +501,6 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                  return;
             }
 
-            console.log(`[QQ DEBUG RAW] post_type=${event.post_type}, msg_type=${event.message_type}, user_id=${event.user_id}, group_id=${event.group_id}`);
-
             // Handle friend/group add requests
             if (event.post_type === "request" && config.autoApproveRequests) {
                 if (event.request_type === "friend" && event.flag) client.setFriendAddRequest(event.flag, true);
@@ -607,8 +605,6 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             const isAdmin = config.admins?.includes(userId) ?? false;
             if (config.admins?.length && !isAdmin) return;
 
-            console.log(`[QQ DEBUG] msg from ${userId}, group=${groupId}, text="${text}", isAdmin=${isAdmin}`);
-
             if (!isGuild && isAdmin && text.trim().startsWith('/')) {
                 const isCmdMentioned = !isGroup || (() => {
                     const sid = client.getSelfId() ?? event.self_id;
@@ -676,7 +672,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             if (checkMention) {
                 const selfId = client.getSelfId();
                 const effectiveSelfId = selfId ?? event.self_id;
-                if (!effectiveSelfId) { console.log(`[QQ DEBUG] dropped: effectiveSelfId is null`); return; }
+            if (!effectiveSelfId) return;
                 if (Array.isArray(event.message)) {
                     for (const s of event.message) { if (s.type === "at" && (String(s.data?.qq) === String(effectiveSelfId) || s.data?.qq === "all")) { isMentioned = true; break; } }
                 } else if (text.includes(`[CQ:at,qq=${effectiveSelfId}]`)) isMentioned = true;
@@ -688,8 +684,6 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                     if (text.includes(kw)) { isTriggered = true; break; }
                 }
             }
-
-            console.log(`[QQ DEBUG] isTriggered=${isTriggered}, isMentioned=${isMentioned}, requireMention=${config.requireMention}, keywords=${JSON.stringify(config.keywordTriggers)}`);
 
             if (checkMention && config.requireMention && !isTriggered && !isMentioned) return;
 
