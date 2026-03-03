@@ -674,7 +674,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             if (checkMention) {
                 const selfId = client.getSelfId();
                 const effectiveSelfId = selfId ?? event.self_id;
-                if (!effectiveSelfId) return;
+                if (!effectiveSelfId) { console.log(`[QQ DEBUG] dropped: effectiveSelfId is null`); return; }
                 if (Array.isArray(event.message)) {
                     for (const s of event.message) { if (s.type === "at" && (String(s.data?.qq) === String(effectiveSelfId) || s.data?.qq === "all")) { isMentioned = true; break; } }
                 } else if (text.includes(`[CQ:at,qq=${effectiveSelfId}]`)) isMentioned = true;
