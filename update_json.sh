@@ -77,7 +77,7 @@ jq \
     "antiRiskMode": false,
     "maxMessageLength": 4000,
     "requireMention": true,
-    "reactionEmoji": "auto",
+    "enableReactions": true,
     "autoMarkRead": true,
     "enableDeduplication": true,
     "enableErrorNotify": true
