@@ -46,7 +46,7 @@ if [ -d "qq" ]; then
 fi
 
 echo "正在克隆插件..."
-git clone --branch v4.17.25 https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat.git qq
+git clone https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat.git qq
 
 cd qq
 
