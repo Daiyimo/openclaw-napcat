@@ -135,6 +135,7 @@ You can also edit the config file directly. Full config:
       "formatMarkdown": true,
       "antiRiskMode": false,
       "maxMessageLength": 4000,
+      "enableReactions": true,
       "reactionEmoji": "",
       "autoMarkRead": false,
       "aiVoiceId": ""
@@ -177,7 +178,8 @@ You can also edit the config file directly. Full config:
 | `formatMarkdown` | boolean | `false` | Convert Markdown tables/lists to readable plain text. |
 | `antiRiskMode` | boolean | `false` | Enable risk avoidance (e.g., add spaces to URLs). |
 | `maxMessageLength` | number | `4000` | Max message length, auto-split if exceeded. |
-| `reactionEmoji` | string | - | Auto-react emoji ID when triggered (e.g., `"128077"` for thumbs up), empty to disable. |
+| `enableReactions` | boolean | `true` | **Smart emoji reactions**. Automatically reacts to messages with a contextually matched emoji (e.g. 👌 for queries, 😢 for sadness). Default emoji is 喵喵 (307). Set to `false` to disable. |
+| `reactionEmoji` | string | - | Reserved. Not used when `enableReactions` is enabled. |
 | `autoMarkRead` | boolean | `false` | Auto-mark messages as read to prevent unread pile-up. |
 | `aiVoiceId` | string | - | NapCat AI Voice character ID, uses AI Voice API instead of CQ:tts when `enableTTS` is on. |
 
@@ -339,3 +341,10 @@ A:
 
 **Q: How to make Bot speak (TTS)?**
 A: Set `enableTTS` to `true`. Note: depends on OneBot server TTS support. NapCat/Lagrange have limited support; may need additional plugins.
+
+---
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for full release history.
+

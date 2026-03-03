@@ -21,7 +21,8 @@ export const QQConfigSchema = z.object({
   enableTTS: z.boolean().optional().default(false).describe("Experimental: Convert AI text replies to voice (TTS)"),
   enableGuilds: z.boolean().optional().default(true).describe("Enable QQ Guild (Channel) support"),
   rateLimitMs: z.number().optional().default(1000).describe("Delay in ms between sent messages to avoid risk"),
-  reactionEmoji: z.string().optional().describe("Emoji ID to react on incoming trigger messages (e.g. '128077' for thumbs up). Set to 'auto' for AI-chosen reactions. Empty = disabled"),
+  reactionEmoji: z.string().optional().describe("Emoji ID to react on incoming trigger messages (e.g. '128077' for thumbs up). Empty = disabled"),
+  enableReactions: z.boolean().optional().default(true).describe("Enable smart emoji reactions based on message content. Uses keyword matching to pick the most fitting emoji. Set to false to disable."),
   autoMarkRead: z.boolean().optional().default(false).describe("Automatically mark messages as read to prevent unread pile-up"),
   aiVoiceId: z.string().optional().describe("NapCat AI voice character ID for send_group_ai_record. Used when enableTTS is true"),
 });
