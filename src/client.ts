@@ -298,13 +298,14 @@ export class OneBotClient extends EventEmitter {
       ws.on("message", (data) => {
         try {
           const payload = JSON.parse(data.toString()) as OneBotEvent;
+          // Filter out echo responses (no post_type) and heartbeats
+          if (!payload.post_type) return;
           if (payload.post_type === "meta_event" && payload.meta_event_type === "heartbeat") {
             return;
           }
           if (payload.post_type === "meta_event" && payload.meta_event_type === "lifecycle" && payload.self_id) {
             this.selfId = payload.self_id;
           }
-          console.log(`[QQ WS] received post_type=${payload.post_type}, msg_type=${(payload as any).message_type ?? "-"}`);
           this.emit("message", payload);
         } catch (err) {
           // Ignore non-JSON
