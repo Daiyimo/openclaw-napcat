@@ -679,8 +679,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                 if (!isMentioned && repliedMsg?.sender?.user_id === effectiveSelfId) isMentioned = true;
             }
 
-            // Keyword triggers only fire when the bot is also @mentioned (in group/guild)
-            if (!isTriggered && config.keywordTriggers && (!checkMention || isMentioned)) {
+            if (!isTriggered && config.keywordTriggers) {
                 for (const kw of config.keywordTriggers) {
                     if (text.includes(kw)) { isTriggered = true; break; }
                 }
