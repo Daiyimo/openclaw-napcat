@@ -10,7 +10,7 @@ This plugin provides full-featured QQ channel support for [OpenClaw](https://git
 *   **History Context**: Automatically fetch the last N messages in group chats (default: 5), allowing AI to understand previous conversation.
 *   **System Prompt**: Support custom prompts for the bot to play specific roles (e.g., "catgirl", "strict admin").
 *   **Forwarded Message Understanding**: AI can parse and read merged forwarded chat records.
-*   **Keyword Triggers**: Besides @mentioning the bot, configure specific keywords (e.g., "assistant") to trigger conversation. **Keyword trigger requires @mention as well** to avoid accidental triggers in group chats.
+*   **Keyword Triggers**: Besides @mentioning the bot, configure specific keywords (e.g., "assistant") to trigger conversation without needing to @mention.
 
 ### 🛡️ Powerful Management & Risk Control
 *   **Connection Self-Healing**: Built-in heartbeat detection and exponential backoff reconnection, automatically identifying and fixing "zombie connections" for 24/7 online operation.
@@ -66,10 +66,10 @@ This plugin provides full-featured QQ channel support for [OpenClaw](https://git
 
 ```bash
 # One-line command to install QQ plugin
-curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/v4.17.25/install.sh | sudo bash
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/install.sh | sudo bash
 
 # One-line command to modify JSON files
-curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/v4.17.25/update_json.sh | sudo bash
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/update_json.sh | sudo bash
 ```
 
 ### Method 2: Using OpenClaw CLI (Recommended)
@@ -78,11 +78,12 @@ If your OpenClaw version supports plugin market or CLI installation:
 # Enter plugin directory
 cd openclaw/extensions
 # Clone repository
-git clone -b pre-release https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat/tree/main.git qq
+git clone https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat.git qq
 # Enter qq plugin directory
+cd qq
 npm install -g pnpm
-# Install qq
-pnpm install qq
+# Install dependencies
+pnpm install
 ```
 
 ---
@@ -168,7 +169,7 @@ You can also edit the config file directly. Full config:
 | `blockedUsers` | number[] | `[]` | **User blacklist**. Bot will ignore messages from these users. |
 | `systemPrompt` | string | - | **Personality setting**. System prompt injected into AI context. |
 | `historyLimit` | number | `5` | **History message count**. Bring last N messages to AI in group chat, set 0 to disable. |
-| `keywordTriggers` | string[] | `[]` | **Keyword triggers**. In group chats, message must contain these keywords AND @mention bot to trigger (private chats unlimited). |
+| `keywordTriggers` | string[] | `[]` | **Keyword triggers**. In group chats, messages containing these keywords will trigger the bot without needing to @mention (private chats also work). |
 | `autoApproveRequests` | boolean | `false` | Auto-accept friend requests and group invites. |
 | `enableGuilds` | boolean | `true` | Enable QQ Channel (Guild) support. |
 | `enableTTS` | boolean | `false` | (Experimental) Convert AI replies to voice (requires server TTS support). |
@@ -226,7 +227,7 @@ sudo openclaw devices approve 755e8961-2b4d-4440-81a5-a3691f8374ca
 *   **Group Chat**:
     *   **@bot** + message.
     *   Reply to bot's message.
-    *   **@bot** + message containing **keyword** (e.g., "assistant" from config).
+    *   Message containing a configured **keyword** (e.g., "assistant").
     *   **Poke** bot's avatar.
 
 ### 👮‍♂️ Admin Commands

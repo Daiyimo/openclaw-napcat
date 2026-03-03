@@ -12,7 +12,7 @@ OpenClaw 是一个多功能代理。下面的聊天演示仅展示了最基础�
 *   **历史回溯 (Context)**：在群聊中自动获取最近 N 条历史消息（默认 5 条），让 AI 能理解对话前文，不再“健忘”。
 *   **系统提示词 (System Prompt)**：支持注入自定义提示词，让 Bot 扮演特定角色（如“猫娘”、“严厉的管理员”）。
 *   **转发消息理解**：AI 能够解析并读取用户发送的合并转发聊天记录，处理复杂信息。
-*   **关键词唤醒**：除了 @机器人，支持配置特定的关键词（如”小助手”）来触发对话。**关键词触发需同时 @机器人**，避免群聊中普通对话意外触发。
+*   **关键词唤醒**：除了 @机器人，支持配置特定的关键词（如”小助手”）来触发对话，无需同时 @机器人。
 
 ### 🛡️ 强大的管理与风控
 *   **连接自愈**：内置心跳检测与重连指数退避机制，能自动识别并修复“僵尸连接”，确保 7x24 小时在线。
@@ -68,10 +68,10 @@ OpenClaw 是一个多功能代理。下面的聊天演示仅展示了最基础�
 
 ```bash
 # 一行命令安装 QQ 插件
-curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/v4.17.25/install.sh | sudo bash
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/install.sh | sudo bash
 
 # 一行命令修改 JSON 文件
-curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/v4.17.25/update_json.sh | sudo bash
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/update_json.sh | sudo bash
 ```
 
 ### 方法 : 使用 OpenClaw CLI (推荐)
@@ -80,11 +80,12 @@ curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/opencl
 # 进入插件目录
 cd openclaw/extensions
 # 克隆仓库
-git clone -b pre-release https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat/tree/main.git qq
+git clone https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat.git qq
 # 进入qq插件目录
+cd qq
 npm install -g pnpm
-# 安装qq
-pnpm install qq
+# 安装依赖
+pnpm install
 ```
 
 ---
@@ -170,7 +171,7 @@ openclaw setup qq
 | `blockedUsers` | number[] | `[]` | **用户黑名单**。Bot 将忽略这些用户的消息。 |
 | `systemPrompt` | string | - | **人设设定**。注入到 AI 上下文的系统提示词。 |
 | `historyLimit` | number | `5` | **历史消息条数**。群聊时携带最近 N 条消息给 AI，设为 0 关闭。 |
-| `keywordTriggers` | string[] | `[]` | **关键词触发**。群聊中包含这些关键词且同时 @机器人 时触发回复（私聊无此限制）。 |
+| `keywordTriggers` | string[] | `[]` | **关键词触发**。群聊中消息包含这些关键词时直接触发回复，无需同时 @机器人（私聊同样有效）。 |
 | `autoApproveRequests` | boolean | `false` | 是否自动通过好友申请和群邀请。 |
 | `enableGuilds` | boolean | `true` | 是否开启 QQ 频道 (Guild) 支持。 |
 | `enableTTS` | boolean | `false` | (实验性) 是否将 AI 回复转为语音发送 (需服务端支持 TTS)。 |
@@ -228,7 +229,7 @@ sudo openclaw devices approve 755e8961-2b4d-4440-81a5-a3691f8374ca
 *   **群聊**：
     *   **@机器人** + 消息。
     *   回复机器人的消息。
-    *   **@机器人** + 包含**关键词**（如配置中的”小助手”）的消息。
+    *   发送包含配置**关键词**（如”小助手”）的消息。
     *   **戳一戳**机器人头像。
 
 ### 👮‍♂️ 管理员指令
@@ -380,15 +381,13 @@ openclaw devices approve <requestId>
 
 ### v1.3.1 - 误触发修复 (2026-02-27)
 
-修复群聊中关键词和管理员指令意外触发的问题。
+修复群聊中管理员指令意外触发的问题，还原关键词独立触发能力。
 
 #### 变更详情
 
-**1. 关键词触发需同时 @机器人**
+**1. 关键词触发无需 @机器人（已还原）**
 
-此前 `keywordTriggers` 中的关键词在群聊中只要消息包含该词就会触发，导致和别人聊天中顺带提到关键词（如"签到"）时意外触发机器人。
-
-现在群聊/频道中，关键词触发必须同时满足 @机器人（或回复机器人消息），私聊中不受影响。
+关键词触发在群聊中可独立触发，无需同时 @机器人。
 
 **2. 管理员指令需同时 @机器人（群聊）**
 
