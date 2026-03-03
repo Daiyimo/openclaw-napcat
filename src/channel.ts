@@ -601,9 +601,11 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             
             if (config.blockedUsers?.includes(userId)) return;
             if (isGroup && config.allowedGroups?.length && !config.allowedGroups.includes(groupId)) return;
-            
+
             const isAdmin = config.admins?.includes(userId) ?? false;
             if (config.admins?.length && !isAdmin) return;
+
+            console.log(`[QQ DEBUG] msg from ${userId}, group=${groupId}, text="${text}", isAdmin=${isAdmin}`);
 
             if (!isGuild && isAdmin && text.trim().startsWith('/')) {
                 const isCmdMentioned = !isGroup || (() => {
@@ -684,6 +686,8 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                     if (text.includes(kw)) { isTriggered = true; break; }
                 }
             }
+
+            console.log(`[QQ DEBUG] isTriggered=${isTriggered}, isMentioned=${isMentioned}, requireMention=${config.requireMention}, keywords=${JSON.stringify(config.keywordTriggers)}`);
 
             if (checkMention && config.requireMention && !isTriggered && !isMentioned) return;
 
