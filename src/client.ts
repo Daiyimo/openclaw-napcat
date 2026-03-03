@@ -194,7 +194,7 @@ export class OneBotClient extends EventEmitter {
   }
 
   async setMsgEmojiLike(messageId: number | string, emojiId: string) {
-      this.sendWs("set_msg_emoji_like", { message_id: messageId, emoji_id: emojiId });
+      this.sendWs("set_msg_emoji_like", { message_id: messageId, emoji_id: emojiId, set: true });
   }
 
   async markGroupMsgAsRead(groupId: number) {
