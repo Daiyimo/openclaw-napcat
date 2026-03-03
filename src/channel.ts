@@ -501,6 +501,8 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                  return;
             }
 
+            console.log(`[QQ DEBUG RAW] post_type=${event.post_type}, msg_type=${event.message_type}, user_id=${event.user_id}, group_id=${event.group_id}`);
+
             // Handle friend/group add requests
             if (event.post_type === "request" && config.autoApproveRequests) {
                 if (event.request_type === "friend" && event.flag) client.setFriendAddRequest(event.flag, true);
