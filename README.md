@@ -70,6 +70,9 @@ curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/opencl
 
 # One-line command to modify JSON files
 curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/update_json.sh | sudo bash
+
+# One-line command to add StepFun model and set as primary
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/add_stepfun.sh | bash -s -- "你的StepFun_APIKey"
 ```
 
 ### Method 2: Using OpenClaw CLI (Recommended)
