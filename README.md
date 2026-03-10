@@ -21,9 +21,11 @@ This plugin provides full-featured QQ channel support for [OpenClaw](https://git
 *   **Auto Request Handling**: Configurable auto-accept friend requests and group invites for unattended operation.
 *   **Production-Grade Risk Control**:
     *   **Default @Mention Trigger**: `requireMention` is enabled by default, only responding when @mentioned, protecting tokens and not disturbing others.
+    *   **Message Rate Limiting**: Following OneBot protocol specs, maximum 4 passive replies per message ID within 1 hour; excess replies automatically fallback to proactive messages.
     *   **Rate Limiting**: Automatically insert random delays between multiple messages to avoid QQ risk control bans.
     *   **URL Avoidance**: Automatically process links (e.g., add spaces) to reduce message filtering.
     *   **System Account Blocking**: Automatically filter interference from system accounts like QQ Manager.
+*   **Error Notifications**: When exceptions occur, automatically notify administrators (requires `admins` and `enableErrorNotify` config), enabling quick issue identification.
 
 ### 🎭 Rich Interactive Experience
 *   **Poke**: When users "poke" the bot, AI perceives it and responds interestingly. Supports both group and private chat pokes.
@@ -66,13 +68,13 @@ This plugin provides full-featured QQ channel support for [OpenClaw](https://git
 
 ```bash
 # One-line command to install QQ plugin
-curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/install.sh | sudo bash
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/napcat-qq/install.sh | sudo bash
 
 # One-line command to modify JSON files
-curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/update_json.sh | sudo bash
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/napcat-qq/update_json.sh | sudo bash
 
 # One-line command to add StepFun model and set as primary
-curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/add_stepfun.sh | bash -s -- "你的StepFun_APIKey"
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/napcat-qq/add_stepfun.sh | bash -s -- "your StepFun_APIKey"
 ```
 
 ### Method 2: Using OpenClaw CLI (Recommended)
@@ -81,7 +83,7 @@ If your OpenClaw version supports plugin market or CLI installation:
 # Enter plugin directory
 cd openclaw/extensions
 # Clone repository
-git clone https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat.git qq
+git clone https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat.git -b napcat-qq qq
 # Enter qq plugin directory
 cd qq
 npm install -g pnpm
@@ -141,6 +143,7 @@ You can also edit the config file directly. Full config:
       "enableReactions": true,
       "reactionEmoji": "",
       "autoMarkRead": false,
+      "enableErrorNotify": true,
       "aiVoiceId": ""
     }
   },
@@ -184,6 +187,7 @@ You can also edit the config file directly. Full config:
 | `enableReactions` | boolean | `true` | **Smart emoji reactions**. Automatically reacts to messages with a contextually matched emoji (e.g. 👌 for queries, 😢 for sadness). Default emoji is 喵喵 (307). Set to `false` to disable. |
 | `reactionEmoji` | string | - | Reserved. Not used when `enableReactions` is enabled. |
 | `autoMarkRead` | boolean | `false` | Auto-mark messages as read to prevent unread pile-up. |
+| `enableErrorNotify` | boolean | `true` | Enable error notifications. When message processing fails, automatically send notifications to administrators listed in `admins`. |
 | `aiVoiceId` | string | - | NapCat AI Voice character ID, uses AI Voice API instead of CQ:tts when `enableTTS` is on. |
 
 ---

@@ -15,7 +15,7 @@ OpenClaw 是一个多功能代理。下面的聊天演示仅展示了最基础�
 *   **关键词唤醒**：除了 @机器人，支持配置特定的关键词（如”小助手”）来触发对话，无需同时 @机器人。
 
 ### 🛡️ 强大的管理与风控
-*   **连接自愈**：内置心跳检测与重连指数退避机制，能自动识别并修复“僵尸连接”，确保 7x24 小时在线。
+*   **连接自愈**：内置心跳检测与重连指数退避机制，能自动识别并修复”僵尸连接”，确保 7x24 小时在线。
 *   **群管指令**：管理员可直接在 QQ 中使用指令管理群成员（禁言/踢出）。
 *   **黑白名单**：
     *   **群组白名单**：只在指定的群组中响应，避免被拉入广告群。
@@ -23,9 +23,11 @@ OpenClaw 是一个多功能代理。下面的聊天演示仅展示了最基础�
 *   **自动请求处理**：可配置自动通过好友申请和入群邀请，实现无人值守运营。
 *   **生产级风控**：
     *   **默认 @ 触发**：默认开启 `requireMention`，仅在被 @ 时回复，保护 Token 并不打扰他人。
+    *   **消息限流**：遵守 OneBot 协议规范，同一消息 ID 1 小时内最多被动回复 4 次，超限自动转为主动消息通知。
     *   **速率限制**：发送多条消息时自动插入随机延迟，防止被 QQ 风控禁言。
     *   **URL 规避**：自动对链接进行处理（如加空格），降低被系统吞消息的概率。
     *   **系统号屏蔽**：自动过滤 QQ 管家等系统账号的干扰。
+*   **错误通知**：发生异常时自动通知管理员（需配置 `admins` 和 `enableErrorNotify`），便于快速定位问题。
 
 ### 🎭 丰富的交互体验
 *   **戳一戳 (Poke)**：当用户"戳一戳"机器人时，AI 会感知到并做出有趣的回应。支持群聊和私聊双向戳一戳。
@@ -68,13 +70,13 @@ OpenClaw 是一个多功能代理。下面的聊天演示仅展示了最基础�
 
 ```bash
 # 一行命令安装 QQ 插件
-curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/install.sh | sudo bash
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/napcat-qq/install.sh | sudo bash
 
 # 一行命令修改 JSON 文件
-curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/update_json.sh | sudo bash
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/napcat-qq/update_json.sh | sudo bash
 
 # 一行命令添加 StepFun 模型并设为主模型
-curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/add_stepfun.sh | bash -s -- "你的StepFun_APIKey"
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/napcat-qq/add_stepfun.sh | bash -s -- "你的StepFun_APIKey"
 ```
 
 ### 方法 : 使用 OpenClaw CLI (推荐)
@@ -83,7 +85,7 @@ curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/opencl
 # 进入插件目录
 cd openclaw/extensions
 # 克隆仓库
-git clone https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat.git qq
+git clone https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat.git -b napcat-qq qq
 # 进入qq插件目录
 cd qq
 npm install -g pnpm
@@ -143,6 +145,7 @@ openclaw setup qq
       "enableReactions": true,
       "reactionEmoji": "",
       "autoMarkRead": false,
+      "enableErrorNotify": true,
       "aiVoiceId": ""
     }
   },
@@ -186,6 +189,7 @@ openclaw setup qq
 | `enableReactions` | boolean | `true` | **智能表情回应**。默认开启，根据消息内容自动贴对应表情（如查找类→OK，悲伤类→流泪），默认表情为喵喵（307）。设为 `false` 可关闭。 |
 | `reactionEmoji` | string | - | 保留字段，`enableReactions` 开启时不使用。 |
 | `autoMarkRead` | boolean | `false` | 是否自动标记消息为已读，防止未读消息堆积。 |
+| `enableErrorNotify` | boolean | `true` | 是否启用错误通知。当消息处理发生异常时，自动发送通知给 `admins` 列表中的管理员。 |
 | `aiVoiceId` | string | - | NapCat AI 语音角色 ID，当 `enableTTS` 开启时优先使用 AI 语音 API 代替 CQ:tts。 |
 
 ---
