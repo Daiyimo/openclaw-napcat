@@ -40,7 +40,7 @@ done
 echo ""
 echo "配置预览:"
 echo "  reverseWsPort : $REVERSE_WS_PORT"
-echo "  httpUrl       : $HTTP_URL"
+echo "  httpUrl        : $HTTP_URL"
 echo "  admins        : [$ADMIN_QQ]"
 echo ""
 
@@ -52,6 +52,7 @@ cp "$CONFIG_FILE" "$BACKUP_FILE"
 echo "备份已保存至: $BACKUP_FILE"
 
 # 执行更新
+# 注意：这里使用了 *= 来安全合并 tools 配置，防止覆盖原有工具设置
 jq \
   --arg httpUrl "$HTTP_URL" \
   --argjson reverseWsPort "$REVERSE_WS_PORT" \
@@ -97,7 +98,11 @@ jq \
       "enabled": true
     }
   }
-}
+} |
+
+# 5. 写入 tools 配置
+.tools *= {"profile": "full"}
+
 ' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp"
 
 if [ $? -eq 0 ]; then
@@ -132,11 +137,11 @@ else
     fi
 fi
 
-# ── 设备配对引导 (OpenClaw 2026.2.25+) ──────────────────────
+# ── 设备配对引导 (OpenClaw 2026.3.8+) ──────────────────────
 
 echo ""
 echo "================================================"
-echo "  OpenClaw 2026.2.25+ 设备配对引导"
+echo "  OpenClaw 2026.3.8+ 设备配对引导"
 echo "================================================"
 echo ""
 echo "新版本要求首次访问 WebUI 前完成设备配对。"
