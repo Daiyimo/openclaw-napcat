@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import {
   type ChannelPlugin,
   type ChannelAccountSnapshot,
+  type OpenClawConfig,
   buildChannelConfigSchema,
   DEFAULT_ACCOUNT_ID,
   normalizeAccountId,
@@ -18,7 +19,106 @@ import type { OneBotMessage, OneBotMessageSegment } from "./types.js";
 export type ResolvedQQAccount = ChannelAccountSnapshot & {
   config: QQConfig;
   client?: OneBotClient;
+  configured: boolean;
 };
+
+// ============ 消息回复限流器 ============
+// 同一 message_id 1小时内最多回复 4 次，超过 1 小时无法被动回复（需改为主动消息）
+const MESSAGE_REPLY_LIMIT = 4;
+const MESSAGE_REPLY_TTL = 60 * 60 * 1000; // 1小时
+
+interface MessageReplyRecord {
+  count: number;
+  firstReplyAt: number;
+}
+
+const messageReplyTracker = new Map<string, MessageReplyRecord>();
+
+/**
+ * 清理过期记录（定期调用以避免内存泄漏）
+ */
+function cleanupMessageTrackers() {
+  const now = Date.now();
+  for (const [id, rec] of messageReplyTracker) {
+    if (now - rec.firstReplyAt > MESSAGE_REPLY_TTL) {
+      messageReplyTracker.delete(id);
+    }
+  }
+}
+
+/**
+ * 检查是否可以回复该消息（限流检查）
+ */
+function checkMessageReplyLimit(messageId: string): {
+  allowed: boolean;
+  remaining: number;
+  shouldFallbackToProactive: boolean;
+  fallbackReason?: "expired" | "limit_exceeded";
+  message?: string;
+} {
+  const now = Date.now();
+  const record = messageReplyTracker.get(messageId);
+
+  // 新消息，首次回复
+  if (!record) {
+    return {
+      allowed: true,
+      remaining: MESSAGE_REPLY_LIMIT,
+      shouldFallbackToProactive: false,
+    };
+  }
+
+  // 检查是否超过1小时（message_id 过期）
+  if (now - record.firstReplyAt > MESSAGE_REPLY_TTL) {
+    return {
+      allowed: false,
+      remaining: 0,
+      shouldFallbackToProactive: true,
+      fallbackReason: "expired",
+      message: `消息已超过 1 小时有效期，无法被动回复`,
+    };
+  }
+
+  // 检查是否超过回复次数限制
+  const remaining = MESSAGE_REPLY_LIMIT - record.count;
+  if (remaining <= 0) {
+    return {
+      allowed: false,
+      remaining: 0,
+      shouldFallbackToProactive: true,
+      fallbackReason: "limit_exceeded",
+      message: `该消息已达到 1 小时内最大回复次数(${MESSAGE_REPLY_LIMIT}次)`,
+    };
+  }
+
+  return {
+    allowed: true,
+    remaining,
+    shouldFallbackToProactive: false,
+  };
+}
+
+/**
+ * 记录一次消息回复
+ */
+function recordMessageReply(messageId: string): void {
+  const now = Date.now();
+  const record = messageReplyTracker.get(messageId);
+
+  if (!record) {
+    messageReplyTracker.set(messageId, { count: 1, firstReplyAt: now });
+  } else {
+    // 检查是否过期，过期则重新计数
+    if (now - record.firstReplyAt > MESSAGE_REPLY_TTL) {
+      messageReplyTracker.set(messageId, { count: 1, firstReplyAt: now });
+    } else {
+      record.count++;
+    }
+  }
+  console.log(`[napcat-QQ] recordMessageReply: ${messageId}, count=${messageReplyTracker.get(messageId)?.count}`);
+}
+
+// ========================================
 
 const memberCache = new Map<string, { name: string, time: number }>();
 const bulkCachedGroups = new Set<string>();
@@ -249,7 +349,7 @@ async function resolveMediaUrl(url: string): Promise<string> {
             const base64 = data.toString("base64");
             return `base64://${base64}`;
         } catch (e) {
-            console.warn(`[QQ] Failed to convert local file to base64: ${e}`);
+            console.warn(`[napcat-QQ] Failed to convert local file to base64: ${e}`);
             return url; // Fallback to original
         }
     }
@@ -273,16 +373,14 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
   },
   configSchema: buildChannelConfigSchema(QQConfigSchema),
   config: {
-    listAccountIds: (cfg) => {
-        // @ts-ignore
+    listAccountIds: (cfg: OpenClawConfig) => {
         const qq = cfg.channels?.qq;
         if (!qq) return [];
         if (qq.accounts) return Object.keys(qq.accounts);
         return [DEFAULT_ACCOUNT_ID];
     },
-    resolveAccount: (cfg, accountId) => {
+    resolveAccount: (cfg: OpenClawConfig, accountId?: string | null) => {
         const id = accountId ?? DEFAULT_ACCOUNT_ID;
-        // @ts-ignore
         const qq = cfg.channels?.qq;
         const accountConfig = id === DEFAULT_ACCOUNT_ID ? qq : qq?.accounts?.[id];
         return {
@@ -295,14 +393,14 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
         };
     },
     defaultAccountId: () => DEFAULT_ACCOUNT_ID,
-    describeAccount: (acc) => ({
+    describeAccount: (acc: ChannelAccountSnapshot) => ({
         accountId: acc.accountId,
-        configured: acc.configured,
+        configured: acc.enabled,
     }),
   },
   directory: {
-      listPeers: async ({ accountId }) => {
-          const client = getClientForAccount(accountId || DEFAULT_ACCOUNT_ID);
+      listPeers: async (params: { accountId?: string }) => {
+          const client = getClientForAccount(params.accountId || DEFAULT_ACCOUNT_ID);
           if (!client) return [];
           try {
               const friends = await client.getFriendList();
@@ -316,36 +414,21 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
               return [];
           }
       },
-      listGroups: async ({ accountId, cfg }) => {
-          const client = getClientForAccount(accountId || DEFAULT_ACCOUNT_ID);
+      listGroups: async (params: { accountId?: string; cfg?: any }) => {
+          const client = getClientForAccount(params.accountId || DEFAULT_ACCOUNT_ID);
           if (!client) return [];
-          const list: any[] = [];
-          
           try {
               const groups = await client.getGroupList();
-              list.push(...groups.map(g => ({
+              return groups.map(g => ({
                   id: String(g.group_id),
                   name: g.group_name,
                   type: "group" as const,
                   metadata: { ...g }
-              })));
-          } catch (e) {}
-
-          // @ts-ignore
-          const enableGuilds = cfg?.channels?.qq?.enableGuilds ?? true;
-          if (enableGuilds) {
-              try {
-                  const guilds = await client.getGuildList();
-                  list.push(...guilds.map(g => ({
-                      id: `guild:${g.guild_id}`,
-                      name: `[频道] ${g.guild_name}`,
-                      type: "group" as const,
-                      metadata: { ...g }
-                  })));
-              } catch (e) {}
+              }));
+          } catch (e) {
+              return [];
           }
-          return list;
-      }
+      },
   },
   status: {
       probeAccount: async ({ account, timeoutMs }) => {
@@ -387,45 +470,44 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
               client.connect();
           });
       },
-      buildAccountSnapshot: ({ account, runtime, probe }) => {
+      buildAccountSnapshot: ({ account, runtime }) => {
           return {
-              accountId: account.accountId,
-              name: account.name,
-              enabled: account.enabled,
-              configured: account.configured,
+              accountId: account?.accountId ?? "unknown",
+              name: account?.name ?? "Unknown",
+              enabled: account?.enabled ?? false,
+              configured: account?.configured ?? false,
               running: runtime?.running ?? false,
               lastStartAt: runtime?.lastStartAt ?? null,
               lastError: runtime?.lastError ?? null,
-              probe,
           };
       }
   },
   setup: {
-    resolveAccountId: ({ accountId }) => normalizeAccountId(accountId),
-    applyAccountName: ({ cfg, accountId, name }) => 
-        applyAccountNameToChannelSection({ cfg, channelKey: "qq", accountId, name }),
-    validateInput: ({ input }) => null,
-    applyAccountConfig: ({ cfg, accountId, input }) => {
+    resolveAccountId: (params: { accountId?: string | null }) => normalizeAccountId(params.accountId),
+    applyAccountName: (params: { cfg: OpenClawConfig; accountId: string; name: string }) =>
+        applyAccountNameToChannelSection({ cfg: params.cfg, channelKey: "qq", accountId: params.accountId, name: params.name }),
+    validateInput: (params: { input: any }) => null,
+    applyAccountConfig: (params: { cfg: OpenClawConfig; accountId: string; input: any }) => {
         const namedConfig = applyAccountNameToChannelSection({
-            cfg,
+            cfg: params.cfg,
             channelKey: "qq",
-            accountId,
-            name: input.name,
+            accountId: params.accountId,
+            name: params.input.name,
         });
-        
-        const next = accountId !== DEFAULT_ACCOUNT_ID 
-            ? migrateBaseNameToDefaultAccount({ cfg: namedConfig, channelKey: "qq" }) 
+
+        const next = params.accountId !== DEFAULT_ACCOUNT_ID
+            ? migrateBaseNameToDefaultAccount({ cfg: namedConfig, channelKey: "qq" })
             : namedConfig;
 
         const newConfig = {
-            wsUrl: input.wsUrl || undefined,
-            httpUrl: input.httpUrl,
-            reverseWsPort: input.reverseWsPort,
-            accessToken: input.accessToken,
+            wsUrl: params.input.wsUrl || undefined,
+            httpUrl: params.input.httpUrl,
+            reverseWsPort: params.input.reverseWsPort,
+            accessToken: params.input.accessToken,
             enabled: true,
         };
 
-        if (accountId === DEFAULT_ACCOUNT_ID) {
+        if (params.accountId === DEFAULT_ACCOUNT_ID) {
             return {
                 ...next,
                 channels: {
@@ -434,7 +516,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                 }
             };
         }
-        
+
         return {
             ...next,
             channels: {
@@ -444,18 +526,18 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                     enabled: true,
                     accounts: {
                         ...next.channels?.qq?.accounts,
-                        [accountId]: {
-                            ...next.channels?.qq?.accounts?.[accountId],
+                        [params.accountId]: {
+                            ...(next.channels?.qq?.accounts?.[params.accountId] || {}),
                             ...newConfig
                         }
                     }
                 }
             }
         };
-    }
+    },
   },
   gateway: {
-    startAccount: async (ctx) => {
+    startAccount: async (ctx: { account: ResolvedQQAccount; cfg: OpenClawConfig; abortSignal: AbortSignal; log?: any; onReady: () => void; onError: (error: Error) => void }) => {
         const { account, cfg } = ctx;
         const config = account.config;
 
@@ -464,7 +546,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
         // 1. Prevent multiple clients for the same account
         const existingClient = clients.get(account.accountId);
         if (existingClient) {
-            console.log(`[QQ] Stopping existing client for account ${account.accountId} before restart`);
+            console.log(`[napcat-QQ] Stopping existing client for account ${account.accountId} before restart`);
             existingClient.disconnect();
         }
 
@@ -482,19 +564,32 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             if (processedMsgIds.size > 1000) processedMsgIds.clear();
         }, 3600000);
 
+        // Periodic cleanup of expired message reply trackers
+        const trackerCleanupInterval = setInterval(() => {
+            cleanupMessageTrackers();
+        }, 60 * 60 * 1000);
+
         client.on("connect", async () => {
-             console.log(`[QQ] Connected account ${account.accountId}`);
+             console.log(`[napcat-QQ] Connected account ${account.accountId}`);
              try {
                 const info = await client.getLoginInfo();
                 if (info && info.user_id) client.setSelfId(info.user_id);
-                if (info && info.nickname) console.log(`[QQ] Logged in as: ${info.nickname} (${info.user_id})`);
+                if (info && info.nickname) console.log(`[napcat-QQ] Logged in as: ${info.nickname} (${info.user_id})`);
                 getQQRuntime().channel.activity.record({
-                    channel: "qq", accountId: account.accountId, direction: "inbound", 
+                    channel: "qq", accountId: account.accountId, direction: "inbound",
                  });
              } catch (err) { }
         });
 
         client.on("message", async (event) => {
+          // Extract common fields for error reporting (must be outside try to be visible in catch)
+          const isGroup = event.message_type === "group";
+          const isGuild = event.message_type === "guild";
+          const userId = event.user_id;
+          const groupId = event.group_id;
+          const guildId = event.guild_id;
+          const channelId = event.channel_id;
+
           try {
             if (event.post_type === "meta_event") {
                  if (event.meta_event_type === "lifecycle" && event.sub_type === "connect" && event.self_id) client.setSelfId(event.self_id);
@@ -525,7 +620,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             }
 
             if (event.post_type !== "message") return;
-            
+
             // 2. Dynamic self-message filtering
             const selfId = client.getSelfId() || event.self_id;
             if (selfId && String(event.user_id) === String(selfId)) return;
@@ -535,16 +630,6 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                 if (processedMsgIds.has(msgIdKey)) return;
                 processedMsgIds.add(msgIdKey);
             }
-
-            const isGroup = event.message_type === "group";
-            const isGuild = event.message_type === "guild";
-            
-            if (isGuild && !config.enableGuilds) return;
-
-            const userId = event.user_id;
-            const groupId = event.group_id;
-            const guildId = event.guild_id;
-            const channelId = event.channel_id;
 
             // Auto mark messages as read
             if (config.autoMarkRead) {
@@ -687,6 +772,84 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
 
             if (checkMention && config.requireMention && !isTriggered && !isMentioned) return;
 
+            // 准备 deliver 函数（用于发送回复和错误通知）
+            const deliver = async (payload: ReplyPayload) => {
+              const send = async (msg: string) => {
+                let processed = msg;
+
+                if (config.formatMarkdown) processed = stripMarkdown(processed);
+                if (config.antiRiskMode) processed = processAntiRisk(processed);
+                const chunks = splitMessage(processed, config.maxMessageLength || 4000);
+                for (let i = 0; i < chunks.length; i++) {
+                  let chunk = chunks[i];
+                  if (isGroup && i === 0) chunk = `[CQ:at,qq=${userId}] ${chunk}`;
+
+                  if (isGroup) await client.sendGroupMsg(groupId, chunk);
+                  else if (isGuild) await client.sendGuildChannelMsg(guildId, channelId, chunk);
+                  else await client.sendPrivateMsg(userId, chunk);
+
+                  if (!isGuild && config.enableTTS && i === 0 && chunk.length < 100) {
+                    const tts = chunk.replace(/\[CQ:.*?\]/g, "").trim();
+                    if (tts) {
+                      try {
+                        if (isGroup && config.aiVoiceId) {
+                          await client.sendGroupAiRecord(groupId, tts, config.aiVoiceId);
+                        } else if (isGroup) {
+                          client.sendGroupMsg(groupId, `[CQ:tts,text=${tts}]`);
+                        } else {
+                          client.sendPrivateMsg(userId, `[CQ:tts,text=${tts}]`);
+                        }
+                      } catch (e) {
+                        // TTS 失败静默忽略
+                      }
+                    }
+                  }
+
+                  if (chunks.length > 1 && config.rateLimitMs > 0) await sleep(config.rateLimitMs);
+                }
+              };
+
+              if (payload.text) await send(payload.text);
+              if (payload.files) {
+                for (const f of payload.files) {
+                  if (f.url) {
+                    const url = await resolveMediaUrl(f.url);
+                    if (isImageFile(url)) {
+                      const imgMsg = `[CQ:image,file=${url}]`;
+                      if (isGroup) await client.sendGroupMsg(groupId, imgMsg);
+                      else if (isGuild) await client.sendGuildChannelMsg(guildId, channelId, imgMsg);
+                      else await client.sendPrivateMsg(userId, imgMsg);
+                    } else {
+                      const fileName = f.name || 'file';
+                      try {
+                        if (isGroup) await client.uploadGroupFile(groupId, url, fileName);
+                        else if (!isGuild) await client.uploadPrivateFile(userId, url, fileName);
+                        else await client.sendGuildChannelMsg(guildId, channelId, `[文件] ${url}`);
+                      } catch (e) {
+                        const txtMsg = `[CQ:file,file=${url},name=${fileName}]`;
+                        if (isGroup) await client.sendGroupMsg(groupId, txtMsg);
+                        else if (isGuild) await client.sendGuildChannelMsg(guildId, channelId, `[文件] ${url}`);
+                        else await client.sendPrivateMsg(userId, txtMsg);
+                      }
+                    }
+                    if (config.rateLimitMs > 0) await sleep(config.rateLimitMs);
+                  }
+                }
+              }
+            };
+
+            // 消息回复限流检查（防止同一消息被回复多次）
+            if (replyMsgId && config.enableDeduplication !== false) {
+              const limitResult = checkMessageReplyLimit(replyMsgId);
+              if (!limitResult.allowed) {
+                if (config.enableErrorNotify) {
+                  await deliver({ text: `⚠️ ${limitResult.message}` });
+                }
+                console.log(`[napcat-QQ] Reply limit exceeded: messageId=${replyMsgId}, reason=${limitResult.fallbackReason}`);
+                return;
+              }
+            }
+
             // Smart emoji reaction based on message content
             if (config.enableReactions && event.message_id) {
                 try {
@@ -738,75 +901,6 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
 
             const runtime = getQQRuntime();
 
-            const deliver = async (payload: ReplyPayload) => {
-                 const send = async (msg: string) => {
-                     let processed = msg;
-
-                     if (config.formatMarkdown) processed = stripMarkdown(processed);
-                     if (config.antiRiskMode) processed = processAntiRisk(processed);
-                     const chunks = splitMessage(processed, config.maxMessageLength || 4000);
-                     for (let i = 0; i < chunks.length; i++) {
-                         let chunk = chunks[i];
-                         if (isGroup && i === 0) chunk = `[CQ:at,qq=${userId}] ${chunk}`;
-                         
-                         if (isGroup) client.sendGroupMsg(groupId, chunk);
-                         else if (isGuild) client.sendGuildChannelMsg(guildId, channelId, chunk);
-                         else client.sendPrivateMsg(userId, chunk);
-                         
-                         if (!isGuild && config.enableTTS && i === 0 && chunk.length < 100) {
-                             const tts = chunk.replace(/\[CQ:.*?\]/g, "").trim();
-                             if (tts) {
-                                 if (isGroup && config.aiVoiceId) {
-                                     try { await client.sendGroupAiRecord(groupId, tts, config.aiVoiceId); } catch (e) {
-                                         // Fallback to CQ:tts
-                                         client.sendGroupMsg(groupId, `[CQ:tts,text=${tts}]`);
-                                     }
-                                 } else if (isGroup) {
-                                     client.sendGroupMsg(groupId, `[CQ:tts,text=${tts}]`);
-                                 } else {
-                                     client.sendPrivateMsg(userId, `[CQ:tts,text=${tts}]`);
-                                 }
-                             }
-                         }
-                         
-                         if (chunks.length > 1 && config.rateLimitMs > 0) await sleep(config.rateLimitMs);
-                     }
-                 };
-                 if (payload.text) await send(payload.text);
-                 if (payload.files) {
-                     for (const f of payload.files) {
-                         if (f.url) {
-                             const url = await resolveMediaUrl(f.url);
-                             if (isImageFile(url)) {
-                                 const imgMsg = `[CQ:image,file=${url}]`;
-                                 if (isGroup) client.sendGroupMsg(groupId, imgMsg);
-                                 else if (isGuild) client.sendGuildChannelMsg(guildId, channelId, imgMsg);
-                                 else client.sendPrivateMsg(userId, imgMsg);
-                             } else {
-                                 // Try upload API first for non-image files, fall back to CQ code
-                                 const fileName = f.name || 'file';
-                                 try {
-                                     if (isGroup) {
-                                         await client.uploadGroupFile(groupId, url, fileName);
-                                     } else if (!isGuild) {
-                                         await client.uploadPrivateFile(userId, url, fileName);
-                                     } else {
-                                         client.sendGuildChannelMsg(guildId, channelId, `[文件] ${url}`);
-                                     }
-                                 } catch (e) {
-                                     // Fallback to CQ code
-                                     const txtMsg = `[CQ:file,file=${url},name=${fileName}]`;
-                                     if (isGroup) client.sendGroupMsg(groupId, txtMsg);
-                                     else if (isGuild) client.sendGuildChannelMsg(guildId, channelId, `[文件] ${url}`);
-                                     else client.sendPrivateMsg(userId, txtMsg);
-                                 }
-                             }
-                             if (config.rateLimitMs > 0) await sleep(config.rateLimitMs);
-                         }
-                     }
-                 }
-            };
-
             const { dispatcher, replyOptions } = runtime.channel.reply.createReplyDispatcherWithTyping({ deliver });
 
             let replyToBody = "";
@@ -839,10 +933,32 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                 onRecordError: (err) => console.error("QQ Session Error:", err)
             });
 
-            try { await runtime.channel.reply.dispatchReplyFromConfig({ ctx: ctxPayload, cfg, dispatcher, replyOptions });
-            } catch (error) { if (config.enableErrorNotify) deliver({ text: "⚠️ 服务调用失败，请稍后重试。" }); }
+            try {
+              await runtime.channel.reply.dispatchReplyFromConfig({ ctx: ctxPayload, cfg, dispatcher, replyOptions });
+              // 发送成功后记录回复次数（用于限流）
+              if (replyMsgId) {
+                recordMessageReply(replyMsgId);
+              }
+            } catch (error) {
+              if (config.enableErrorNotify) {
+                await deliver({ text: "⚠️ 服务调用失败，请稍后重试。" });
+              }
+              console.error("[napcat-QQ] Reply dispatch error:", error);
+            }
           } catch (err) {
-            console.error("[QQ] Critical error in message handler:", err);
+            console.error("[napcat-QQ] Critical error in message handler:", err);
+            // 发送错误通知给管理员（如果启用）
+            if (config.enableErrorNotify && config.admins?.length) {
+              try {
+                const errorMsg = `⚠️ 消息处理异常\n用户: ${userId}\n群组: ${isGroup ? groupId : '私聊'}\n错误: ${err instanceof Error ? err.message : String(err)}`;
+                for (const adminId of config.admins) {
+                  await client.sendPrivateMsg(adminId, errorMsg);
+                  await sleep(500);
+                }
+              } catch (notifyErr) {
+                console.warn("[napcat-QQ] Failed to send error notification:", notifyErr);
+              }
+            }
           }
         });
 
@@ -860,6 +976,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
         });
 
         clearInterval(cleanupInterval);
+        clearInterval(trackerCleanupInterval);
         client.disconnect();
         clients.delete(account.accountId);
     },
@@ -873,28 +990,28 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
         if (!to || to === "heartbeat") {
             return { channel: "qq", sent: true };
         }
-        console.log(`[QQ][outbound.sendText] called: to=${to}, accountId=${accountId}, text=${text?.slice(0, 100)}`);
+        console.log(`[napcat-QQ][outbound.sendText] called: to=${to}, accountId=${accountId}, text=${text?.slice(0, 100)}`);
         const resolvedAccountId = accountId || DEFAULT_ACCOUNT_ID;
         const client = getClientForAccount(resolvedAccountId);
-        console.log(`[QQ][outbound.sendText] client lookup: accountId=${resolvedAccountId}, found=${!!client}, clients keys=[${[...clients.keys()].join(",")}]`);
+        console.log(`[napcat-QQ][outbound.sendText] client lookup: accountId=${resolvedAccountId}, found=${!!client}, clients keys=[${[...clients.keys()].join(",")}]`);
         if (!client) return { channel: "qq", sent: false, error: "Client not connected" };
         try {
             const target = parseTarget(to);
-            console.log(`[QQ][outbound.sendText] parsed target: type=${target.type}, to=${to}`);
+            console.log(`[napcat-QQ][outbound.sendText] parsed target: type=${target.type}, to=${to}`);
             const chunks = splitMessage(text, 4000);
             for (let i = 0; i < chunks.length; i++) {
                 let message: OneBotMessage | string = chunks[i];
                 if (replyTo && i === 0) message = [ { type: "reply", data: { id: String(replyTo) } }, { type: "text", data: { text: chunks[i] } } ];
 
-                console.log(`[QQ][outbound.sendText] sending chunk ${i + 1}/${chunks.length} to ${to} (${target.type})`);
+                console.log(`[napcat-QQ][outbound.sendText] sending chunk ${i + 1}/${chunks.length} to ${to} (${target.type})`);
                 await dispatchMessage(client, target, message);
 
                 if (chunks.length > 1) await sleep(1000);
             }
-            console.log(`[QQ][outbound.sendText] success: to=${to}`);
+            console.log(`[napcat-QQ][outbound.sendText] success: to=${to}`);
             return { channel: "qq", sent: true };
         } catch (err) {
-            console.error("[QQ][outbound.sendText] FAILED:", err);
+            console.error("[napcat-QQ][outbound.sendText] FAILED:", err);
             return { channel: "qq", sent: false, error: String(err) };
         }
     },
@@ -918,7 +1035,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
              await dispatchMessage(client, target, message);
              return { channel: "qq", sent: true };
          } catch (err) {
-             console.error("[QQ] outbound.sendMedia failed:", err);
+             console.error("[napcat-QQ] outbound.sendMedia failed:", err);
              return { channel: "qq", sent: false, error: String(err) };
          }
     },
@@ -936,6 +1053,5 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
           looksLikeId: (id) => /^\d{5,12}$/.test(id) || /^(group|guild|private):/.test(id),
           hint: "QQ号, private:QQ号, group:群号, 或 guild:频道ID:子频道ID",
       }
-  },
-  setup: { resolveAccountId: ({ accountId }) => normalizeAccountId(accountId) }
+  }
 };
