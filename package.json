@@ -15,7 +15,12 @@
     "ws": "^8.18.0",
     "zod": "^4.3.6"
   },
+  "peerDependencies": {
+    "openclaw": "*"
+  },
   "devDependencies": {
+    "@types/node": "^25.4.0",
+    "@types/ws": "^8.18.1",
     "typescript": "^5.9.3"
   }
 }

@@ -3,7 +3,7 @@
 # 脚本用途：向 OpenClaw 配置添加 StepFun 3.5 Flash 模型并设为主模型
 # 使用方式：
 #   sudo -i
-#   curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/add_stepfun.sh | bash
+#   curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/napcat-qq/add_stepfun.sh | bash
 
 set -e
 
