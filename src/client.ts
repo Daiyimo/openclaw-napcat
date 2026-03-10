@@ -47,7 +47,7 @@ export class OneBotClient extends EventEmitter {
       this.ws.on("open", () => {
         this.isAlive = true;
         this.emit("connect");
-        console.log("[QQ] Connected to OneBot server");
+        console.log("[napcat-QQ] Connected to OneBot server");
         
         // Start heartbeat check
         this.startHeartbeat();
@@ -71,12 +71,14 @@ export class OneBotClient extends EventEmitter {
       });
 
       this.ws.on("error", (err) => {
-        console.error("[QQ] WebSocket error:", err);
+        console.error("[napcat-QQ] WebSocket error:", err);
         this.handleDisconnect();
       });
     } catch (err) {
-      console.error("[QQ] Failed to initiate WebSocket connection:", err);
-      this.scheduleReconnect();
+      console.error("[napcat-QQ] Failed to initiate WebSocket connection:", err);
+      // Reconnection is handled by the framework (OpenClaw) via health probes.
+      // Throw the error to signal connection failure.
+      throw err;
     }
   }
 
@@ -102,7 +104,7 @@ export class OneBotClient extends EventEmitter {
     // (3x the default 30s NapCat heartbeat interval), force a reconnect.
     this.heartbeatTimer = setInterval(() => {
       if (this.isAlive === false) {
-        console.warn("[QQ] Heartbeat timeout, forcing reconnect...");
+        console.warn("[napcat-QQ] Heartbeat timeout, forcing reconnect...");
         this.handleDisconnect();
         return;
       }
@@ -113,7 +115,7 @@ export class OneBotClient extends EventEmitter {
 
   private handleDisconnect() {
     this.cleanup();
-    console.log("[QQ] Disconnected from OneBot server");
+    console.log("[napcat-QQ] Disconnected from OneBot server");
     this.emit("disconnect");
     // Reconnection is handled by OpenClaw's health-monitor via startAccount.
     // Do not self-reconnect here to avoid racing with the host framework.
@@ -238,16 +240,16 @@ export class OneBotClient extends EventEmitter {
   private async sendAction(action: string, params: any) {
     if (this.options.httpUrl) {
       try {
-        console.log(`[QQ][sendAction] trying HTTP: ${this.options.httpUrl}/${action}`);
+        console.log(`[napcat-QQ][sendAction] trying HTTP: ${this.options.httpUrl}/${action}`);
         await this.sendViaHttp(action, params);
-        console.log(`[QQ][sendAction] HTTP success: ${action}`);
+        console.log(`[napcat-QQ][sendAction] HTTP success: ${action}`);
         return;
       } catch (err: any) {
-        console.warn(`[QQ][sendAction] HTTP failed for ${action}:`, err.message);
+        console.warn(`[napcat-QQ][sendAction] HTTP failed for ${action}:`, err.message);
       }
     }
     const activeWs = this.getActiveWs();
-    console.log(`[QQ][sendAction] trying WS: forwardWs=${this.ws?.readyState}, reverseWs=${this.reverseWs?.readyState}, active=${!!activeWs}`);
+    console.log(`[napcat-QQ][sendAction] trying WS: forwardWs=${this.ws?.readyState}, reverseWs=${this.reverseWs?.readyState}, active=${!!activeWs}`);
     this.sendWs(action, params);
   }
 
@@ -279,20 +281,20 @@ export class OneBotClient extends EventEmitter {
     if (!port) return;
 
     this.reverseWss = new WebSocketServer({ port });
-    console.log(`[QQ] Reverse WebSocket server listening on port ${port}`);
+    console.log(`[napcat-QQ] Reverse WebSocket server listening on port ${port}`);
 
     this.reverseWss.on("connection", (ws: WebSocket, req: IncomingMessage) => {
       // Verify access token if configured
       if (this.options.accessToken) {
         const auth = req.headers["authorization"];
         if (auth !== `Bearer ${this.options.accessToken}`) {
-          console.warn("[QQ] Reverse WS: unauthorized connection rejected");
+          console.warn("[napcat-QQ] Reverse WS: unauthorized connection rejected");
           ws.close(4001, "Unauthorized");
           return;
         }
       }
 
-      console.log("[QQ] Reverse WS: NapCat connected");
+      console.log("[napcat-QQ] Reverse WS: NapCat connected");
       this.reverseWs = ws;
 
       ws.on("message", (data) => {
@@ -313,17 +315,17 @@ export class OneBotClient extends EventEmitter {
       });
 
       ws.on("close", () => {
-        console.log("[QQ] Reverse WS: NapCat disconnected");
+        console.log("[napcat-QQ] Reverse WS: NapCat disconnected");
         if (this.reverseWs === ws) this.reverseWs = null;
       });
 
       ws.on("error", (err) => {
-        console.error("[QQ] Reverse WS error:", err);
+        console.error("[napcat-QQ] Reverse WS error:", err);
       });
     });
 
     this.reverseWss.on("error", (err) => {
-      console.error("[QQ] Reverse WS server error:", err);
+      console.error("[napcat-QQ] Reverse WS server error:", err);
     });
   }
 
@@ -335,7 +337,7 @@ export class OneBotClient extends EventEmitter {
     if (this.reverseWss) {
       this.reverseWss.close();
       this.reverseWss = null;
-      console.log("[QQ] Reverse WebSocket server stopped");
+      console.log("[napcat-QQ] Reverse WebSocket server stopped");
     }
   }
 
@@ -349,7 +351,7 @@ export class OneBotClient extends EventEmitter {
     // Prefer HTTP API for request-response calls if available
     if (this.options.httpUrl) {
       return this.sendViaHttp(action, params).catch((err) => {
-        console.warn(`[QQ] HTTP API failed for ${action}, falling back to WS:`, err.message);
+        console.warn(`[napcat-QQ] HTTP API failed for ${action}, falling back to WS:`, err.message);
         return this.sendWithResponseWs(action, params);
       });
     }
