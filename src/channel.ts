@@ -1,4 +1,7 @@
 import { promises as fs } from "node:fs";
+import * as fsSync from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   type ChannelPlugin,
@@ -14,7 +17,10 @@ import {
 import { OneBotClient } from "./client.js";
 import { QQConfigSchema, type QQConfig } from "./config.js";
 import { getQQRuntime } from "./runtime.js";
-import type { OneBotMessage, OneBotMessageSegment } from "./types.js";
+import type { OneBotMessage } from "./types.js";
+import { convertSilkToWav } from "./utils/audio-convert.js";
+import { recordKnownUser, flushKnownUsers } from "./known-users.js";
+import { registerClientsMap } from "./proactive.js";
 
 export type ResolvedQQAccount = ChannelAccountSnapshot & {
   config: QQConfig;
@@ -300,6 +306,9 @@ async function dispatchMessage(client: OneBotClient, target: ParsedTarget, messa
 
 const clients = new Map<string, OneBotClient>();
 
+// Register with proactive module so it can use clients for outbound sends
+registerClientsMap(clients);
+
 function getClientForAccount(accountId: string) {
     return clients.get(accountId);
 }
@@ -355,6 +364,78 @@ async function resolveMediaUrl(url: string): Promise<string> {
     }
     return url;
 }
+
+// ============ STT 辅助函数 ============
+
+interface STTConfig {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+}
+
+function resolveSTTConfig(cfg: Record<string, unknown>): STTConfig | null {
+  const c = cfg as any;
+
+  // 优先 channels.qq.stt（插件专属配置）
+  const channelStt = c?.channels?.qq?.stt;
+  if (channelStt && channelStt.enabled !== false) {
+    const providerId: string = channelStt?.provider || "openai";
+    const providerCfg = c?.models?.providers?.[providerId];
+    const baseUrl: string | undefined = channelStt?.baseUrl || providerCfg?.baseUrl;
+    const apiKey: string | undefined = channelStt?.apiKey || providerCfg?.apiKey;
+    const model: string = channelStt?.model || "whisper-1";
+    if (baseUrl && apiKey) {
+      return { baseUrl: baseUrl.replace(/\/+$/, ""), apiKey, model };
+    }
+  }
+
+  // 回退 tools.media.audio.models[0]（框架级配置）
+  const audioModelEntry = c?.tools?.media?.audio?.models?.[0];
+  if (audioModelEntry) {
+    const providerId: string = audioModelEntry?.provider || "openai";
+    const providerCfg = c?.models?.providers?.[providerId];
+    const baseUrl: string | undefined = audioModelEntry?.baseUrl || providerCfg?.baseUrl;
+    const apiKey: string | undefined = audioModelEntry?.apiKey || providerCfg?.apiKey;
+    const model: string = audioModelEntry?.model || "whisper-1";
+    if (baseUrl && apiKey) {
+      return { baseUrl: baseUrl.replace(/\/+$/, ""), apiKey, model };
+    }
+  }
+
+  return null;
+}
+
+async function transcribeAudioForNapcat(audioPath: string, cfg: Record<string, unknown>): Promise<string | null> {
+  const sttCfg = resolveSTTConfig(cfg);
+  if (!sttCfg) return null;
+
+  const fileBuffer = fsSync.readFileSync(audioPath);
+  const fileName = path.basename(audioPath);
+  const mime = fileName.endsWith(".wav") ? "audio/wav"
+    : fileName.endsWith(".mp3") ? "audio/mpeg"
+    : fileName.endsWith(".ogg") ? "audio/ogg"
+    : "application/octet-stream";
+
+  const form = new FormData();
+  form.append("file", new Blob([fileBuffer], { type: mime }), fileName);
+  form.append("model", sttCfg.model);
+
+  const resp = await fetch(`${sttCfg.baseUrl}/audio/transcriptions`, {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${sttCfg.apiKey}` },
+    body: form,
+  });
+
+  if (!resp.ok) {
+    const detail = await resp.text().catch(() => "");
+    throw new Error(`STT failed (HTTP ${resp.status}): ${detail.slice(0, 300)}`);
+  }
+
+  const result = await resp.json() as { text?: string };
+  return result.text?.trim() || null;
+}
+
+// ========================================
 
 export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
   id: "qq",
@@ -657,7 +738,41 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                             if (cached) name = cached;
                         }
                         resolvedText += ` @${name} `;
-                    } else if (seg.type === "record") resolvedText += ` [语音消息]${seg.data?.text ? `(${seg.data.text})` : ""}`;
+                    } else if (seg.type === "record") {
+                        if (config.enableSTT && seg.data?.url) {
+                            try {
+                                const voiceUrl = seg.data.url;
+                                const tmpDir = os.tmpdir();
+                                const tmpFile = path.join(tmpDir, `voice-${Date.now()}.amr`);
+                                const voiceResp = await fetch(voiceUrl);
+                                if (voiceResp.ok) {
+                                    const buf = await voiceResp.arrayBuffer();
+                                    fsSync.writeFileSync(tmpFile, Buffer.from(buf));
+                                    const wavResult = await convertSilkToWav(tmpFile, tmpDir);
+                                    if (wavResult) {
+                                        const transcript = await transcribeAudioForNapcat(wavResult.wavPath, cfg as Record<string, unknown>);
+                                        try { fsSync.unlinkSync(tmpFile); } catch {}
+                                        try { fsSync.unlinkSync(wavResult.wavPath); } catch {}
+                                        if (transcript) {
+                                            resolvedText += ` [语音转文字: ${transcript}]`;
+                                        } else {
+                                            resolvedText += ` [语音消息: 转写为空]`;
+                                        }
+                                    } else {
+                                        try { fsSync.unlinkSync(tmpFile); } catch {}
+                                        resolvedText += ` [语音消息: 格式不支持]`;
+                                    }
+                                } else {
+                                    resolvedText += ` [语音消息: 下载失败]`;
+                                }
+                            } catch (sttErr) {
+                                console.warn(`[napcat-QQ] STT failed: ${sttErr}`);
+                                resolvedText += ` [语音消息: 转写失败]`;
+                            }
+                        } else {
+                            resolvedText += ` [语音消息]${seg.data?.text ? `(${seg.data.text})` : ""}`;
+                        }
+                    }
                     else if (seg.type === "image") resolvedText += " [图片]";
                     else if (seg.type === "video") resolvedText += " [视频消息]";
                     else if (seg.type === "json") resolvedText += " [卡片消息]";
@@ -777,16 +892,29 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
               const send = async (msg: string) => {
                 let processed = msg;
 
-                if (config.formatMarkdown) processed = stripMarkdown(processed);
+                // markdownMode 优先于旧的 formatMarkdown 标志
+                const effectiveMarkdownMode = config.markdownMode ?? (config.formatMarkdown ? "strip" : "passthrough");
+                if (effectiveMarkdownMode === "strip") processed = stripMarkdown(processed);
                 if (config.antiRiskMode) processed = processAntiRisk(processed);
                 const chunks = splitMessage(processed, config.maxMessageLength || 4000);
                 for (let i = 0; i < chunks.length; i++) {
                   let chunk = chunks[i];
-                  if (isGroup && i === 0) chunk = `[CQ:at,qq=${userId}] ${chunk}`;
 
-                  if (isGroup) await client.sendGroupMsg(groupId, chunk);
-                  else if (isGuild) await client.sendGuildChannelMsg(guildId, channelId, chunk);
-                  else await client.sendPrivateMsg(userId, chunk);
+                  if (effectiveMarkdownMode === "native") {
+                    // native 模式：包装为 markdown 消息段（NapCat 支持）
+                    const mdSegments: OneBotMessage = [];
+                    if (isGroup && i === 0) mdSegments.push({ type: "at", data: { qq: String(userId) } });
+                    mdSegments.push({ type: "markdown", data: { content: chunk } });
+                    if (isGroup) await client.sendGroupMsg(groupId, mdSegments);
+                    else if (isGuild) await client.sendGuildChannelMsg(guildId, channelId, mdSegments);
+                    else await client.sendPrivateMsg(userId, mdSegments);
+                  } else {
+                    if (isGroup && i === 0) chunk = `[CQ:at,qq=${userId}] ${chunk}`;
+
+                    if (isGroup) await client.sendGroupMsg(groupId, chunk);
+                    else if (isGuild) await client.sendGuildChannelMsg(guildId, channelId, chunk);
+                    else await client.sendPrivateMsg(userId, chunk);
+                  }
 
                   if (!isGuild && config.enableTTS && i === 0 && chunk.length < 100) {
                     const tts = chunk.replace(/\[CQ:.*?\]/g, "").trim();
@@ -838,8 +966,8 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
               }
             };
 
-            // 消息回复限流检查（防止同一消息被回复多次）
-            if (replyMsgId && config.enableDeduplication !== false) {
+            // 消息回复限流检查（仅在 enableReplyLimit: true 时生效，默认关闭）
+            if (replyMsgId && config.enableDeduplication !== false && config.enableReplyLimit === true) {
               const limitResult = checkMessageReplyLimit(replyMsgId);
               if (!limitResult.allowed) {
                 if (config.enableErrorNotify) {
@@ -939,6 +1067,14 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
               if (replyMsgId) {
                 recordMessageReply(replyMsgId);
               }
+              // 记录已知用户（用于主动消息）
+              recordKnownUser({
+                openid: String(userId),
+                type: isGroup ? "group" : isGuild ? "guild" : "private",
+                nickname: event.sender?.card || event.sender?.nickname,
+                groupId: isGroup ? groupId : undefined,
+                accountId: account.accountId,
+              });
             } catch (error) {
               if (config.enableErrorNotify) {
                 await deliver({ text: "⚠️ 服务调用失败，请稍后重试。" });
@@ -977,6 +1113,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
 
         clearInterval(cleanupInterval);
         clearInterval(trackerCleanupInterval);
+        flushKnownUsers();
         client.disconnect();
         clients.delete(account.accountId);
     },

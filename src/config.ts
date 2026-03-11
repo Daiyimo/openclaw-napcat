@@ -25,6 +25,9 @@ export const QQConfigSchema = z.object({
   enableReactions: z.boolean().optional().default(true).describe("Enable smart emoji reactions based on message content. Uses keyword matching to pick the most fitting emoji. Set to false to disable."),
   autoMarkRead: z.boolean().optional().default(false).describe("Automatically mark messages as read to prevent unread pile-up"),
   aiVoiceId: z.string().optional().describe("NapCat AI voice character ID for send_group_ai_record. Used when enableTTS is true"),
+  enableReplyLimit: z.boolean().optional().default(false).describe("Enable reply rate limiting: max 4 replies per message_id per hour. Disabled by default."),
+  enableSTT: z.boolean().optional().default(false).describe("Enable speech-to-text transcription for voice messages (requires STT provider configured)"),
+  markdownMode: z.enum(["strip", "native", "passthrough"]).optional().default("passthrough").describe("How to handle markdown in replies: 'passthrough' sends raw markdown text, 'strip' removes markdown formatting, 'native' wraps in NapCat markdown message segment"),
 });
 
 export type QQConfig = z.infer<typeof QQConfigSchema>;
