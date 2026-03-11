@@ -353,13 +353,24 @@ function processAntiRisk(text: string): string {
 async function resolveMediaUrl(url: string): Promise<string> {
     if (url.startsWith("file:")) {
         try {
-            const path = fileURLToPath(url);
-            const data = await fs.readFile(path);
+            const filePath = fileURLToPath(url);
+            const data = await fs.readFile(filePath);
             const base64 = data.toString("base64");
             return `base64://${base64}`;
         } catch (e) {
             console.warn(`[napcat-QQ] Failed to convert local file to base64: ${e}`);
-            return url; // Fallback to original
+            return url;
+        }
+    }
+    // 裸本地路径（如 /tmp/xxx.jpg 或 C:\xxx.jpg），NapCat 运行在远端时无法访问，转为 base64
+    if (url.startsWith("/") || /^[a-zA-Z]:[/\\]/.test(url)) {
+        try {
+            const data = await fs.readFile(url);
+            const base64 = data.toString("base64");
+            return `base64://${base64}`;
+        } catch (e) {
+            console.warn(`[napcat-QQ] Failed to read local file, passing as-is: ${e}`);
+            return url;
         }
     }
     return url;
@@ -1166,7 +1177,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
              const message: OneBotMessage = [];
              if (replyTo) message.push({ type: "reply", data: { id: String(replyTo) } });
              if (text) message.push({ type: "text", data: { text } });
-             if (isImageFile(mediaUrl)) message.push({ type: "image", data: { file: finalUrl } });
+             if (isImageFile(mediaUrl) || isImageFile(finalUrl)) message.push({ type: "image", data: { file: finalUrl } });
              else message.push({ type: "text", data: { text: `[CQ:file,file=${finalUrl},url=${finalUrl}]` } });
 
              await dispatchMessage(client, target, message);
