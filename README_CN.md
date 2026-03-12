@@ -6,6 +6,97 @@ OpenClaw 是一个多功能代理。下面的聊天演示仅展示了最基础�
 
 本插件通过 OneBot v11 协议（WebSocket）为 [OpenClaw](https://github.com/openclaw/openclaw) 添加全功能的 QQ 频道支持。它不仅支持基础聊天，还集成了群管、频道、多模态交互和生产级风控能力。
 
+## 🏗️ 架构概览
+
+```
+┌──────────────────────────────────────────────────────┐
+│                    OpenClaw 主框架                     │
+│  (提供 Plugin SDK、Runtime、Session、Reply 调度等)       │
+└────────────┬─────────────────────────────────────────┘
+             │ register channel plugin
+             ▼
+┌──────────────────────────────────────────────────────┐
+│               index.ts (插件入口)                      │
+│  - 注册 qqChannel 到 OpenClaw                          │
+│  - 导出 proactive / known-users API                   │
+└────────────┬─────────────────────────────────────────┘
+             │
+     ┌───────┴──────────────────────────┐
+     ▼                                  ▼
+┌─────────────┐              ┌──────────────────┐
+│  channel.ts │              │    client.ts     │
+│ (核心业务层)  │─────调用──────▶│ (通信协议层)       │
+│             │              │ OneBotClient     │
+└──────┬──────┘              └────────┬─────────┘
+       │                             │
+       │                     ┌───────┴──────────┐
+       │                     │                  │
+       │              正向WebSocket         反向WebSocket
+       │              + HTTP API           Server
+       │                     │                  │
+       │                     └────────┬─────────┘
+       │                              ▼
+       │                     ┌────────────────┐
+       │                     │  NapCat / QQ   │
+       │                     │ (OneBot v11)   │
+       │                     └────────────────┘
+       │
+  ┌────┴────────────────────────────────┐
+  │          辅助模块                      │
+  ├─ config.ts       配置 Schema (Zod)    │
+  ├─ types.ts        OneBot 类型定义        │
+  ├─ runtime.ts      运行时引用管理          │
+  ├─ proactive.ts    主动消息发送            │
+  ├─ known-users.ts  已知用户存储            │
+  └─ utils/                              │
+     ├─ audio-convert.ts  Silk→WAV 转换    │
+     └─ platform.ts       平台路径工具       │
+  └──────────────────────────────────────┘
+```
+
+### 核心模块职责
+
+| 文件 | 职责 | 关键功能 |
+|------|------|---------|
+| `index.ts` | 插件入口 | 向 OpenClaw 注册插件 & 频道，导出公共 API |
+| `channel.ts` | 核心业务层（~1200行） | 消息收发、限流、管理命令、表情回应、历史上下文、STT、多媒体处理、Markdown 处理等 |
+| `client.ts` | 通信协议层 | 封装 OneBot v11 的 WebSocket（正向+反向）和 HTTP API，心跳检测，消息路由 |
+| `config.ts` | 配置定义 | 用 Zod 定义 30+ 配置项的 Schema 和类型 |
+| `types.ts` | 类型定义 | OneBot 消息段（24种类型）和事件类型 |
+| `runtime.ts` | 运行时桥接 | 在插件和 OpenClaw Runtime 之间传递引用 |
+| `proactive.ts` | 主动消息模块 | 支持单发、批量发送、广播已知用户 |
+| `known-users.ts` | 用户管理 | 记录交互用户、JSON 持久化、节流写入、查询统计 |
+
+### 通信架构（双通道冗余）
+
+`OneBotClient` 支持 **三种通信方式并行**：
+
+1. **正向 WebSocket**（`wsUrl`）：插件主动连接 NapCat
+2. **反向 WebSocket**（`reverseWsPort`）：插件监听端口，NapCat 主动连接
+3. **HTTP API**（`httpUrl`）：用于发送消息的 HTTP 接口
+
+发送消息时优先使用 HTTP API，失败则回退到 WebSocket；接收消息通过 WebSocket 事件驱动。
+
+### 消息处理流程
+
+```
+NapCat 事件 → OneBotClient.emit("message")
+  → channel.ts message handler
+    → 1. 元事件/请求事件 处理（加好友、进群自动审批）
+    → 2. 戳一戳(poke) 处理 → 转化为文本消息
+    → 3. 自身消息过滤 + 去重
+    → 4. 消息段解析（文本/AT/@/图片/语音/视频/文件/转发）
+    → 5. 黑白名单检查
+    → 6. 管理员命令处理（/status, /help, /mute, /kick）
+    → 7. 触发条件检查（@提及/关键词/回复）
+    → 8. 表情回应 (智能匹配 emoji)
+    → 9. 构建上下文（历史消息 + system prompt + 回复引用）
+    → 10. 分发给 OpenClaw Runtime 进行 AI 推理
+    → 11. 通过 deliver 函数回复（支持分片、TTS、文件、Markdown 模式）
+```
+
+---
+
 ## ✨ 核心特性
 
 ### 🧠 深度智能与上下文

@@ -4,6 +4,97 @@
 
 This plugin provides full-featured QQ channel support for [OpenClaw](https://github.com/openclaw/openclaw) via the OneBot v11 protocol (WebSocket). It supports not only basic chat, but also group management, channels, multimodal interactions, and production-grade risk control.
 
+## 🏗️ Architecture Overview
+
+```
+┌──────────────────────────────────────────────────────┐
+│                   OpenClaw Framework                 │
+│  (Plugin SDK, Runtime, Session, Reply Scheduling)    │
+└────────────┬─────────────────────────────────────────┘
+             │ register channel plugin
+             ▼
+┌──────────────────────────────────────────────────────┐
+│               index.ts (Plugin Entry)                │
+│  - Register qqChannel to OpenClaw                    │
+│  - Export proactive / known-users API                │
+└────────────┬─────────────────────────────────────────┘
+             │
+     ┌───────┴──────────────────────────┐
+     ▼                                  ▼
+┌─────────────┐              ┌──────────────────┐
+│  channel.ts │              │    client.ts     │
+│ (Core Biz)  │─── calls ───▶│ (Protocol Layer) │
+│             │              │ OneBotClient     │
+└──────┬──────┘              └────────┬─────────┘
+       │                             │
+       │                     ┌───────┴──────────┐
+       │                     │                  │
+       │              Forward WS          Reverse WS
+       │              + HTTP API           Server
+       │                     │                  │
+       │                     └────────┬─────────┘
+       │                              ▼
+       │                     ┌────────────────┐
+       │                     │  NapCat / QQ   │
+       │                     │ (OneBot v11)   │
+       │                     └────────────────┘
+       │
+  ┌────┴────────────────────────────────┐
+  │          Auxiliary Modules           │
+  ├─ config.ts       Config Schema(Zod) │
+  ├─ types.ts        OneBot Type Defs   │
+  ├─ runtime.ts      Runtime Reference  │
+  ├─ proactive.ts    Proactive Messaging│
+  ├─ known-users.ts  Known User Store   │
+  └─ utils/                             │
+     ├─ audio-convert.ts Silk→WAV Conv  │
+     └─ platform.ts      Platform Utils │
+  └─────────────────────────────────────┘
+```
+
+### Core Modules
+
+| File | Role | Key Functions |
+|------|------|---------------|
+| `index.ts` | Plugin entry | Register plugin & channel to OpenClaw, export public API |
+| `channel.ts` | Core business layer (~1200 lines) | Message send/receive, rate limiting, admin commands, reactions, history context, STT, multimedia, Markdown processing |
+| `client.ts` | Protocol layer | Encapsulate OneBot v11 WebSocket (forward + reverse) and HTTP API, heartbeat detection, message routing |
+| `config.ts` | Config definition | Define 30+ config schemas and types with Zod |
+| `types.ts` | Type definitions | OneBot message segments (24 types) and event types |
+| `runtime.ts` | Runtime bridge | Pass references between plugin and OpenClaw Runtime |
+| `proactive.ts` | Proactive messaging | Support single, batch, and broadcast to known users |
+| `known-users.ts` | User management | Record interacted users, JSON persistence, throttled writes, query stats |
+
+### Communication Architecture (Dual-Channel Redundancy)
+
+`OneBotClient` supports **three parallel communication methods**:
+
+1. **Forward WebSocket** (`wsUrl`): Plugin actively connects to NapCat
+2. **Reverse WebSocket** (`reverseWsPort`): Plugin listens on a port, NapCat connects
+3. **HTTP API** (`httpUrl`): HTTP interface for sending messages
+
+Messages are sent via HTTP API first, falling back to WebSocket on failure; messages are received through WebSocket event-driven mechanism.
+
+### Message Processing Flow
+
+```
+NapCat Event → OneBotClient.emit("message")
+  → channel.ts message handler
+    → 1. Meta/Request event handling (friend request, group invite auto-approval)
+    → 2. Poke handling → convert to text message
+    → 3. Self-message filtering + deduplication
+    → 4. Message segment parsing (text/AT/image/voice/video/file/forward)
+    → 5. Blacklist/Whitelist check
+    → 6. Admin command processing (/status, /help, /mute, /kick)
+    → 7. Trigger condition check (@mention/keyword/reply)
+    → 8. Emoji reaction (smart emoji matching)
+    → 9. Build context (history + system prompt + reply reference)
+    → 10. Dispatch to OpenClaw Runtime for AI inference
+    → 11. Reply via deliver function (supports chunking, TTS, files, Markdown mode)
+```
+
+---
+
 ## ✨ Core Features
 
 ### 🧠 Deep Intelligence & Context
