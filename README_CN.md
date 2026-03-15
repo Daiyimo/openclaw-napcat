@@ -164,8 +164,11 @@ curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/opencl
 # 一行命令修改 JSON 文件
 curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/update_json.sh | sudo bash
 
-# 一行命令添加 StepFun 模型并设为主模型
+# 一行命令添加 StepFun 模型并设为主模型 (Linux/macOS)
 curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/add_stepfun.sh | bash -s -- "你的StepFun_APIKey"
+
+# Windows 用户请使用 PowerShell 脚本（以管理员身份运行）
+# iwr -Uri "https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/add_stepfun.ps1" | iex
 ```
 
 ### 方法 : 使用 OpenClaw CLI (推荐)
