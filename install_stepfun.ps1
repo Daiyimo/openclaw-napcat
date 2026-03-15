@@ -1,9 +1,37 @@
 # 脚本用途：向 OpenClaw 配置添加 StepFun 3.5 Flash 模型并设为主模型
-# 使用方式：
-#   1. 以管理员身份运行 PowerShell
-#   2. 执行：iwr -Uri "https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/napcat-qq/add_stepfun.ps1" | iex
-#   或直接下载后运行：.\add_stepfun.ps1
-# 注意：首次运行可能需要执行：Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+# 使用方式（一行命令，自动提权）：
+#   curl -fsSL https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/napcat-qq/install_stepfun.ps1 | iex
+#
+# 注意：首次运行可能需要设置执行策略：
+#   Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+# 设置控制台为 UTF-8 编码，避免中文乱码
+chcp 65001 > $null 2>&1
+$OutputEncoding = [System.Text.UTF8Encoding]::new()
+[Console]::InputEncoding = [System.Text.UTF8Encoding]::new()
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+
+# 检查是否以管理员身份运行
+$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+if (-not $isAdmin) {
+    Write-Host "需要管理员权限来修改配置文件。" -ForegroundColor Yellow
+    Write-Host "正在请求提升权限..." -ForegroundColor Yellow
+
+    # 重新启动脚本并请求管理员权限
+    $scriptPath = $MyInvocation.MyCommand.Path
+    if ($scriptPath) {
+        Start-Process PowerShell -Verb RunAs "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`""
+    } else {
+        # 如果是从管道输入运行，需要先保存到临时文件
+        $tempScript = Join-Path $env:TEMP "install_stepfun_$([Guid]::NewGuid()).ps1"
+        $content = $ExecutionContext.SessionState.InvokeCommand.GetCommand($MyInvocation.InvocationName).ScriptBlock
+        $content.ToString() | Out-File -FilePath $tempScript -Encoding UTF8
+        Start-Process PowerShell -Verb RunAs "-NoProfile -ExecutionPolicy Bypass -File `"$tempScript`""
+        exit
+    }
+    exit
+}
 
 $ErrorActionPreference = "Stop"
 
@@ -16,9 +44,6 @@ if (-not (Test-Path $CONFIG_FILE)) {
     exit 1
 }
 
-# 检查是否安装了 jq（可选，脚本使用 PowerShell 原生 JSON 处理，但 jq 可用于验证）
-# PowerShell 原生支持 JSON，无需额外依赖
-
 Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host "  OpenClaw 配置 - 添加 StepFun 3.5 Flash" -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
@@ -28,7 +53,6 @@ Write-Host "  1) OpenRouter 免费版（无需付费，有速率限制 50 RPM）
 Write-Host "  2) StepFun 官方 API（按量计费，需要官方 API Key）" -ForegroundColor Green
 Write-Host ""
 
-# 获取用户选择
 do {
     $CHOICE = Read-Host "请输入数字选择 [1/2]"
 } while ($CHOICE -notmatch '^[12]$')
@@ -60,19 +84,28 @@ if ($CHOICE -eq "1") {
     try {
         $config = Get-Content $CONFIG_FILE -Raw | ConvertFrom-Json
 
-        # 添加 OpenRouter 提供商配置
-        $config.models.providers.openrouter = @{
+        # 确保 models 对象存在
+        if (-not $config.models) {
+            $config | Add-Member -MemberType NoteProperty -Name "models" -Value ([PSCustomObject]@{})
+        }
+        # 确保 providers 对象存在
+        if (-not $config.models.providers) {
+            $config.models | Add-Member -MemberType NoteProperty -Name "providers" -Value ([PSCustomObject]@{})
+        }
+
+        # 创建 OpenRouter 提供商配置对象
+        $openrouterConfig = [PSCustomObject]@{
             baseUrl = "https://openrouter.ai/api/v1"
             apiKey = $OPENROUTER_APIKEY
             api = "openai-completions"
             models = @(
-                @{
+                [PSCustomObject]@{
                     id = "stepfun/step-3.5-flash:free"
                     name = "Step 3.5 Flash Free"
                     api = "openai-completions"
                     reasoning = $true
                     input = @("text")
-                    cost = @{
+                    cost = [PSCustomObject]@{
                         input = 0
                         output = 0
                         cacheRead = 0
@@ -84,8 +117,16 @@ if ($CHOICE -eq "1") {
             )
         }
 
-        # 设置默认模型
-        $config.agents.defaults.model.primary = "openrouter/stepfun/step-3.5-flash:free"
+        # 使用 Add-Member -Force 确保可以设置或替换
+        $config.models.providers | Add-Member -MemberType NoteProperty -Name "openrouter" -Value $openrouterConfig -Force
+
+        # 确保 agents 对象存在
+        if (-not $config.agents) { $config | Add-Member -MemberType NoteProperty -Name "agents" -Value ([PSCustomObject]@{}) }
+        if (-not $config.agents.defaults) { $config.agents | Add-Member -MemberType NoteProperty -Name "defaults" -Value ([PSCustomObject]@{}) }
+        if (-not $config.agents.defaults.model) { $config.agents.defaults | Add-Member -MemberType NoteProperty -Name "model" -Value ([PSCustomObject]@{}) }
+
+        # 设置默认模型（使用 -Force）
+        $config.agents.defaults.model | Add-Member -MemberType NoteProperty -Name "primary" -Value "openrouter/stepfun/step-3.5-flash:free" -Force
 
         # 写回配置文件（保持格式）
         $config | ConvertTo-Json -Depth 100 | Set-Content $CONFIG_FILE -Encoding UTF8
@@ -100,6 +141,7 @@ if ($CHOICE -eq "1") {
     }
     catch {
         Write-Host "配置文件处理失败: $_" -ForegroundColor Red
+        Write-Host "调试: config.models = $($config.models | ConvertTo-Json -Compress)" -ForegroundColor Yellow
         exit 1
     }
 }
@@ -128,19 +170,28 @@ else {
     try {
         $config = Get-Content $CONFIG_FILE -Raw | ConvertFrom-Json
 
-        # 添加 StepFun 提供商配置
-        $config.models.providers.stepfun = @{
+        # 确保 models 对象存在
+        if (-not $config.models) {
+            $config | Add-Member -MemberType NoteProperty -Name "models" -Value ([PSCustomObject]@{})
+        }
+        # 确保 providers 对象存在
+        if (-not $config.models.providers) {
+            $config.models | Add-Member -MemberType NoteProperty -Name "providers" -Value ([PSCustomObject]@{})
+        }
+
+        # 创建 StepFun 提供商配置对象
+        $stepfunConfig = [PSCustomObject]@{
             baseUrl = "https://api.stepfun.com/v1"
             apiKey = $STEPFUN_APIKEY
             api = "openai-completions"
             models = @(
-                @{
+                [PSCustomObject]@{
                     id = "stepfun/step-3.5-flash"
                     name = "Step 3.5 Flash"
                     api = "openai-completions"
                     reasoning = $false
                     input = @("text")
-                    cost = @{
+                    cost = [PSCustomObject]@{
                         input = 0
                         output = 0
                         cacheRead = 0
@@ -152,8 +203,16 @@ else {
             )
         }
 
-        # 设置默认模型
-        $config.agents.defaults.model.primary = "stepfun/step-3.5-flash"
+        # 使用 Add-Member -Force 确保可以设置或替换
+        $config.models.providers | Add-Member -MemberType NoteProperty -Name "stepfun" -Value $stepfunConfig -Force
+
+        # 确保 agents 对象存在
+        if (-not $config.agents) { $config | Add-Member -MemberType NoteProperty -Name "agents" -Value ([PSCustomObject]@{}) }
+        if (-not $config.agents.defaults) { $config.agents | Add-Member -MemberType NoteProperty -Name "defaults" -Value ([PSCustomObject]@{}) }
+        if (-not $config.agents.defaults.model) { $config.agents.defaults | Add-Member -MemberType NoteProperty -Name "model" -Value ([PSCustomObject]@{}) }
+
+        # 设置默认模型（使用 -Force）
+        $config.agents.defaults.model | Add-Member -MemberType NoteProperty -Name "primary" -Value "stepfun/step-3.5-flash" -Force
 
         # 写回配置文件（保持格式）
         $config | ConvertTo-Json -Depth 100 | Set-Content $CONFIG_FILE -Encoding UTF8
@@ -167,6 +226,7 @@ else {
     }
     catch {
         Write-Host "配置文件处理失败: $_" -ForegroundColor Red
+        Write-Host "调试: config.models = $($config.models | ConvertTo-Json -Compress)" -ForegroundColor Yellow
         exit 1
     }
 }
