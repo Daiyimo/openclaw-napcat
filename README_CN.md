@@ -484,3 +484,14 @@ A: 将 `enableTTS` 设为 `true`。注意：这取决于 OneBot 服务端是否�
 
 完整更新日志见 [CHANGELOG.md](CHANGELOG.md)。
 
+---
+
+## 📈 Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=Daiyimo/openclaw-napcat&type=Date)](https://star-history.com/#Daiyimo/openclaw-napcat&Date)
+
+---
+
+## 📄 许可证
+
+[MIT](LICENSE) © Daiyimo
