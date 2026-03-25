@@ -3,12 +3,21 @@
   "version": "1.5.1",
   "type": "module",
   "description": "OpenClaw QQ channel plugin via OneBot v11",
-  "bin": {
-    "openclaw-qq-onboard": "./bin/onboard.js"
+  "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "files": [
+    "dist/",
+    "skills/"
+  ],
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "prepublishOnly": "npm run build"
   },
   "openclaw": {
     "extensions": [
-      "./index.ts"
+      "./dist/index.js"
     ]
   },
   "dependencies": {

@@ -46,10 +46,20 @@ This plugin provides full-featured QQ channel support for [OpenClaw](https://git
   ├─ runtime.ts      Runtime Reference  │
   ├─ proactive.ts    Proactive Messaging│
   ├─ known-users.ts  Known User Store   │
-  └─ utils/                             │
-     ├─ audio-convert.ts Silk→WAV Conv  │
-     └─ platform.ts      Platform Utils │
-  └─────────────────────────────────────┘
+  ├─ member-cache.ts    Group member name cache            │
+  ├─ message-parser.ts  Message parsing pure functions     │
+  ├─ admin-commands.ts  Admin command handler              │
+  ├─ log-buffer.ts      Ring buffer for log retention      │
+  ├─ deliver-debounce.ts Outbound message merge debounce   │
+  ├─ update-checker.ts  npm version check                  │
+  ├─ typing-keepalive.ts Typing status keepalive           │
+  ├─ upload-cache.ts    File upload dedup cache            │
+  ├─ ref-index-store.ts Quoted message JSONL index         │
+  └─ utils/                                               │
+     ├─ audio-convert.ts Silk→WAV Conv                    │
+     ├─ pkg-version.ts   Read plugin version              │
+     └─ platform.ts      Platform Utils                   │
+  └─────────────────────────────────────────────────────┘
 ```
 
 ### Core Modules
@@ -57,13 +67,22 @@ This plugin provides full-featured QQ channel support for [OpenClaw](https://git
 | File | Role | Key Functions |
 |------|------|---------------|
 | `index.ts` | Plugin entry | Register plugin & channel to OpenClaw, export public API |
-| `channel.ts` | Core business layer (~1200 lines) | Message send/receive, rate limiting, admin commands, reactions, history context, STT, multimedia, Markdown processing |
+| `channel.ts` | Core business layer (~900 lines) | Message send/receive, admin commands, reactions, history context, STT, multimedia, Markdown processing |
 | `client.ts` | Protocol layer | Encapsulate OneBot v11 WebSocket (forward + reverse) and HTTP API, heartbeat detection, message routing |
-| `config.ts` | Config definition | Define 30+ config schemas and types with Zod |
+| `config.ts` | Config definition | Define 35+ config schemas and types with Zod, with range validation |
 | `types.ts` | Type definitions | OneBot message segments (24 types) and event types |
 | `runtime.ts` | Runtime bridge | Pass references between plugin and OpenClaw Runtime |
 | `proactive.ts` | Proactive messaging | Support single, batch, and broadcast to known users |
 | `known-users.ts` | User management | Record interacted users, JSON persistence, throttled writes, query stats |
+| `member-cache.ts` | Member cache | Lazy-load group nicknames, prevents concurrent duplicate fetches |
+| `message-parser.ts` | Message parsing | CQ code cleanup, image extraction, target parsing, Markdown — pure functions |
+| `admin-commands.ts` | Admin commands | `/ping` `/version` `/logs` `/status` `/help` `/mute` `/kick` |
+| `log-buffer.ts` | Log buffer | Ring buffer intercepting console output, supports `/logs` export |
+| `deliver-debounce.ts` | Message debounce | Merges rapid AI replies into one message |
+| `update-checker.ts` | Version check | Queries npm on startup, surfaced in `/version` |
+| `typing-keepalive.ts` | Typing status | Maintains "typing" indicator in private chat during AI inference |
+| `upload-cache.ts` | Upload cache | Skips re-uploading the same file within 30 minutes |
+| `ref-index-store.ts` | Ref index | JSONL persistent quoted-message index, 7-day TTL auto-compact |
 
 ### Communication Architecture (Dual-Channel Redundancy)
 
@@ -85,12 +104,13 @@ NapCat Event → OneBotClient.emit("message")
     → 3. Self-message filtering + deduplication
     → 4. Message segment parsing (text/AT/image/voice/video/file/forward)
     → 5. Blacklist/Whitelist check
-    → 6. Admin command processing (/status, /help, /mute, /kick)
+    → 6. Admin command processing (/ping, /version, /logs, /status, /help, /mute, /kick)
     → 7. Trigger condition check (@mention/keyword/reply)
     → 8. Emoji reaction (smart emoji matching)
     → 9. Build context (history + system prompt + reply reference)
-    → 10. Dispatch to OpenClaw Runtime for AI inference
-    → 11. Reply via deliver function (supports chunking, TTS, files, Markdown mode)
+    → 10. Start Typing keepalive
+    → 11. Dispatch to OpenClaw Runtime for AI inference (with deliver debounce)
+    → 12. Reply via deliver function (supports chunking, TTS, files, Markdown mode)
 ```
 
 ---
@@ -228,14 +248,18 @@ You can also edit the config file directly. Full config:
       "autoApproveRequests": true,
       "enableGuilds": true,
       "enableTTS": false,
+      "enableSTT": false,
       "rateLimitMs": 1000,
-      "formatMarkdown": true,
+      "formatMarkdown": false,
+      "markdownMode": "passthrough",
       "antiRiskMode": false,
       "maxMessageLength": 4000,
       "enableReactions": true,
-      "reactionEmoji": "",
       "autoMarkRead": false,
-      "aiVoiceId": ""
+      "aiVoiceId": "",
+      "deliverDebounce": { "enabled": true, "windowMs": 1500, "maxWaitMs": 8000 },
+      "enableUpdateCheck": true,
+      "logBufferSize": 200
     }
   },
   "gateway": {
@@ -258,27 +282,34 @@ You can also edit the config file directly. Full config:
 | Config | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `wsUrl` | string | - | OneBot v11 forward WebSocket address. Choose one with `reverseWsPort`, or configure both as backup |
-| `httpUrl` | string | - | OneBot v11 HTTP API address (e.g., `http://localhost:3000`) for主动发送消息和定时任务 |
+| `httpUrl` | string | - | OneBot v11 HTTP API address (e.g., `http://localhost:3000`) for outbound message sending and scheduled tasks |
 | `reverseWsPort` | number | - | Reverse WebSocket listening port (e.g., `3002`), NapCat actively connects to this port |
 | `accessToken` | string | - | Connection authentication token |
 | `admins` | number[] | `[]` | **Admin QQ numbers**. Can execute `/status`, `/kick` and other commands. |
 | `requireMention` | boolean | `true` | **Require @mention to trigger**. Set `true` to only respond when @mentioned or replying to bot. |
-| `allowedGroups` | number[] | `[]` | **Group whitelist**. If set, bot only responds in these groups; if empty, responds in all groups. |
-| `blockedUsers` | number[] | `[]` | **User blacklist**. Bot will ignore messages from these users. |
 | `systemPrompt` | string | - | **Personality setting**. System prompt injected into AI context. |
-| `historyLimit` | number | `5` | **History message count**. Bring last N messages to AI in group chat, set 0 to disable. |
-| `keywordTriggers` | string[] | `[]` | **Keyword triggers**. In group chats, messages containing these keywords will trigger the bot without needing to @mention (private chats also work). |
+| `enableDeduplication` | boolean | `true` | Deduplicate messages to prevent double processing. |
+| `enableErrorNotify` | boolean | `true` | Notify admins or users when errors occur. |
 | `autoApproveRequests` | boolean | `false` | Auto-accept friend requests and group invites. |
-| `enableGuilds` | boolean | `true` | Enable QQ Channel (Guild) support. |
-| `enableTTS` | boolean | `false` | (Experimental) Convert AI replies to voice (requires server TTS support). |
-| `rateLimitMs` | number | `1000` | **Rate limiting**. Delay between messages (ms), recommend 1000 to prevent risk control. |
+| `maxMessageLength` | number | `4000` | Max message length (100–10000), auto-split if exceeded. |
 | `formatMarkdown` | boolean | `false` | Convert Markdown tables/lists to readable plain text. |
 | `antiRiskMode` | boolean | `false` | Enable risk avoidance (e.g., add spaces to URLs). |
-| `maxMessageLength` | number | `4000` | Max message length, auto-split if exceeded. |
-| `enableReactions` | boolean | `true` | **Smart emoji reactions**. Automatically reacts to messages with a contextually matched emoji (e.g. 👌 for queries, 😢 for sadness). Default emoji is 喵喵 (307). Set to `false` to disable. |
+| `allowedGroups` | number[] | `[]` | **Group whitelist**. If set, bot only responds in these groups; if empty, responds in all groups. |
+| `blockedUsers` | number[] | `[]` | **User blacklist**. Bot will ignore messages from these users. |
+| `historyLimit` | number | `5` | **History message count**. Bring last N messages (0–100) to AI in group chat, set 0 to disable. |
+| `keywordTriggers` | string[] | `[]` | **Keyword triggers**. In group chats, messages containing these keywords will trigger the bot without needing to @mention (private chats also work). |
+| `enableTTS` | boolean | `false` | (Experimental) Convert AI replies to voice (requires server TTS support). |
+| `enableGuilds` | boolean | `true` | Enable QQ Channel (Guild) support. |
+| `rateLimitMs` | number | `1000` | **Rate limiting**. Delay between messages (ms, 0–60000), recommend 1000 to prevent risk control. |
 | `reactionEmoji` | string | - | Reserved. Not used when `enableReactions` is enabled. |
+| `enableReactions` | boolean | `true` | **Smart emoji reactions**. Automatically reacts to messages with a contextually matched emoji (e.g. 👌 for queries, 😢 for sadness). Default emoji is 喵喵 (307). Set to `false` to disable. |
 | `autoMarkRead` | boolean | `false` | Auto-mark messages as read to prevent unread pile-up. |
 | `aiVoiceId` | string | - | NapCat AI Voice character ID, uses AI Voice API instead of CQ:tts when `enableTTS` is on. |
+| `enableSTT` | boolean | `false` | Enable speech-to-text transcription for voice messages (requires STT provider configured). |
+| `markdownMode` | string | `"passthrough"` | Markdown handling: `passthrough` sends raw text, `strip` removes formatting, `native` uses NapCat native markdown segment. |
+| `deliverDebounce` | object | - | Outbound message debounce config. `enabled` toggle, `windowMs` (default 1500, 100–30000) silence window, `maxWaitMs` (default 8000, 1000–120000) max wait, `separator` merge separator. |
+| `enableUpdateCheck` | boolean | `true` | Check npm registry for plugin updates on startup. |
+| `logBufferSize` | number | `200` | Number of log lines retained for `/logs` command (10–10000). |
 
 ---
 
@@ -333,7 +364,13 @@ sudo openclaw devices approve 755e8961-2b4d-4440-81a5-a3691f8374ca
 Only users in `admins` list can use. **@mention bot in group chats** to trigger, in private chats just send directly:
 
 *   `/status`
-    *   View bot status (memory usage, connection status, Self ID).
+    *   View bot status (version, memory usage, uptime, Self ID).
+*   `/ping`
+    *   Measure message round-trip latency.
+*   `/version`
+    *   Show plugin version, Node.js version, and whether an npm update is available.
+*   `/logs [N]`
+    *   Export the last N log lines (default 20, max 100).
 *   `/help`
     *   Show help menu.
 *   `/mute @user [minutes]` (group only)
