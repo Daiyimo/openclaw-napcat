@@ -482,3 +482,14 @@ A: Set `enableTTS` to `true`. Note: depends on OneBot server TTS support. NapCat
 
 See [CHANGELOG.md](CHANGELOG.md) for full release history.
 
+---
+
+## 📈 Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=Daiyimo/openclaw-napcat&type=Date)](https://star-history.com/#Daiyimo/openclaw-napcat&Date)
+
+---
+
+## 📄 License
+
+[MIT](LICENSE) © Daiyimo
