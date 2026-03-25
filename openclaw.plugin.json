@@ -107,29 +107,25 @@
         "type": "string",
         "description": "NapCat AI voice ID"
       },
-      "enableOcr": {
+      "enableSTT": {
         "type": "boolean",
-        "description": "Enable image OCR recognition"
+        "description": "Enable speech-to-text for voice messages"
       },
-      "enableUrlCheck": {
-        "type": "boolean",
-        "description": "Enable URL safety check"
+      "markdownMode": {
+        "type": "string",
+        "description": "Markdown handling mode: passthrough / strip / native"
       },
-      "enableGroupHonor": {
-        "type": "boolean",
-        "description": "Enable group honor info"
+      "deliverDebounce": {
+        "type": "object",
+        "description": "Outbound message debounce config"
       },
-      "enableGroupSignIn": {
+      "enableUpdateCheck": {
         "type": "boolean",
-        "description": "Enable automatic group sign-in"
+        "description": "Check npm registry for updates on startup"
       },
-      "autoCleanCache": {
-        "type": "boolean",
-        "description": "Auto clean cache"
-      },
-      "enableEssenceMsg": {
-        "type": "boolean",
-        "description": "Enable essence message management"
+      "logBufferSize": {
+        "type": "number",
+        "description": "Number of log lines retained for /logs command"
       }
     }
   }

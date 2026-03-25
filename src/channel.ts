@@ -34,7 +34,6 @@ import {
   processAntiRisk,
   resolveMediaUrl,
   isImageFile,
-  resolveSTTConfig,
   transcribeAudioForNapcat,
 } from "./message-parser.js";
 import { createDeliverDebouncer, type DeliverPayload } from "./deliver-debounce.js";
