@@ -29,8 +29,18 @@ export interface RefEntry {
 
 // ============ 配置 ============
 
-const STORAGE_DIR = getQQBotDataDir("data");
-const REF_INDEX_FILE = path.join(STORAGE_DIR, "ref-index.jsonl");
+let _storageDir: string | null = null;
+let _refIndexFile: string | null = null;
+
+function getStorageDir(): string {
+  if (!_storageDir) _storageDir = getQQBotDataDir("data");
+  return _storageDir;
+}
+
+function getRefIndexFile(): string {
+  if (!_refIndexFile) _refIndexFile = path.join(getStorageDir(), "ref-index.jsonl");
+  return _refIndexFile;
+}
 const MAX_ENTRIES = 50_000;
 const TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 天
 const COMPACT_THRESHOLD_RATIO = 2;
@@ -58,12 +68,12 @@ function loadFromFile(): Map<string, RefEntry & { _createdAt: number }> {
   totalLinesOnDisk = 0;
 
   try {
-    if (!fs.existsSync(REF_INDEX_FILE)) {
+    if (!fs.existsSync(getRefIndexFile())) {
       cacheReady = true;
       return cache;
     }
 
-    const raw = fs.readFileSync(REF_INDEX_FILE, "utf-8");
+    const raw = fs.readFileSync(getRefIndexFile(), "utf-8");
     const lines = raw.split("\n");
     const now = Date.now();
     let expired = 0;
@@ -101,7 +111,7 @@ function loadFromFile(): Map<string, RefEntry & { _createdAt: number }> {
 function appendLine(line: RefIndexLine): void {
   try {
     ensureDir();
-    fs.appendFileSync(REF_INDEX_FILE, JSON.stringify(line) + "\n", "utf-8");
+    fs.appendFileSync(getRefIndexFile(), JSON.stringify(line) + "\n", "utf-8");
     totalLinesOnDisk++;
   } catch (err) {
     console.error(`[ref-index-store] Failed to append: ${err}`);
@@ -109,8 +119,8 @@ function appendLine(line: RefIndexLine): void {
 }
 
 function ensureDir(): void {
-  if (!fs.existsSync(STORAGE_DIR)) {
-    fs.mkdirSync(STORAGE_DIR, { recursive: true });
+  if (!fs.existsSync(getStorageDir())) {
+    fs.mkdirSync(getStorageDir(), { recursive: true });
   }
 }
 
@@ -126,7 +136,7 @@ function compactFile(): void {
   const before = totalLinesOnDisk;
   try {
     ensureDir();
-    const tmpPath = REF_INDEX_FILE + ".tmp";
+    const tmpPath = getRefIndexFile() + ".tmp";
     const lines: string[] = [];
     for (const [key, entry] of cache) {
       const line: RefIndexLine = {
@@ -144,7 +154,7 @@ function compactFile(): void {
       lines.push(JSON.stringify(line));
     }
     fs.writeFileSync(tmpPath, lines.join("\n") + "\n", "utf-8");
-    fs.renameSync(tmpPath, REF_INDEX_FILE);
+    fs.renameSync(tmpPath, getRefIndexFile());
     totalLinesOnDisk = cache.size;
     console.log(`[ref-index-store] Compacted: ${before} lines → ${totalLinesOnDisk} lines`);
   } catch (err) {
@@ -234,5 +244,5 @@ export function getRefIndexStats(): {
   filePath: string;
 } {
   const store = loadFromFile();
-  return { size: store.size, maxEntries: MAX_ENTRIES, totalLinesOnDisk, filePath: REF_INDEX_FILE };
+  return { size: store.size, maxEntries: MAX_ENTRIES, totalLinesOnDisk, filePath: getRefIndexFile() };
 }
