@@ -132,7 +132,7 @@ export interface ChannelPlugin<TAccount> {
     describeMessageTool?: (ctx: { message: any }) => { toolName: string; hint?: string } | null;
   };
   hooks?: {
-    beforeDispatch?: (ctx: any) => Promise<any | null> | any | null;
+    beforeDispatch?: BeforeDispatchHook;
   };
   reload?: {
     configPrefixes: string[];
@@ -169,7 +169,7 @@ export type ReplyPayload = {
   files?: Array<{ url: string; name?: string }>;
 };
 
-export type BeforeDispatchHook = (ctx: any) => Promise<any | null> | any | null;
+export type BeforeDispatchHook = (ctx: any) => any;
 
 export function buildChannelConfigSchema(schema: any): any {
   return { schema };
