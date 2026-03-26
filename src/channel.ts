@@ -1019,7 +1019,8 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
           );
           return null; // 拦截，不分发
         }
-        // 防止 lastTrigger Map 无限增长
+        // 防止 lastTrigger Map 无限增长（简单全清策略：超过 5000 条时清空所有记录，
+        // 下一条消息将重新计时。这会导致一次短暂的频控豁免，属于已知权衡。）
         if (store.lastTrigger.size > 5000) {
           store.lastTrigger.clear();
         }
