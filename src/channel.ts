@@ -968,5 +968,9 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
       looksLikeId: (id) => /^\d{5,12}$/.test(id) || /^(group|guild|private):/.test(id),
       hint: "QQ号, private:QQ号, group:群号, 或 guild:频道ID:子频道ID",
     },
+    describeMessageTool(ctx: { message: any }) {
+      const chatType: string = ctx.message?.ChatType ?? "direct";
+      return { toolName: "chat", hint: chatType };
+    },
   },
 };
