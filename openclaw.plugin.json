@@ -126,6 +126,15 @@
       "logBufferSize": {
         "type": "number",
         "description": "Number of log lines retained for /logs command"
+      },
+      "inboundRateLimitMs": {
+        "type": "number",
+        "description": "Per-user/group inbound rate limit in ms (0 = disabled)"
+      },
+      "silentKeywords": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Messages containing any of these keywords are silently dropped"
       }
     }
   }
