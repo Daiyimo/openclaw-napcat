@@ -2,6 +2,50 @@
 
 # 更新日志
 
+### v1.6.0 - 适配 OpenClaw 2026.3.24 (2026-03-26)
+
+适配 OpenClaw 2026.3.22+ 引入的插件架构新特性，全部改动向后兼容。
+
+#### 新增
+
+**1. `describeMessageTool` 接口实现**
+
+在 `messaging` 对象上实现 `describeMessageTool()`，让 OpenClaw Control UI 的 "Available Right Now" 区域能正确显示 QQ 频道的可用工具。返回 QQ/NapCat 通过 OneBot v11 支持的操作：`send`、`reply`、`react`、`unsend`、`read`。
+
+**2. `before_dispatch` Hook**
+
+新增 `hooks.beforeDispatch`，在消息分发给 AI agent 之前触发，支持：
+
+| 功能 | 配置项 | 默认值 | 说明 |
+| :--- | :--- | :--- | :--- |
+| 入站频控 | `inboundRateLimitMs` | `0` | 同一来源在指定 ms 内只触发一次 AI，0 = 不限制 |
+| 静默关键词 | `silentKeywords` | 无 | 消息含关键词时静默丢弃，不触发 AI 也不回复 |
+
+**3. 新增配置项**
+
+| 配置项 | 类型 | 默认值 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `inboundRateLimitMs` | number | `0` | 入站每用户频控间隔（ms），最大 60000 |
+| `silentKeywords` | string[] | 无 | 静默关键词列表，每项至少 1 个字符 |
+
+#### 适配说明
+
+- 已使用 `openclaw/plugin-sdk/*` 路径，无需迁移 `extension-api`
+- 未使用已废弃的 `listActions` / `getCapabilities` / `getToolSchema`，无需迁移
+- 兼容 OpenClaw 2026.3.13+（新 hook 字段若旧版不认识会被忽略）
+
+#### 涉及文件
+
+| 文件 | 变更类型 | 说明 |
+| :--- | :--- | :--- |
+| `src/openclaw-plugin-sdk.d.ts` | 更新 | 新增 `describeMessageTool`、`BeforeDispatchHook`、`hooks` 类型 |
+| `src/config.ts` | 新增字段 | `inboundRateLimitMs`、`silentKeywords` |
+| `openclaw.plugin.json` | 新增字段 | 同步 configSchema |
+| `src/channel.ts` | 新增 | `messaging.describeMessageTool`；`hooks.beforeDispatch` |
+| `package.json` | 版本 | 升至 1.6.0 |
+
+---
+
 ### v1.5.1 - 智能表情回应 + 触发逻辑修复 (2026-03-03)
 
 #### 修复
