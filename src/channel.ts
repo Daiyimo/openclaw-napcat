@@ -276,8 +276,9 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
       installGlobalInterceptor(config.logBufferSize ?? 200);
 
       // ── 注册入站频控状态 ────────────────────────────────
+      const lastTrigger = new Map<string, number>();
       inboundStores.set(account.accountId, {
-        lastTrigger: new Map<string, number>(),
+        lastTrigger,
         config,
       });
 
@@ -906,7 +907,11 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
       uploadCache.dispose();
       client.disconnect();
       clients.delete(account.accountId);
-      inboundStores.delete(account.accountId);
+      // 只删除本次启动注册的 store，避免覆盖新账号的 store
+      const currentStore = inboundStores.get(account.accountId);
+      if (currentStore?.lastTrigger === lastTrigger) {
+        inboundStores.delete(account.accountId);
+      }
     },
     logoutAccount: async ({ accountId, cfg }) => {
       return { loggedOut: true, cleared: true };
@@ -1003,9 +1008,9 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
 
       const config = store.config;
 
-      // 1. 入站频控
-      if (config.inboundRateLimitMs && config.inboundRateLimitMs > 0) {
-        const key = `${accountId}:${ctx.From ?? ""}`;
+      // 1. 入站频控（仅在 From 存在时才做频控）
+      if (config.inboundRateLimitMs > 0 && ctx.From) {
+        const key = `${accountId}:${ctx.From}`;
         const now = Date.now();
         const last = store.lastTrigger.get(key) ?? 0;
         if (now - last < config.inboundRateLimitMs) {
@@ -1013,6 +1018,10 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             `[napcat-QQ][before_dispatch] rate limited: ${key} (${now - last}ms < ${config.inboundRateLimitMs}ms)`,
           );
           return null; // 拦截，不分发
+        }
+        // 防止 lastTrigger Map 无限增长
+        if (store.lastTrigger.size > 5000) {
+          store.lastTrigger.clear();
         }
         store.lastTrigger.set(key, now);
       }
@@ -1029,11 +1038,6 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
           }
         }
       }
-
-      // 3. 日志 trace
-      console.log(
-        `[napcat-QQ][before_dispatch] From=${ctx.From ?? ""} ChatType=${ctx.ChatType ?? ""} SessionKey=${ctx.SessionKey ?? ""} AccountId=${accountId}`,
-      );
 
       return ctx; // 继续分发
     },
