@@ -129,7 +129,17 @@ export interface ChannelPlugin<TAccount> {
       looksLikeId: (id: string) => boolean;
       hint: string;
     };
-    describeMessageTool?: (ctx: { message: any }) => { toolName: string; hint?: string } | null;
+    describeMessageTool?: (params: {
+      cfg: any;
+      currentChannelId?: string | null;
+      accountId?: string | null;
+      sessionKey?: string | null;
+      [key: string]: any;
+    }) => {
+      actions?: readonly string[] | null;
+      capabilities?: readonly string[] | null;
+      schema?: any;
+    } | null | undefined;
   };
   hooks?: {
     beforeDispatch?: BeforeDispatchHook;
