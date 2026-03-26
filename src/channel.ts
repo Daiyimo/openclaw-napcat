@@ -328,13 +328,12 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             accountId: account.accountId,
             direction: "inbound",
           });
+          ctx.onReady();
         } catch {}
       });
 
       client.on("message", async (event) => {
         // Extract common fields early for error reporting
-        const isGroup = event.message_type === "group";
-        const isGuild = event.message_type === "guild";
         const userId = event.user_id;
         const groupId = event.group_id;
         const guildId = event.guild_id;
@@ -381,6 +380,10 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
           }
 
           if (event.post_type !== "message") return;
+
+          // 在戳一戳 mutation 之后重新计算，确保 isGroup/isGuild 反映真实消息类型
+          const isGroup = event.message_type === "group";
+          const isGuild = event.message_type === "guild";
 
           // 过滤自身消息
           const selfId = client.getSelfId() || event.self_id;
@@ -815,7 +818,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             SessionKey: `qq:${fromId}`,
             AccountId: account.accountId,
             ChatType: isGroup ? "group" : isGuild ? "channel" : "direct",
-            Timestamp: event.time * 1000,
+            Timestamp: (event.time ?? Math.floor(Date.now() / 1000)) * 1000,
             OriginatingChannel: "qq",
             OriginatingTo: fromId,
             CommandAuthorized: true,
@@ -879,7 +882,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
           if (config.enableErrorNotify && config.admins?.length) {
             try {
               const errorMsg =
-                `⚠️ 消息处理异常\n用户: ${userId}\n群组: ${isGroup ? groupId : "私聊"}\n` +
+                `⚠️ 消息处理异常\n用户: ${userId}\n群组: ${groupId ?? "私聊"}\n` +
                 `错误: ${err instanceof Error ? err.message : String(err)}`;
               for (const adminId of config.admins) {
                 await client.sendPrivateMsg(adminId, errorMsg);
