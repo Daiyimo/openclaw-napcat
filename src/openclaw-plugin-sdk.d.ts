@@ -129,6 +129,10 @@ export interface ChannelPlugin<TAccount> {
       looksLikeId: (id: string) => boolean;
       hint: string;
     };
+    describeMessageTool?: (ctx: { message: any }) => { toolName: string; hint?: string } | null;
+  };
+  hooks?: {
+    beforeDispatch?: (ctx: any) => Promise<any | null> | any | null;
   };
   reload?: {
     configPrefixes: string[];
@@ -164,6 +168,8 @@ export type ReplyPayload = {
   text?: string;
   files?: Array<{ url: string; name?: string }>;
 };
+
+export type BeforeDispatchHook = (ctx: any) => Promise<any | null> | any | null;
 
 export function buildChannelConfigSchema(schema: any): any {
   return { schema };
