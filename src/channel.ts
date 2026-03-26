@@ -57,6 +57,13 @@ export type ResolvedQQAccount = ChannelAccountSnapshot & {
 const clients = new Map<string, OneBotClient>();
 registerClientsMap(clients);
 
+// ── 入站频控状态（per-account, key = accountId） ─────────────────────────────
+interface InboundRateLimitStore {
+  lastTrigger: Map<string, number>;
+  config: import("./config.js").QQConfig;
+}
+const inboundStores = new Map<string, InboundRateLimitStore>();
+
 function getClientForAccount(accountId: string) {
   return clients.get(accountId);
 }
@@ -267,6 +274,12 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
 
       // ── 初始化日志缓冲区 ────────────────────────────────
       installGlobalInterceptor(config.logBufferSize ?? 200);
+
+      // ── 注册入站频控状态 ────────────────────────────────
+      inboundStores.set(account.accountId, {
+        lastTrigger: new Map<string, number>(),
+        config,
+      });
 
       // ── 版本检查 ────────────────────────────────────────
       if (config.enableUpdateCheck !== false) {
@@ -893,6 +906,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
       uploadCache.dispose();
       client.disconnect();
       clients.delete(account.accountId);
+      inboundStores.delete(account.accountId);
     },
     logoutAccount: async ({ accountId, cfg }) => {
       return { loggedOut: true, cleared: true };
@@ -979,6 +993,49 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
       return {
         actions: ["send", "reply", "react", "unsend", "read"] as const,
       };
+    },
+  },
+  hooks: {
+    beforeDispatch(ctx: any) {
+      const accountId: string = ctx.AccountId ?? ctx.accountId ?? "";
+      const store = inboundStores.get(accountId);
+      if (!store) return ctx; // account not started yet, pass through
+
+      const config = store.config;
+
+      // 1. 入站频控
+      if (config.inboundRateLimitMs && config.inboundRateLimitMs > 0) {
+        const key = `${accountId}:${ctx.From ?? ""}`;
+        const now = Date.now();
+        const last = store.lastTrigger.get(key) ?? 0;
+        if (now - last < config.inboundRateLimitMs) {
+          console.log(
+            `[napcat-QQ][before_dispatch] rate limited: ${key} (${now - last}ms < ${config.inboundRateLimitMs}ms)`,
+          );
+          return null; // 拦截，不分发
+        }
+        store.lastTrigger.set(key, now);
+      }
+
+      // 2. 静默关键词过滤
+      if (config.silentKeywords && config.silentKeywords.length > 0) {
+        const body: string = ctx.Body ?? ctx.RawBody ?? "";
+        for (const kw of config.silentKeywords) {
+          if (body.includes(kw)) {
+            console.log(
+              `[napcat-QQ][before_dispatch] silent keyword matched: "${kw}", dropping message from ${ctx.From ?? "unknown"}`,
+            );
+            return null; // 拦截，不分发
+          }
+        }
+      }
+
+      // 3. 日志 trace
+      console.log(
+        `[napcat-QQ][before_dispatch] From=${ctx.From ?? ""} ChatType=${ctx.ChatType ?? ""} SessionKey=${ctx.SessionKey ?? ""} AccountId=${accountId}`,
+      );
+
+      return ctx; // 继续分发
     },
   },
 };
