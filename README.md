@@ -177,16 +177,16 @@ NapCat Event → OneBotClient.emit("message")
 
 ```bash
 # One-line command to install QQ plugin
-curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/install.sh | sudo bash
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/2026.3.24/install.sh | sudo bash
 
 # One-line command to modify JSON files
-curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/update_json.sh | sudo bash
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/2026.3.24/update_json.sh | sudo bash
 
 # One-line command to add StepFun model and set as primary (Linux/macOS)
-curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/add_stepfun.sh | sudo bash
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/2026.3.24/add_stepfun.sh | sudo bash
 
 # Windows users: Use PowerShell script (auto-elevates to admin)
-irm "https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/install_stepfun.ps1" -UseBasicParsing | iex
+irm "https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/2026.3.24/install_stepfun.ps1" -UseBasicParsing | iex
 ```
 
 ### Method 2: Using OpenClaw CLI (Recommended)
@@ -195,7 +195,7 @@ If your OpenClaw version supports plugin market or CLI installation:
 # Enter plugin directory
 cd openclaw/extensions
 # Clone repository
-git clone https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat.git qq
+git clone -b 2026.3.24 https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat.git qq
 # Enter qq plugin directory
 cd qq
 npm install -g pnpm
