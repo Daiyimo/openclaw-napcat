@@ -43,8 +43,10 @@ export async function populateGroupMemberCache(client: OneBotClient, groupId: nu
   if (bulkCachedGroups.has(key)) return;
   // 已在加载中，等待完成后直接返回，避免重复拉取
   if (loadingGroups.has(key)) {
-    while (loadingGroups.has(key)) {
+    let waited = 0;
+    while (loadingGroups.has(key) && waited < 250) {
       await new Promise((r) => setTimeout(r, 20));
+      waited++;
     }
     return;
   }

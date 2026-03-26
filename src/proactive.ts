@@ -7,6 +7,7 @@ import { OneBotClient } from "./client.js";
 import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk";
 import { listKnownUsers, getKnownUsersStats } from "./known-users.js";
 import type { KnownUser } from "./known-users.js";
+import { parseTarget } from "./message-parser.js";
 
 // Re-export for convenience
 export { listKnownUsers, getKnownUsersStats };
@@ -38,43 +39,6 @@ export interface ProactiveSendResult {
 }
 
 /**
- * 解析 to 字段，确定发送目标类型
- */
-function parseProactiveTarget(to: string): {
-  type: "private" | "group" | "guild";
-  userId?: number;
-  groupId?: number;
-  guildId?: string;
-  channelId?: string;
-} {
-  if (to.startsWith("group:")) {
-    const id = parseInt(to.slice(6), 10);
-    if (isNaN(id)) throw new Error(`Invalid group target: "${to}"`);
-    return { type: "group", groupId: id };
-  }
-  if (to.startsWith("guild:")) {
-    const parts = to.split(":");
-    if (parts.length < 3 || !parts[1] || !parts[2]) {
-      throw new Error(`Invalid guild target: "${to}" — expected "guild:<guildId>:<channelId>"`);
-    }
-    return { type: "guild", guildId: parts[1], channelId: parts[2] };
-  }
-  if (to.startsWith("private:")) {
-    const id = parseInt(to.slice(8), 10);
-    if (isNaN(id)) throw new Error(`Invalid private target: "${to}"`);
-    return { type: "private", userId: id };
-  }
-  // 默认：数字 → 私聊
-  const id = parseInt(to, 10);
-  if (isNaN(id)) {
-    throw new Error(
-      `Cannot determine target type from "${to}". Use "private:<QQ号>", "group:<群号>", or "guild:<频道ID>:<子频道ID>".`
-    );
-  }
-  return { type: "private", userId: id };
-}
-
-/**
  * 发送主动消息
  */
 export async function sendProactive(options: ProactiveSendOptions): Promise<ProactiveSendResult> {
@@ -92,7 +56,7 @@ export async function sendProactive(options: ProactiveSendOptions): Promise<Proa
   }
 
   try {
-    const target = parseProactiveTarget(options.to);
+    const target = parseTarget(options.to);
 
     if (options.mediaUrl) {
       const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(options.mediaUrl);

@@ -204,11 +204,11 @@ export function stripMarkdown(text: string): string {
   return text
     .replace(/\*\*(.*?)\*\*/g, "$1")
     .replace(/\*(.*?)\*/g, "$1")
+    .replace(/```[\s\S]*?```/g, "[代码块]")
     .replace(/`(.*?)`/g, "$1")
     .replace(/#+\s+(.*)/g, "$1")
     .replace(/\[(.*?)\]\(.*?\)/g, "$1")
     .replace(/^\s*>\s+(.*)/gm, "▎$1")
-    .replace(/```[\s\S]*?```/g, "[代码块]")
     .replace(/^\|.*\|$/gm, (m) => m.replace(/\|/g, " ").trim())
     .replace(/^[\-\*]\s+/gm, "• ");
 }

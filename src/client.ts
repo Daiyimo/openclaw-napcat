@@ -317,6 +317,7 @@ export class OneBotClient extends EventEmitter {
       ws.on("close", () => {
         console.log("[napcat-QQ] Reverse WS: NapCat disconnected");
         if (this.reverseWs === ws) this.reverseWs = null;
+        ws.removeAllListeners();
       });
 
       ws.on("error", (err) => {
