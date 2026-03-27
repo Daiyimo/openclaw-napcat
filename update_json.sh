@@ -8,11 +8,11 @@ if ! command -v jq &> /dev/null; then
     exit 1
 fi
 
-# 配置文件路径 (固定在用户目录)
-CONFIG_FILE="$HOME/.openclaw/openclaw.json"
+# 搜索 openclaw.json 配置文件
+CONFIG_FILE=$(find /home /root /usr -name "openclaw.json" 2>/dev/null | head -n 1)
 
-if [ ! -f "$CONFIG_FILE" ]; then
-    echo "错误: 未找到 $CONFIG_FILE，请确认 openclaw 已正确安装或初始化。"
+if [ -z "$CONFIG_FILE" ]; then
+    echo "错误: 未找到 openclaw 配置文件，请确认 openclaw 已正确安装或初始化。"
     exit 1
 fi
 
@@ -124,7 +124,13 @@ fi
 
 echo ""
 echo "正在检查 QQ 插件状态..."
-PLUGIN_LIST=$(openclaw plugins list 2>&1)
+# 判断是否需要 sudo 运行 openclaw
+if [ -n "$SUDO_USER" ] || [ "$(id -u)" = "0" ]; then
+    OPENCLAW_CMD="sudo openclaw"
+else
+    OPENCLAW_CMD="openclaw"
+fi
+PLUGIN_LIST=$($OPENCLAW_CMD plugins list 2>&1)
 
 if echo "$PLUGIN_LIST" | grep -i "qq" | grep -i "loaded" &> /dev/null; then
     echo "检测到 QQ 插件当前处于 loaded 状态。"
@@ -161,4 +167,4 @@ echo "================================================"
 echo ""
 read -r -p "阅读完毕后按 Enter 启动网关..." </dev/tty
 
-sudo openclaw gateway
+$OPENCLAW_CMD gateway
