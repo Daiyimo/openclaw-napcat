@@ -10,13 +10,25 @@ echo "当前用户: $USER_NAME"
 # 1. 自动搜索 openclaw 扩展目录
 echo "正在搜索 openclaw 扩展目录..."
 
-# 搜索包含 /node_modules/openclaw/extensions 的目录
-EXT_DIR=$(find /usr /home /opt /var -type d -path "*/node_modules/openclaw/extensions" 2>/dev/null | head -n 1)
+# 常见扩展目录路径
+POSSIBLE_EXT_DIRS=(
+    "/usr/lib/node_modules/openclaw/dist/extensions"
+    "/usr/local/lib/node_modules/openclaw/dist/extensions"
+    "$HOME/.openclaw/extensions"
+)
+
+EXT_DIR=""
+for dir in "${POSSIBLE_EXT_DIRS[@]}"; do
+    if [ -d "$dir" ]; then
+        EXT_DIR="$dir"
+        break
+    fi
+done
 
 # 如果没找到，尝试用 which 定位
 if [ -z "$EXT_DIR" ]; then
     if OPENCLAW_BIN=$(which openclaw 2>/dev/null); then
-        OPENCLAW_DIR=$(dirname "$(dirname "$OPENCLAW_BIN")")/lib/node_modules/openclaw
+        OPENCLAW_DIR=$(dirname "$(dirname "$OPENCLAW_BIN")")/lib/node_modules/openclaw/dist
         EXT_DIR="$OPENCLAW_DIR/extensions"
     fi
 fi
@@ -46,7 +58,7 @@ if [ -d "qq" ]; then
 fi
 
 echo "正在克隆插件..."
-git clone https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat.git -b napcat-qq qq
+git clone https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat.git -b 2026.3.24 qq
 
 cd qq
 
