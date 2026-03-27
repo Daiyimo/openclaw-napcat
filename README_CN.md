@@ -179,16 +179,16 @@ NapCat 事件 → OneBotClient.emit("message")
 
 ```bash
 # 一行命令安装 QQ 插件
-curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/install.sh | sudo bash
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/2026.3.24/install.sh | sudo bash
 
 # 一行命令修改 JSON 文件
-curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/update_json.sh | sudo bash
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/2026.3.24/update_json.sh | sudo bash
 
 # 一行命令添加 StepFun 模型并设为主模型 (Linux/macOS)
-curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/add_stepfun.sh | sudo bash
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/2026.3.24/add_stepfun.sh | sudo bash
 
 # Windows 用户请使用 PowerShell 脚本（自动请求管理员权限）
-irm "https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/install_stepfun.ps1" -UseBasicParsing | iex
+irm "https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/2026.3.24/install_stepfun.ps1" -UseBasicParsing | iex
 ```
 
 ### 方法 : 使用 OpenClaw CLI (推荐)
@@ -197,7 +197,7 @@ irm "https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-nap
 # 进入插件目录
 cd openclaw/extensions
 # 克隆仓库
-git clone https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat.git qq
+git clone -b 2026.3.24 https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat.git qq
 # 进入qq插件目录
 cd qq
 npm install -g pnpm
