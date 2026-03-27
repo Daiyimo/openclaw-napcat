@@ -169,8 +169,8 @@ export class OneBotClient extends EventEmitter {
   }
 
   // --- Guild (Channel) Extension APIs ---
-  sendGuildChannelMsg(guildId: string, channelId: string, message: OneBotMessage | string) {
-    this.sendWs("send_guild_channel_msg", { guild_id: guildId, channel_id: channelId, message });
+  async sendGuildChannelMsg(guildId: string, channelId: string, message: OneBotMessage | string): Promise<void> {
+    await this.sendAction("send_guild_channel_msg", { guild_id: guildId, channel_id: channelId, message });
   }
 
   async getGuildList(): Promise<any[]> {

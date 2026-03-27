@@ -167,6 +167,12 @@ export class DeliverDebouncer {
         );
       }
       await this.executor({ text: merged }, info);
+    } catch (err) {
+      // 归还缓冲内容，防止静默丢失
+      this.bufferedTexts = [...texts, ...this.bufferedTexts];
+      this.lastInfo = info;
+      this.log?.error(`${this.prefix} Flush executor failed, ${texts.length} message(s) restored to buffer: ${err}`);
+      throw err;
     } finally {
       this.flushing = false;
     }

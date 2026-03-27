@@ -65,23 +65,23 @@ export async function sendProactive(options: ProactiveSendOptions): Promise<Proa
         if (options.text) segments.push({ type: "text", data: { text: options.text } });
         segments.push({ type: "image", data: { file: options.mediaUrl } });
         if (target.type === "group") await client.sendGroupMsg(target.groupId!, segments);
-        else if (target.type === "guild") client.sendGuildChannelMsg(target.guildId!, target.channelId!, segments);
+        else if (target.type === "guild") await client.sendGuildChannelMsg(target.guildId!, target.channelId!, segments);
         else await client.sendPrivateMsg(target.userId!, segments);
       } else {
         // 非图片：先发文本再发文件链接
         if (options.text) {
           if (target.type === "group") await client.sendGroupMsg(target.groupId!, options.text);
-          else if (target.type === "guild") client.sendGuildChannelMsg(target.guildId!, target.channelId!, options.text);
+          else if (target.type === "guild") await client.sendGuildChannelMsg(target.guildId!, target.channelId!, options.text);
           else await client.sendPrivateMsg(target.userId!, options.text);
         }
-        const fileMsg = `[CQ:file,file=${options.mediaUrl}]`;
+        const fileMsg: any[] = [{ type: "file", data: { file: options.mediaUrl } }];
         if (target.type === "group") await client.sendGroupMsg(target.groupId!, fileMsg);
-        else if (target.type === "guild") client.sendGuildChannelMsg(target.guildId!, target.channelId!, fileMsg);
+        else if (target.type === "guild") await client.sendGuildChannelMsg(target.guildId!, target.channelId!, fileMsg);
         else await client.sendPrivateMsg(target.userId!, fileMsg);
       }
     } else {
       if (target.type === "group") await client.sendGroupMsg(target.groupId!, options.text);
-      else if (target.type === "guild") client.sendGuildChannelMsg(target.guildId!, target.channelId!, options.text);
+      else if (target.type === "guild") await client.sendGuildChannelMsg(target.guildId!, target.channelId!, options.text);
       else await client.sendPrivateMsg(target.userId!, options.text);
     }
 

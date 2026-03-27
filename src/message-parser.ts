@@ -13,6 +13,17 @@ import type { OneBotMessage } from "./types.js";
 import type { OneBotClient } from "./client.js";
 import { convertSilkToWav } from "./utils/audio-convert.js";
 
+// ============ CQ 码参数转义 ============
+
+/** 转义 CQ 码参数值中的特殊字符，防止注入 */
+export function escapeCQParam(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/\[/g, "&#91;")
+    .replace(/\]/g, "&#93;")
+    .replace(/,/g, "&#44;");
+}
+
 // ============ 预编译正则（避免每次调用重复编译） ============
 
 const CQ_FACE_REGEX = /\[CQ:face,id=(\d+)\]/g;
@@ -177,7 +188,7 @@ export async function dispatchMessage(
       await client.sendGroupMsg(target.groupId!, message);
       break;
     case "guild":
-      client.sendGuildChannelMsg(target.guildId!, target.channelId!, message);
+      await client.sendGuildChannelMsg(target.guildId!, target.channelId!, message);
       break;
     case "private":
       await client.sendPrivateMsg(target.userId!, message);

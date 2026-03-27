@@ -7,7 +7,7 @@ export type OneBotMessageSegment =
   | { type: "video"; data: { file: string; url?: string } }
   | { type: "json"; data: { data: string } }
   | { type: "forward"; data: { id: string } }
-  | { type: "file"; data: { file?: string; file_id?: string; busid?: number; url?: string } }
+  | { type: "file"; data: { file?: string; file_id?: string; busid?: number; url?: string; name?: string } }
   | { type: "face"; data: { id: string } }
   | { type: "share"; data: { url: string; title: string; content?: string; image?: string } }
   | { type: "contact"; data: { type: "qq" | "group"; id: string } }
@@ -20,7 +20,8 @@ export type OneBotMessageSegment =
   | { type: "poke"; data: { qq: string } }
   | { type: "gift"; data: { qq: string; id: number } }
   | { type: "markdown"; data: { content: string } }
-  | { type: "button"; data: { id: string; content?: string } };
+  | { type: "button"; data: { id: string; content?: string } }
+  | { type: "tts"; data: { text: string } };
 
 export type OneBotMessage = OneBotMessageSegment[];
 

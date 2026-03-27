@@ -312,9 +312,17 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
       clients.set(account.accountId, client);
 
       const processedMsgIds = new Set<string>();
+      const DEDUP_MAX = 2000;
+      const DEDUP_KEEP = 1000;
       const cleanupInterval = setInterval(() => {
-        if (processedMsgIds.size > 1000) processedMsgIds.clear();
-      }, 3_600_000);
+        if (processedMsgIds.size > DEDUP_MAX) {
+          // Set 保留插入顺序，保留最新 DEDUP_KEEP 条，丢弃旧的
+          const entries = [...processedMsgIds];
+          processedMsgIds.clear();
+          for (const id of entries.slice(-DEDUP_KEEP)) processedMsgIds.add(id);
+          console.log(`[napcat-QQ] Dedup set trimmed: kept ${processedMsgIds.size} recent IDs`);
+        }
+      }, 60_000); // 每分钟检查
 
       client.on("connect", async () => {
         console.log(`[napcat-QQ] Connected account ${account.accountId}`);
@@ -510,7 +518,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             return;
 
           const isAdmin = config.admins?.includes(userId!) ?? false;
-          if (config.admins?.length && !isAdmin) return;
+          // 非管理员不拦截：普通用户可以 @机器人 问答，只有斜杠命令会在后面的 isAdmin 判断里被拦住
 
           // ── 管理员命令 ────────────────────────────────────
           if (!isGuild && isAdmin && text.trim().startsWith("/")) {
@@ -540,6 +548,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                 groupId,
                 userId,
                 text,
+                message: event.message,
                 eventTime: event.time ? event.time * 1000 : undefined,
               });
               if (handled) return;
@@ -551,7 +560,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
           const replyMsgId = getReplyMessageId(event.message, text);
           if (replyMsgId) {
             // 先查引用索引
-            const refEntry = lookupRef(replyMsgId);
+            const refEntry = lookupRef(replyMsgId, account.accountId);
             if (refEntry) {
               repliedMsg = {
                 sender: { nickname: refEntry.sender, user_id: refEntry.senderId },
@@ -645,13 +654,19 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                     mdSegments.push({ type: "at", data: { qq: String(userId) } });
                   mdSegments.push({ type: "markdown", data: { content: chunk } });
                   if (isGroup) await client.sendGroupMsg(groupId!, mdSegments);
-                  else if (isGuild) client.sendGuildChannelMsg(guildId!, channelId!, mdSegments);
+                  else if (isGuild) await client.sendGuildChannelMsg(guildId!, channelId!, mdSegments);
                   else await client.sendPrivateMsg(userId!, mdSegments);
                 } else {
-                  if (isGroup && i === 0) chunk = `[CQ:at,qq=${userId}] ${chunk}`;
-                  if (isGroup) await client.sendGroupMsg(groupId!, chunk);
-                  else if (isGuild) client.sendGuildChannelMsg(guildId!, channelId!, chunk);
-                  else await client.sendPrivateMsg(userId!, chunk);
+                  if (isGroup) {
+                    const groupSegments: OneBotMessage = [];
+                    if (i === 0) groupSegments.push({ type: "at", data: { qq: String(userId) } }, { type: "text", data: { text: " " } });
+                    groupSegments.push({ type: "text", data: { text: chunk } });
+                    await client.sendGroupMsg(groupId!, groupSegments);
+                  } else if (isGuild) {
+                    await client.sendGuildChannelMsg(guildId!, channelId!, chunk);
+                  } else {
+                    await client.sendPrivateMsg(userId!, chunk);
+                  }
                 }
 
                 if (!isGuild && config.enableTTS && i === 0 && chunk.length < 100) {
@@ -661,9 +676,9 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                       if (isGroup && config.aiVoiceId) {
                         await client.sendGroupAiRecord(groupId!, tts, config.aiVoiceId);
                       } else if (isGroup) {
-                        client.sendGroupMsg(groupId!, `[CQ:tts,text=${tts}]`);
+                        client.sendGroupMsg(groupId!, [{ type: "tts", data: { text: tts } }]);
                       } else {
-                        client.sendPrivateMsg(userId!, `[CQ:tts,text=${tts}]`);
+                        client.sendPrivateMsg(userId!, [{ type: "tts", data: { text: tts } }]);
                       }
                     } catch {}
                   }
@@ -685,19 +700,19 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                   if (cachedFileId) {
                     // 命中缓存，直接使用 file_id
                     console.log(`[napcat-QQ] Upload cache hit for ${f.url}`);
-                    const txtMsg = `[CQ:file,file=${cachedFileId},name=${f.name || "file"}]`;
-                    if (isGroup) await client.sendGroupMsg(groupId!, txtMsg);
+                    const fileSegment: OneBotMessage = [{ type: "file", data: { file: cachedFileId, name: f.name || "file" } }];
+                    if (isGroup) await client.sendGroupMsg(groupId!, fileSegment);
                     else if (isGuild)
-                      client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${f.url}`);
-                    else await client.sendPrivateMsg(userId!, txtMsg);
+                      await client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${f.url}`);
+                    else await client.sendPrivateMsg(userId!, fileSegment);
                   } else {
                     const url = await resolveMediaUrl(f.url);
                     if (isImageFile(url) || isImageFile(f.url)) {
-                      const imgMsg = `[CQ:image,file=${url}]`;
-                      if (isGroup) await client.sendGroupMsg(groupId!, imgMsg);
+                      const imgSegment: OneBotMessage = [{ type: "image", data: { file: url } }];
+                      if (isGroup) await client.sendGroupMsg(groupId!, imgSegment);
                       else if (isGuild)
-                        client.sendGuildChannelMsg(guildId!, channelId!, imgMsg);
-                      else await client.sendPrivateMsg(userId!, imgMsg);
+                        await client.sendGuildChannelMsg(guildId!, channelId!, imgSegment);
+                      else await client.sendPrivateMsg(userId!, imgSegment);
                     } else {
                       const fileName = f.name || "file";
                       try {
@@ -708,14 +723,14 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                           await client.uploadPrivateFile(userId!, url, fileName);
                           uploadCache.set(cacheKey, url);
                         } else {
-                          client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${url}`);
+                          await client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${url}`);
                         }
                       } catch {
-                        const txtMsg = `[CQ:file,file=${url},name=${fileName}]`;
-                        if (isGroup) await client.sendGroupMsg(groupId!, txtMsg);
+                        const fileSegment: OneBotMessage = [{ type: "file", data: { file: url, name: fileName } }];
+                        if (isGroup) await client.sendGroupMsg(groupId!, fileSegment);
                         else if (isGuild)
-                          client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${url}`);
-                        else await client.sendPrivateMsg(userId!, txtMsg);
+                          await client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${url}`);
+                        else await client.sendPrivateMsg(userId!, fileSegment);
                       }
                     }
                   }
@@ -961,10 +976,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
         if (isImageFile(mediaUrl) || isImageFile(finalUrl))
           message.push({ type: "image", data: { file: finalUrl } });
         else
-          message.push({
-            type: "text",
-            data: { text: `[CQ:file,file=${finalUrl},url=${finalUrl}]` },
-          });
+          message.push({ type: "file", data: { file: finalUrl, name: finalUrl.split("/").pop() || "file" } });
         await dispatchMessage(client, target, message);
         return { channel: "qq", sent: true };
       } catch (err) {

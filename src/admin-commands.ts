@@ -8,6 +8,7 @@
  */
 
 import type { OneBotClient } from "./client.js";
+import type { OneBotMessage } from "./types.js";
 import { getUpdateInfo } from "./update-checker.js";
 import { getRecentLogs, formatLogEntry } from "./log-buffer.js";
 import { getPackageVersion } from "./utils/pkg-version.js";
@@ -20,11 +21,27 @@ export interface AdminCmdContext {
   groupId?: number;
   userId?: number;
   text: string;
+  /** 原始消息段数组，用于解析 @目标 */
+  message?: OneBotMessage | string;
   /** 发送时间戳（ms），用于 /ping 延迟计算 */
   eventTime?: number;
 }
 
 // ============ 辅助函数 ============
+
+/** 从消息段数组（或 CQ 码字符串回退）中提取第一个被 @ 的 QQ 号 */
+function extractAtTarget(message: OneBotMessage | string | undefined, text: string): number | null {
+  if (Array.isArray(message)) {
+    for (const seg of message) {
+      if (seg.type === "at" && seg.data?.qq && /^\d+$/.test(String(seg.data.qq))) {
+        return parseInt(seg.data.qq, 10);
+      }
+    }
+  }
+  // 回退：从纯文本中匹配（兼容字符串格式消息）
+  const m = text.match(/\[CQ:at,qq=(\d+)\]/);
+  return m ? parseInt(m[1], 10) : null;
+}
 
 async function reply(ctx: AdminCmdContext, msg: string): Promise<void> {
   const { client, isGroup, groupId, userId } = ctx;
@@ -126,9 +143,7 @@ export async function handleAdminCommand(
 
   // ── /mute /ban ───────────────────────────────────────────
   if (isGroup && groupId && (cmd === "/mute" || cmd === "/ban")) {
-    const targetMatch = text.match(/\[CQ:at,qq=(\d+)\]/);
-    const rawId = targetMatch ? targetMatch[1] : parts[1];
-    const targetId = rawId ? parseInt(rawId, 10) : null;
+    const targetId = extractAtTarget(ctx.message, text) ?? (parts[1] ? parseInt(parts[1], 10) : null);
     if (targetId && targetId > 0) {
       const rawMin = parts[2] ? parseInt(parts[2], 10) : 30;
       const minutes = isNaN(rawMin) ? 30 : Math.max(1, Math.min(rawMin, 43200)); // 1 min ~ 30 days
@@ -142,9 +157,7 @@ export async function handleAdminCommand(
 
   // ── /kick ────────────────────────────────────────────────
   if (isGroup && groupId && cmd === "/kick") {
-    const targetMatch = text.match(/\[CQ:at,qq=(\d+)\]/);
-    const rawId = targetMatch ? targetMatch[1] : parts[1];
-    const targetId = rawId ? parseInt(rawId, 10) : null;
+    const targetId = extractAtTarget(ctx.message, text) ?? (parts[1] ? parseInt(parts[1], 10) : null);
     if (targetId && targetId > 0) {
       client.setGroupKick(groupId, targetId);
       await reply(ctx, `已踢出 ${targetId}。`);

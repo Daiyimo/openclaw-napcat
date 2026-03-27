@@ -199,22 +199,27 @@ export function recordRef(entry: RefEntry): void {
   }
 
   const now = Date.now();
-  store.set(entry.msgId, { ...entry, _createdAt: now });
+  const key = entry.accountId ? `${entry.accountId}:${entry.msgId}` : entry.msgId;
+  store.set(key, { ...entry, _createdAt: now });
 
-  appendLine({ k: entry.msgId, v: entry, t: now });
+  appendLine({ k: key, v: entry, t: now });
 
   if (shouldCompact()) compactFile();
 }
 
 /**
  * 查找被引用消息
+ * @param msgId   消息 ID
+ * @param accountId 可选账号 ID — 优先精确匹配（含 accountId 的 key），回退裸 msgId（向后兼容）
  */
-export function lookupRef(msgId: string): RefEntry | null {
+export function lookupRef(msgId: string, accountId?: string): RefEntry | null {
   const store = loadFromFile();
-  const entry = store.get(msgId);
+  const scopedKey = accountId ? `${accountId}:${msgId}` : null;
+  const entry = (scopedKey ? store.get(scopedKey) : null) ?? store.get(msgId);
   if (!entry) return null;
+  const resolvedKey = (scopedKey && store.has(scopedKey)) ? scopedKey : msgId;
   if (Date.now() - entry._createdAt > TTL_MS) {
-    store.delete(msgId);
+    store.delete(resolvedKey);
     return null;
   }
   return {
