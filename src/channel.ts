@@ -836,7 +836,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             Timestamp: (event.time ?? Math.floor(Date.now() / 1000)) * 1000,
             OriginatingChannel: "qq",
             OriginatingTo: fromId,
-            CommandAuthorized: true,
+            CommandAuthorized: isAdmin || (!isGroup && !isGuild),
             ...(extractImageUrls(event.message).length > 0 && {
               MediaUrls: extractImageUrls(event.message),
             }),

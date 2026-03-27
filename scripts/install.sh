@@ -62,14 +62,25 @@ git clone https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat.git -b
 
 cd qq
 
-# 3. 安装依赖
+# 3. 安装依赖（含 devDependencies 以支持编译）
 echo "安装依赖..."
 # Force HTTPS for all git operations to avoid SSH key requirement
 git config --global url."https://".insteadOf ssh://
 git config --global url."https://github.com/".insteadOf git@github.com:
-npm install ws zod --no-package-lock --omit=dev --no-audit --prefer-online --registry=https://registry.npmmirror.com
+npm install --no-package-lock --no-audit --prefer-online --registry=https://registry.npmmirror.com
+
+# 4. 编译 TypeScript
+echo "编译插件..."
+npm run build
+
+# 5. 验证编译结果
+if [ ! -f "dist/index.js" ]; then
+    echo "错误: 编译失败，dist/index.js 不存在"
+    exit 1
+fi
 
 echo ""
 echo "=== 安装完成 ==="
 echo "插件路径: $EXT_DIR/qq"
+echo "dist/index.js: 已生成 ✓"
 echo "请重启 openclaw 使插件生效"

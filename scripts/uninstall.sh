@@ -57,22 +57,35 @@ find_ext_dir() {
 
     local ext_dir=""
 
-    # 搜索包含 /node_modules/openclaw/extensions 的目录
-    ext_dir=$(find /usr /home /opt /var -type d -path "*/node_modules/openclaw/extensions/qq" 2>/dev/null | head -n 1)
+    # 优先检查已知标准路径
+    local known_paths=(
+        "/usr/lib/node_modules/openclaw/dist/extensions/qq"
+        "/usr/local/lib/node_modules/openclaw/dist/extensions/qq"
+    )
+    for p in "${known_paths[@]}"; do
+        if [ -d "$p" ]; then
+            ext_dir="$p"
+        fi
+    done
+
+    # 再用 find 广搜
+    if [ -z "$ext_dir" ]; then
+        ext_dir=$(find /usr /home /opt /var -type d -path "*/node_modules/openclaw/dist/extensions/qq" 2>/dev/null | head -n 1)
+    fi
 
     # 如果没找到，尝试用 which 定位
     if [ -z "$ext_dir" ]; then
         if OPENCLAW_BIN=$(which openclaw 2>/dev/null); then
             OPENCLAW_DIR=$(dirname "$(dirname "$OPENCLAW_BIN")")/lib/node_modules/openclaw
-            if [ -d "$OPENCLAW_DIR/extensions/qq" ]; then
-                ext_dir="$OPENCLAW_DIR/extensions/qq"
+            if [ -d "$OPENCLAW_DIR/dist/extensions/qq" ]; then
+                ext_dir="$OPENCLAW_DIR/dist/extensions/qq"
             fi
         fi
     fi
 
     # 检查用户目录
-    if [ -z "$ext_dir" ] && [ -d "$HOME/.openclaw/extensions/qq" ]; then
-        ext_dir="$HOME/.openclaw/extensions/qq"
+    if [ -z "$ext_dir" ] && [ -d "$HOME/.openclaw/dist/extensions/qq" ]; then
+        ext_dir="$HOME/.openclaw/dist/extensions/qq"
     fi
 
     echo "$ext_dir"

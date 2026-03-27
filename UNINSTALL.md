@@ -56,7 +56,7 @@ sudo pkill -f "openclaw gateway"
 
 ```bash
 # 标准位置
-rm -rf ~/.openclaw/extensions/qq
+rm -rf /usr/lib/node_modules/openclaw/dist/extensions/qq
 # 或 Windows
 rmdir /s /q "%USERPROFILE%\.openclaw\extensions\qq"
 ```
@@ -134,7 +134,7 @@ openclaw status
 **解决**：手动指定路径，或在运行脚本时输入正确的插件路径。
 
 常见位置：
-- Linux/macOS: `~/.openclaw/extensions/qq`
+- Linux/macOS: `/usr/lib/node_modules/openclaw/dist/extensions/qq`
 - Windows: `C:\Users\<用户名>\.openclaw\extensions\qq`
 
 ### **问题：配置文件中的 qq 引用未完全删除**
@@ -162,12 +162,12 @@ sudo yum install jq
 sudo pkill -f "openclaw gateway"
 
 # 2. 运行卸载脚本
-cd ~/.openclaw/extensions/qq  # 进入插件目录
-./uninstall.sh
+cd /usr/lib/node_modules/openclaw/dist/extensions/qq  # 进入插件目录
+./scripts/uninstall.sh
 
 # 3. 如果脚本提示找不到配置，手动指定
 # 在脚本提示时输入：
-# 插件路径: /home/用户名/.openclaw/extensions/qq
+# 插件路径: /usr/lib/node_modules/openclaw/dist/extensions/qq
 # 配置路径: /home/用户名/.openclaw/openclaw.json
 
 # 4. 重启网关
@@ -182,19 +182,19 @@ sudo openclaw gateway
 
 ```bash
 # Linux/macOS
-cd ~/.openclaw/extensions
+cd /usr/lib/node_modules/openclaw/dist/extensions
 git clone https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat.git qq
 cd qq
 pnpm install
 
 # 配置
-bash update_json.sh
+bash scripts/update_json.sh
 
 # 重启网关
 sudo openclaw gateway
 ```
 
-详细安装说明请参阅 `README_CN.md`。
+详细安装说明请参阅 `README.md`。
 
 ---
 
