@@ -232,7 +232,7 @@ graph TD
 graph TD
     RECEIVE[收到消息] --> DECIDE{触发类型}
 
-    DECIDE -->|群聊| CHECK{@机器人}
+    DECIDE -->|群聊| CHECK{"@机器人"}
     CHECK -->|是| PROCESS
     CHECK -->|否| KEY{关键词}
     KEY -->|是| PROCESS
