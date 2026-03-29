@@ -51,11 +51,12 @@ Write-Host ""
 Write-Host "请选择接入方式：" -ForegroundColor White
 Write-Host "  1) OpenRouter 免费版（无需付费，有速率限制 50 RPM）" -ForegroundColor Green
 Write-Host "  2) StepFun 官方 API（按量计费，需要官方 API Key）" -ForegroundColor Green
+Write-Host "  3) StepFun Step Plan（需订阅 Step Plan）" -ForegroundColor Green
 Write-Host ""
 
 do {
-    $CHOICE = Read-Host "请输入数字选择 [1/2]"
-} while ($CHOICE -notmatch '^[12]$')
+    $CHOICE = Read-Host "请输入数字选择 [1/2/3]"
+} while ($CHOICE -notmatch '^[123]$')
 
 Write-Host ""
 
@@ -145,7 +146,7 @@ if ($CHOICE -eq "1") {
         exit 1
     }
 }
-else {
+elseif ($CHOICE -eq "2") {
     Write-Host "已选择：StepFun 官方 API" -ForegroundColor Green
     Write-Host ""
 
@@ -222,6 +223,92 @@ else {
         Write-Host "==========================================" -ForegroundColor Green
         Write-Host "  - 已添加 StepFun 3.5 Flash" -ForegroundColor White
         Write-Host "  - 默认模型: stepfun/step-3.5-flash" -ForegroundColor White
+        Write-Host "  - 备份文件: $backupFile" -ForegroundColor White
+    }
+    catch {
+        Write-Host "配置文件处理失败: $_" -ForegroundColor Red
+        Write-Host "调试: config.models = $($config.models | ConvertTo-Json -Compress)" -ForegroundColor Yellow
+        exit 1
+    }
+}
+else {
+    Write-Host "已选择：StepFun Step Plan" -ForegroundColor Green
+    Write-Host ""
+
+    do {
+        $STEPFUN_APIKEY = Read-Host "请输入 StepFun API Key"
+        if ([string]::IsNullOrWhiteSpace($STEPFUN_APIKEY)) {
+            Write-Host "API Key 不能为空，请重新输入" -ForegroundColor Red
+        }
+    } while ([string]::IsNullOrWhiteSpace($STEPFUN_APIKEY))
+
+    Write-Host "配置文件: $CONFIG_FILE"
+    Write-Host "API Key: $($STEPFUN_APIKEY.Substring(0, [Math]::Min(10, $STEPFUN_APIKEY.Length)))..."
+    Write-Host ""
+
+    # 备份配置文件
+    $timestamp = Get-Date -Format "yyyyMMddHHmmss"
+    $backupFile = "${CONFIG_FILE}.bak.$timestamp"
+    Copy-Item $CONFIG_FILE $backupFile -Force
+    Write-Host "已备份原配置文件: $backupFile"
+
+    # 读取并修改配置文件
+    try {
+        $config = Get-Content $CONFIG_FILE -Raw | ConvertFrom-Json
+
+        # 确保 models 对象存在
+        if (-not $config.models) {
+            $config | Add-Member -MemberType NoteProperty -Name "models" -Value ([PSCustomObject]@{})
+        }
+        # 确保 providers 对象存在
+        if (-not $config.models.providers) {
+            $config.models | Add-Member -MemberType NoteProperty -Name "providers" -Value ([PSCustomObject]@{})
+        }
+
+        # 创建 Step Plan 提供商配置对象
+        $stepfunConfig = [PSCustomObject]@{
+            baseUrl = "https://api.stepfun.com/step_plan/v1"
+            apiKey = $STEPFUN_APIKEY
+            api = "openai-completions"
+            models = @(
+                [PSCustomObject]@{
+                    id = "stepfun/step-3.5-flash"
+                    name = "Step 3.5 Flash"
+                    api = "openai-completions"
+                    reasoning = $false
+                    input = @("text")
+                    cost = [PSCustomObject]@{
+                        input = 0
+                        output = 0
+                        cacheRead = 0
+                        cacheWrite = 0
+                    }
+                    contextWindow = 256000
+                    maxTokens = 8192
+                }
+            )
+        }
+
+        # 使用 Add-Member -Force 确保可以设置或替换
+        $config.models.providers | Add-Member -MemberType NoteProperty -Name "step-plan" -Value $stepfunConfig -Force
+
+        # 确保 agents 对象存在
+        if (-not $config.agents) { $config | Add-Member -MemberType NoteProperty -Name "agents" -Value ([PSCustomObject]@{}) }
+        if (-not $config.agents.defaults) { $config.agents | Add-Member -MemberType NoteProperty -Name "defaults" -Value ([PSCustomObject]@{}) }
+        if (-not $config.agents.defaults.model) { $config.agents.defaults | Add-Member -MemberType NoteProperty -Name "model" -Value ([PSCustomObject]@{}) }
+
+        # 设置默认模型（使用 -Force）
+        $config.agents.defaults.model | Add-Member -MemberType NoteProperty -Name "primary" -Value "step-plan/stepfun/step-3.5-flash" -Force
+
+        # 写回配置文件（保持格式）
+        $config | ConvertTo-Json -Depth 100 | Set-Content $CONFIG_FILE -Encoding UTF8
+
+        Write-Host "==========================================" -ForegroundColor Green
+        Write-Host "  配置更新完成!" -ForegroundColor Green
+        Write-Host "==========================================" -ForegroundColor Green
+        Write-Host "  - 已添加 StepFun Step Plan" -ForegroundColor White
+        Write-Host "  - 默认模型: step-plan/stepfun/step-3.5-flash" -ForegroundColor White
+        Write-Host "  - API 地址: https://api.stepfun.com/step_plan/v1" -ForegroundColor White
         Write-Host "  - 备份文件: $backupFile" -ForegroundColor White
     }
     catch {
