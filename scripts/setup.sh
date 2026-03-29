@@ -3,11 +3,11 @@ set -e
 
 # ============================================================
 #  OpenClaw QQ 插件一键安装 + 配置 + 启动
-#  用法: curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/2026.3.24/scripts/setup.sh | sudo bash
+#  用法: curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/scripts/setup.sh | sudo bash
 # ============================================================
 
 # BASH_SOURCE 在通过管道输入时为空，因此使用固定的远程 raw URL
-RAW_BASE="https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/2026.3.24/scripts"
+RAW_BASE="https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/scripts"
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 
