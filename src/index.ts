@@ -1,11 +1,11 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
-import { qqChannel } from "./src/channel.js";
-import { setQQRuntime } from "./src/runtime.js";
+import { qqChannel } from "./channel.js";
+import { setQQRuntime } from "./runtime.js";
 
-export { sendProactive, sendBulkProactive, broadcastToKnownUsers } from "./src/proactive.js";
-export { listKnownUsers, getKnownUsersStats, recordKnownUser, flushKnownUsers } from "./src/known-users.js";
-export type { KnownUser } from "./src/known-users.js";
+export { sendProactive, sendBulkProactive, broadcastToKnownUsers } from "./proactive.js";
+export { listKnownUsers, getKnownUsersStats, recordKnownUser, flushKnownUsers } from "./known-users.js";
+export type { KnownUser } from "./known-users.js";
 
 const plugin = {
   id: "qq",

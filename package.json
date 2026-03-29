@@ -3,9 +3,9 @@
   "version": "1.6.0",
   "type": "module",
   "description": "OpenClaw QQ channel plugin via OneBot v11",
-  "main": "./dist/index.js",
+  "main": "./dist/src/index.js",
   "exports": {
-    ".": "./dist/index.js"
+    ".": "./dist/src/index.js"
   },
   "files": [
     "dist/",
@@ -17,7 +17,7 @@
   },
   "openclaw": {
     "extensions": [
-      "./dist/index.js"
+      "./dist/src/index.js"
     ]
   },
   "dependencies": {
