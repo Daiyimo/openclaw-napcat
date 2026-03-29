@@ -272,7 +272,7 @@ else {
             api = "openai-completions"
             models = @(
                 [PSCustomObject]@{
-                    id = "stepfun/step-3.5-flash"
+                    id = "step-plan/step-3.5-flash"
                     name = "Step 3.5 Flash"
                     api = "openai-completions"
                     reasoning = $false
@@ -298,7 +298,7 @@ else {
         if (-not $config.agents.defaults.model) { $config.agents.defaults | Add-Member -MemberType NoteProperty -Name "model" -Value ([PSCustomObject]@{}) }
 
         # 设置默认模型（使用 -Force）
-        $config.agents.defaults.model | Add-Member -MemberType NoteProperty -Name "primary" -Value "step-plan/stepfun/step-3.5-flash" -Force
+        $config.agents.defaults.model | Add-Member -MemberType NoteProperty -Name "primary" -Value "step-plan/step-3.5-flash" -Force
 
         # 写回配置文件（保持格式）
         $config | ConvertTo-Json -Depth 100 | Set-Content $CONFIG_FILE -Encoding UTF8
@@ -307,7 +307,7 @@ else {
         Write-Host "  配置更新完成!" -ForegroundColor Green
         Write-Host "==========================================" -ForegroundColor Green
         Write-Host "  - 已添加 StepFun Step Plan" -ForegroundColor White
-        Write-Host "  - 默认模型: step-plan/stepfun/step-3.5-flash" -ForegroundColor White
+        Write-Host "  - 默认模型: step-plan/step-3.5-flash" -ForegroundColor White
         Write-Host "  - API 地址: https://api.stepfun.com/step_plan/v1" -ForegroundColor White
         Write-Host "  - 备份文件: $backupFile" -ForegroundColor White
     }
