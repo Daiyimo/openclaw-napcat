@@ -177,6 +177,10 @@ curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/opencl
 curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/scripts/update_json.sh | sudo bash
 
 # 一行命令添加 StepFun 模型并设为主模型 (Linux/macOS)
+# 提供三种接入方式：
+#   1) OpenRouter 免费版（无需付费，有速率限制 50 RPM）
+#   2) StepFun 官方 API（按量计费，需要官方 API Key）
+#   3) StepFun Step Plan（需订阅 Step Plan）
 curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/scripts/add_stepfun.sh | sudo bash
 
 # Windows 用户请使用 PowerShell 脚本（自动请求管理员权限）
