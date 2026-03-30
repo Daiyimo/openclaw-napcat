@@ -30,14 +30,15 @@ echo "请选择接入方式："
 echo "  1) OpenRouter 免费版（无需付费，有速率限制 50 RPM）"
 echo "  2) StepFun 官方 API（按量计费，需要官方 API Key）"
 echo "  3) StepFun Step Plan（需订阅 Step Plan）"
+echo "  4) StepFun step-3.5-flash-2603（按量计费，需要官方 API Key）"
 echo ""
 
 CHOICE=""
 while true; do
-    read -r -p "请输入数字选择 [1/2/3]: " CHOICE </dev/tty
+    read -r -p "请输入数字选择 [1/2/3/4]: " CHOICE </dev/tty
     case "$CHOICE" in
-        1|2|3) break ;;
-        *) echo "无效输入，请输入 1、2 或 3" ;;
+        1|2|3|4) break ;;
+        *) echo "无效输入，请输入 1、2、3 或 4" ;;
     esac
 done
 
@@ -145,7 +146,7 @@ elif [ "$CHOICE" = "2" ]; then
     echo "  - 已添加 StepFun 3.5 Flash"
     echo "  - 默认模型: stepfun/step-3.5-flash"
     echo "  - 备份文件: ${CONFIG_FILE}.bak.*"
-else
+elif [ "$CHOICE" = "3" ]; then
     echo "已选择：StepFun Step Plan"
     echo ""
 
@@ -195,5 +196,56 @@ else
     echo "  - 已添加 StepFun Step Plan"
     echo "  - 默认模型: step-plan/step-3.5-flash"
     echo "  - API 地址: https://api.stepfun.com/step_plan/v1"
+    echo "  - 备份文件: ${CONFIG_FILE}.bak.*"
+else
+    echo "已选择：StepFun step-3.5-flash-2603"
+    echo ""
+
+    STEPFUN_APIKEY=""
+    while true; do
+        read -r -p "请输入 StepFun API Key: " STEPFUN_APIKEY </dev/tty
+        [ -n "$STEPFUN_APIKEY" ] && break
+        echo "API Key 不能为空，请重新输入"
+    done
+
+    echo "配置文件: $CONFIG_FILE"
+    echo "API Key: ${STEPFUN_APIKEY:0:10}..."
+    echo ""
+
+    cp "$CONFIG_FILE" "${CONFIG_FILE}.bak.$(date +%Y%m%d%H%M%S)"
+    echo "已备份原配置文件"
+
+    jq --arg apikey "$STEPFUN_APIKEY" '
+        .models.providers."stepfun-2603" = {
+            "baseUrl": "https://api.stepfun.com/v1",
+            "apiKey": $apikey,
+            "api": "openai-completions",
+            "models": [
+                {
+                    "id": "stepfun-2603/step-3.5-flash-2603",
+                    "name": "Step 3.5 Flash 2603",
+                    "api": "openai-completions",
+                    "reasoning": false,
+                    "input": ["text"],
+                    "cost": {
+                        "input": 0,
+                        "output": 0,
+                        "cacheRead": 0,
+                        "cacheWrite": 0
+                    },
+                    "contextWindow": 256000,
+                    "maxTokens": 8192
+                }
+            ]
+        } |
+        .agents.defaults.model.primary = "stepfun-2603/step-3.5-flash-2603"
+    ' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
+
+    echo "=========================================="
+    echo "  配置更新完成!"
+    echo "=========================================="
+    echo "  - 已添加 StepFun step-3.5-flash-2603"
+    echo "  - 默认模型: stepfun-2603/step-3.5-flash-2603"
+    echo "  - API 地址: https://api.stepfun.com/v1"
     echo "  - 备份文件: ${CONFIG_FILE}.bak.*"
 fi
