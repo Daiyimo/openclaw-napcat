@@ -275,8 +275,75 @@ export function isImageFile(url: string): boolean {
     lower.endsWith(".jpeg") ||
     lower.endsWith(".png") ||
     lower.endsWith(".gif") ||
-    lower.endsWith(".webp")
+    lower.endsWith(".webp") ||
+    lower.endsWith(".bmp") ||
+    lower.endsWith(".svg")
   );
+}
+
+export function isVideoFile(url: string): boolean {
+  const lower = url.toLowerCase();
+  return (
+    lower.endsWith(".mp4") ||
+    lower.endsWith(".avi") ||
+    lower.endsWith(".mov") ||
+    lower.endsWith(".mkv") ||
+    lower.endsWith(".webm")
+  );
+}
+
+// ============ 从纯文本中提取媒体 URL ============
+
+const TEXT_URL_REGEX = /https?:\/\/[^\s\])<>"]+/gi;
+const IMAGE_EXTENSIONS = /\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?[^\s]*)?$/i;
+const VIDEO_EXTENSIONS = /\.(mp4|avi|mov|mkv|webm)(\?[^\s]*)?$/i;
+const FILE_EXTENSIONS = /\.([a-zA-Z0-9]{1,10})(\?[^\s]*)?$/i;
+
+export interface ExtractedMedia {
+  url: string;
+  type: "image" | "video" | "file";
+  name: string;
+}
+
+/**
+ * 从纯文本中提取媒体 URL，按扩展名分类为 image / video / file。
+ * 仅匹配带有文件扩展名的 URL，普通网页链接不会被提取。
+ */
+export function extractMediaUrlsFromText(text: string): ExtractedMedia[] {
+  const results: ExtractedMedia[] = [];
+  const seen = new Set<string>();
+  let match: RegExpExecArray | null;
+  const re = new RegExp(TEXT_URL_REGEX.source, "gi");
+  while ((match = re.exec(text)) !== null) {
+    let url = match[0];
+    // 去除尾部标点
+    url = url.replace(/[.,;!?:)\]}>]+$/, "");
+    if (seen.has(url)) continue;
+
+    // 取 URL pathname 部分来判断扩展名（忽略 query string）
+    let pathname: string;
+    try {
+      pathname = new URL(url).pathname;
+    } catch {
+      pathname = url.split("?")[0];
+    }
+
+    let type: "image" | "video" | "file" | null = null;
+    if (IMAGE_EXTENSIONS.test(pathname)) {
+      type = "image";
+    } else if (VIDEO_EXTENSIONS.test(pathname)) {
+      type = "video";
+    } else if (FILE_EXTENSIONS.test(pathname) && !/\.(html?|php|asp|aspx|jsp)$/i.test(pathname)) {
+      type = "file";
+    }
+
+    if (type) {
+      seen.add(url);
+      const name = decodeURIComponent(pathname.split("/").pop() || "file");
+      results.push({ url, type, name });
+    }
+  }
+  return results;
 }
 
 // ============ STT 辅助函数 ============

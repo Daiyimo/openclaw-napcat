@@ -34,6 +34,8 @@ import {
   processAntiRisk,
   resolveMediaUrl,
   isImageFile,
+  isVideoFile,
+  extractMediaUrlsFromText,
   transcribeAudioForNapcat,
 } from "./message-parser.js";
 import { createDeliverDebouncer, type DeliverPayload } from "./deliver-debounce.js";
@@ -681,6 +683,45 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                         client.sendPrivateMsg(userId!, [{ type: "tts", data: { text: tts } }]);
                       }
                     } catch {}
+                  }
+                }
+
+                // ── 从文本中提取媒体 URL 并以原生格式发送 ────────
+                const extractedMedia = extractMediaUrlsFromText(chunk);
+                for (const media of extractedMedia) {
+                  try {
+                    const resolvedUrl = await resolveMediaUrl(media.url);
+                    if (media.type === "image") {
+                      const imgSeg: OneBotMessage = [{ type: "image", data: { file: resolvedUrl } }];
+                      if (isGroup) await client.sendGroupMsg(groupId!, imgSeg);
+                      else if (isGuild) await client.sendGuildChannelMsg(guildId!, channelId!, imgSeg);
+                      else await client.sendPrivateMsg(userId!, imgSeg);
+                    } else if (media.type === "video") {
+                      const vidSeg: OneBotMessage = [{ type: "video", data: { file: resolvedUrl } }];
+                      if (isGroup) await client.sendGroupMsg(groupId!, vidSeg);
+                      else if (isGuild) await client.sendGuildChannelMsg(guildId!, channelId!, vidSeg);
+                      else await client.sendPrivateMsg(userId!, vidSeg);
+                    } else {
+                      // file 类型：尝试 uploadGroupFile/uploadPrivateFile，失败则 fallback
+                      const fileName = media.name || "file";
+                      try {
+                        if (isGroup) {
+                          await client.uploadGroupFile(groupId!, resolvedUrl, fileName);
+                        } else if (!isGuild) {
+                          await client.uploadPrivateFile(userId!, resolvedUrl, fileName);
+                        } else {
+                          await client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${resolvedUrl}`);
+                        }
+                      } catch {
+                        const fileSeg: OneBotMessage = [{ type: "file", data: { file: resolvedUrl, name: fileName } }];
+                        if (isGroup) await client.sendGroupMsg(groupId!, fileSeg);
+                        else if (isGuild) await client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${resolvedUrl}`);
+                        else await client.sendPrivateMsg(userId!, fileSeg);
+                      }
+                    }
+                    if (config.rateLimitMs > 0) await sleep(config.rateLimitMs);
+                  } catch (mediaErr) {
+                    console.warn(`[napcat-QQ] Failed to send extracted media ${media.url}:`, mediaErr);
                   }
                 }
 
