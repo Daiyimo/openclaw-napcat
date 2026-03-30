@@ -7,7 +7,7 @@
 
 set -e
 
-CONFIG_FILE="$HOME/.openclaw/openclaw.json"
+CONFIG_FILE="/root/.openclaw/openclaw.json"
 
 if [ ! -f "$CONFIG_FILE" ]; then
     echo "错误：配置文件不存在: $CONFIG_FILE"
