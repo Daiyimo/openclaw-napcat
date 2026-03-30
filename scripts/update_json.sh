@@ -8,12 +8,16 @@ if ! command -v jq &> /dev/null; then
     exit 1
 fi
 
-# 搜索 openclaw.json 配置文件
-CONFIG_FILE=$(find /home /root /usr -name "openclaw.json" 2>/dev/null | head -n 1)
+# 固定配置文件路径
+CONFIG_FILE="/root/.openclaw/openclaw.json"
 
-if [ -z "$CONFIG_FILE" ]; then
-    echo "错误: 未找到 openclaw 配置文件，请确认 openclaw 已正确安装或初始化。"
-    exit 1
+# 确保目录存在
+mkdir -p "$(dirname "$CONFIG_FILE")"
+
+# 若文件不存在则初始化为空 JSON
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "{}" > "$CONFIG_FILE"
+    echo "配置文件不存在，已初始化: $CONFIG_FILE"
 fi
 
 echo "配置文件: $CONFIG_FILE"
@@ -141,6 +145,8 @@ else
         echo "跳过启动。"
         exit 0
     fi
+    echo "正在启用 QQ 插件..."
+    $OPENCLAW_CMD plugins enable qq
 fi
 
 # ── 设备配对引导 (OpenClaw 2026.3.8+) ──────────────────────
