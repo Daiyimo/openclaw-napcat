@@ -1,6 +1,6 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
-import { qqChannel } from "./channel.js";
+import { qqChannel, createBeforeDispatchHandler } from "./channel.js";
 import { setQQRuntime } from "./runtime.js";
 
 export { sendProactive, sendBulkProactive, broadcastToKnownUsers } from "./proactive.js";
@@ -15,6 +15,7 @@ const plugin = {
   register(api: OpenClawPluginApi) {
     setQQRuntime(api.runtime);
     api.registerChannel({ plugin: qqChannel });
+    api.on("before_dispatch", createBeforeDispatchHandler());
   },
 };
 

@@ -99,7 +99,7 @@ NapCat 事件 → OneBotClient.emit("message")
 
 ---
 
-> **兼容性** 本插件当前版本已适配 **OpenClaw 2026.3.28**（含 `describeMessageTool`、`before_dispatch` hook 等新特性支持）。
+> **兼容性** 本插件当前版本已适配 **OpenClaw 2026.4.26+**（含 `describeMessageTool`、`before_dispatch` hook、Typing 生命周期管理等新特性支持）及 **NapCat 4.18.1**（含群待办 API）。
 
 ## ✨ 核心特性
 
@@ -110,8 +110,9 @@ NapCat 事件 → OneBotClient.emit("message")
 *   **关键词唤醒**：除了 @机器人，支持配置特定的关键词（如”小助手”）来触发对话，无需同时 @机器人。
 
 ### 🛡️ 强大的管理与风控
-*   **连接自愈**：内置心跳检测与重连指数退避机制，能自动识别并修复“僵尸连接”，确保 7x24 小时在线。
+*   **连接自愈**：内置心跳检测与重连指数退避机制，能自动识别并修复”僵尸连接”，确保 7x24 小时在线。
 *   **群管指令**：管理员可直接在 QQ 中使用指令管理群成员（禁言/踢出）。
+*   **群待办管理**：支持将群消息设为待办、完成待办、取消待办（NapCat 4.18.0+）。
 *   **黑白名单**：
     *   **群组白名单**：只在指定的群组中响应，避免被拉入广告群。
     *   **用户黑名单**：屏蔽恶意用户的骚扰。
@@ -142,7 +143,7 @@ NapCat 事件 → OneBotClient.emit("message")
 
 1.  **OpenClaw**：已安装并运行 OpenClaw 主程序。
 2.  **OneBot v11 服务端**：你需要一个运行中的 OneBot v11 实现。
-    *   推荐：**[NapCat (Docker)](https://github.com/NapCatQQ/NapCat-Docker)** (4.16.0+) 或 **Lagrange**。
+    *   推荐：**[NapCat (Docker)](https://github.com/NapCatQQ/NapCat-Docker)** (4.18.0+) 或 **Lagrange**。
     *   **重要配置**：请务必在 OneBot 配置中将 `message_post_format` 设置为 `array`（数组格式），否则无法解析多媒体消息。
 
 ### NapCat 配置参考图

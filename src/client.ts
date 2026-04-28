@@ -199,11 +199,11 @@ export class OneBotClient extends EventEmitter {
       await this.sendAction("set_msg_emoji_like", { message_id: messageId, emoji_id: emojiId, set: true });
   }
 
-  async markGroupMsgAsRead(groupId: number) {
+  markGroupMsgAsRead(groupId: number) {
       this.sendWs("mark_group_msg_as_read", { group_id: groupId });
   }
 
-  async markPrivateMsgAsRead(userId: number) {
+  markPrivateMsgAsRead(userId: number) {
       this.sendWs("mark_private_msg_as_read", { user_id: userId });
   }
 
@@ -234,6 +234,29 @@ export class OneBotClient extends EventEmitter {
 
   setGroupKick(groupId: number, userId: number, rejectAddRequest: boolean = false) {
     this.sendWs("set_group_kick", { group_id: groupId, user_id: userId, reject_add_request: rejectAddRequest });
+  }
+
+  // --- Group TODO APIs (NapCat 4.18.0+) ---
+
+  /** 将指定消息设置为群待办 */
+  setGroupTodo(groupId: number, messageId: number | string, messageSeq?: string) {
+    const params: any = { group_id: groupId, message_id: messageId };
+    if (messageSeq !== undefined) params.message_seq = messageSeq;
+    this.sendWs("set_group_todo", params);
+  }
+
+  /** 完成群待办 */
+  completeGroupTodo(groupId: number, messageId: number | string, messageSeq?: string) {
+    const params: any = { group_id: groupId, message_id: messageId };
+    if (messageSeq !== undefined) params.message_seq = messageSeq;
+    this.sendWs("complete_group_todo", params);
+  }
+
+  /** 取消群待办 */
+  cancelGroupTodo(groupId: number, messageId: number | string, messageSeq?: string) {
+    const params: any = { group_id: groupId, message_id: messageId };
+    if (messageSeq !== undefined) params.message_seq = messageSeq;
+    this.sendWs("cancel_group_todo", params);
   }
 
   /** Try HTTP API first, fall back to WebSocket */

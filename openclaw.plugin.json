@@ -3,6 +3,9 @@
   "channels": [
     "qq"
   ],
+  "activation": {
+    "onChannels": ["qq"]
+  },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,

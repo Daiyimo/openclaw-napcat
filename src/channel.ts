@@ -11,6 +11,9 @@ import {
   type ReplyPayload,
   applyAccountNameToChannelSection,
   migrateBaseNameToDefaultAccount,
+  type PluginHookBeforeDispatchEvent,
+  type PluginHookBeforeDispatchContext,
+  type PluginHookBeforeDispatchResult,
 } from "openclaw/plugin-sdk";
 import { OneBotClient } from "./client.js";
 import { QQConfigSchema, type QQConfig } from "./config.js";
@@ -835,7 +838,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
           }
 
           const runtime = getQQRuntime();
-          const { dispatcher, replyOptions } =
+          const { dispatcher, replyOptions, markDispatchIdle, markRunComplete } =
             runtime.channel.reply.createReplyDispatcherWithTyping({ deliver });
 
           let replyToBody = "";
@@ -929,7 +932,9 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             }
             console.error("[napcat-QQ] Reply dispatch error:", error);
           } finally {
-            // 确保 debouncer 和 typing 在所有情况下都被清理
+            // 确保 typing controller 生命周期信号、debouncer 和 typing 在所有情况下都被清理
+            markRunComplete();
+            markDispatchIdle();
             if (debouncer) await debouncer.dispose();
             typing.stop();
           }
@@ -1056,47 +1061,63 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
       };
     },
   },
-  hooks: {
-    beforeDispatch(ctx: any) {
-      const accountId: string = ctx.AccountId ?? ctx.accountId ?? "";
-      const store = inboundStores.get(accountId);
-      if (!store) return ctx; // account not started yet, pass through
-
-      const config = store.config;
-
-      // 1. 入站频控（仅在 From 存在时才做频控）
-      if (config.inboundRateLimitMs > 0 && ctx.From) {
-        const key = `${accountId}:${ctx.From}`;
-        const now = Date.now();
-        const last = store.lastTrigger.get(key) ?? 0;
-        if (now - last < config.inboundRateLimitMs) {
-          console.log(
-            `[napcat-QQ][before_dispatch] rate limited: ${key} (${now - last}ms < ${config.inboundRateLimitMs}ms)`,
-          );
-          return null; // 拦截，不分发
-        }
-        // 防止 lastTrigger Map 无限增长（简单全清策略：超过 5000 条时清空所有记录，
-        // 下一条消息将重新计时。这会导致一次短暂的频控豁免，属于已知权衡。）
-        if (store.lastTrigger.size > 5000) {
-          store.lastTrigger.clear();
-        }
-        store.lastTrigger.set(key, now);
-      }
-
-      // 2. 静默关键词过滤
-      if (config.silentKeywords && config.silentKeywords.length > 0) {
-        const body: string = ctx.Body ?? ctx.RawBody ?? "";
-        for (const kw of config.silentKeywords) {
-          if (body.includes(kw)) {
-            console.log(
-              `[napcat-QQ][before_dispatch] silent keyword matched: "${kw}", dropping message from ${ctx.From ?? "unknown"}`,
-            );
-            return null; // 拦截，不分发
-          }
-        }
-      }
-
-      return ctx; // 继续分发
-    },
-  },
 };
+
+// ============================================================
+// beforeDispatch 全局钩子处理器（适配 OpenClaw 2026.4.26+ 钩子系统）
+// ============================================================
+
+/**
+ * 创建 before_dispatch 钩子处理器。
+ * 通过 api.on("before_dispatch", handler) 注册。
+ * 仅拦截 channel === "qq" 的消息，处理入站频控和静默关键词过滤。
+ */
+export function createBeforeDispatchHandler() {
+  return (
+    event: PluginHookBeforeDispatchEvent,
+    ctx: PluginHookBeforeDispatchContext,
+  ): PluginHookBeforeDispatchResult | void => {
+    // 仅处理 QQ 渠道的消息
+    if (event.channel !== "qq" && ctx.channelId !== "qq") return;
+
+    const accountId = ctx.accountId ?? "";
+    const store = inboundStores.get(accountId);
+    if (!store) return; // account not started yet, pass through
+
+    const config = store.config;
+    const senderId = event.senderId ?? ctx.senderId ?? "";
+
+    // 1. 入站频控
+    if (config.inboundRateLimitMs > 0 && senderId) {
+      const key = `${accountId}:${senderId}`;
+      const now = Date.now();
+      const last = store.lastTrigger.get(key) ?? 0;
+      if (now - last < config.inboundRateLimitMs) {
+        console.log(
+          `[napcat-QQ][before_dispatch] rate limited: ${key} (${now - last}ms < ${config.inboundRateLimitMs}ms)`,
+        );
+        return { handled: true }; // 拦截，不分发
+      }
+      // 防止 lastTrigger Map 无限增长
+      if (store.lastTrigger.size > 5000) {
+        store.lastTrigger.clear();
+      }
+      store.lastTrigger.set(key, now);
+    }
+
+    // 2. 静默关键词过滤
+    if (config.silentKeywords && config.silentKeywords.length > 0) {
+      const body = event.content || event.body || "";
+      for (const kw of config.silentKeywords) {
+        if (body.includes(kw)) {
+          console.log(
+            `[napcat-QQ][before_dispatch] silent keyword matched: "${kw}", dropping message from ${senderId || "unknown"}`,
+          );
+          return { handled: true }; // 拦截，不分发
+        }
+      }
+    }
+
+    // 继续分发（不返回 handled）
+  };
+}
