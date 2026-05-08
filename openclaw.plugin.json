@@ -1,167 +1,171 @@
 {
   "id": "qq",
+  "kind": "channel",
   "channels": [
     "qq"
   ],
   "channelConfigs": {
     "qq": {
-      "preferOver": ["qqbot"]
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "wsUrl": {
+            "type": "string",
+            "description": "The WebSocket URL of the OneBot v11 server (e.g. ws://localhost:3001). Optional if reverseWsPort is set"
+          },
+          "httpUrl": {
+            "type": "string",
+            "description": "The HTTP API URL of the OneBot v11 server (e.g. http://localhost:3000)"
+          },
+          "reverseWsPort": {
+            "type": "number",
+            "description": "Port to start a reverse WebSocket server on (e.g. 3002)"
+          },
+          "accessToken": {
+            "type": "string",
+            "description": "The access token for the OneBot server"
+          },
+          "admins": {
+            "type": "array",
+            "items": { "type": "number" },
+            "description": "List of admin QQ numbers"
+          },
+          "requireMention": {
+            "type": "boolean",
+            "description": "Require @mention or reply to bot in group chats"
+          },
+          "systemPrompt": {
+            "type": "string",
+            "description": "Custom system prompt to inject into the context"
+          },
+          "enableDeduplication": {
+            "type": "boolean",
+            "description": "Enable message deduplication"
+          },
+          "enableErrorNotify": {
+            "type": "boolean",
+            "description": "Notify admins when errors occur"
+          },
+          "autoApproveRequests": {
+            "type": "boolean",
+            "description": "Automatically approve friend/group add requests"
+          },
+          "maxMessageLength": {
+            "type": "number",
+            "description": "Maximum length of a single message before splitting"
+          },
+          "formatMarkdown": {
+            "type": "boolean",
+            "description": "Format markdown to plain text"
+          },
+          "antiRiskMode": {
+            "type": "boolean",
+            "description": "Enable anti-risk processing"
+          },
+          "allowedGroups": {
+            "type": "array",
+            "items": { "type": "number" },
+            "description": "Whitelist of group IDs"
+          },
+          "blockedUsers": {
+            "type": "array",
+            "items": { "type": "number" },
+            "description": "Blacklist of user IDs to ignore"
+          },
+          "historyLimit": {
+            "type": "number",
+            "description": "Number of history messages to include in context"
+          },
+          "keywordTriggers": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Keywords that trigger the bot without @"
+          },
+          "enableTTS": {
+            "type": "boolean",
+            "description": "Convert AI replies to voice (TTS)"
+          },
+          "enableGuilds": {
+            "type": "boolean",
+            "description": "Enable QQ Guild support"
+          },
+          "rateLimitMs": {
+            "type": "number",
+            "description": "Delay between sent messages in ms"
+          },
+          "reactionEmoji": {
+            "type": "string",
+            "description": "Emoji ID for reactions"
+          },
+          "enableReactions": {
+            "type": "boolean",
+            "description": "Enable smart emoji reactions"
+          },
+          "autoMarkRead": {
+            "type": "boolean",
+            "description": "Automatically mark messages as read"
+          },
+          "aiVoiceId": {
+            "type": "string",
+            "description": "NapCat AI voice character ID for send_group_ai_record"
+          },
+          "enableSTT": {
+            "type": "boolean",
+            "description": "Enable speech-to-text transcription"
+          },
+          "markdownMode": {
+            "type": "string",
+            "description": "Markdown handling: passthrough / strip / native"
+          },
+          "deliverDebounce": {
+            "type": "object",
+            "properties": {
+              "enabled": { "type": "boolean" },
+              "windowMs": { "type": "number" },
+              "maxWaitMs": { "type": "number" },
+              "separator": { "type": "string" }
+            },
+            "description": "Debounce consecutive text replies"
+          },
+          "enableUpdateCheck": {
+            "type": "boolean",
+            "description": "Check for updates on startup"
+          },
+          "logBufferSize": {
+            "type": "number",
+            "description": "Log lines retained for /logs command"
+          },
+          "inboundRateLimitMs": {
+            "type": "number",
+            "description": "Per-user/group inbound rate limit in ms"
+          },
+          "silentKeywords": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Silent keyword list - messages dropped if matched"
+          },
+          "ssrfProtection": {
+            "type": "object",
+            "properties": {
+              "allowedDomains": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Allowed domain suffixes for external resource fetching"
+              },
+              "allowHttp": {
+                "type": "boolean",
+                "description": "Allow HTTP URLs (not just HTTPS)"
+              }
+            }
+          }
+        }
+      }
     }
   },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
-    "properties": {
-      "wsUrl": {
-        "type": "string",
-        "description": "OneBot v11 WebSocket URL"
-      },
-      "httpUrl": {
-        "type": "string",
-        "description": "OneBot v11 HTTP API URL"
-      },
-      "reverseWsPort": {
-        "type": "number",
-        "description": "Reverse WebSocket port"
-      },
-      "accessToken": {
-        "type": "string",
-        "description": "Access token"
-      },
-      "admins": {
-        "type": "array",
-        "items": { "type": "number" },
-        "description": "Admin QQ numbers"
-      },
-      "requireMention": {
-        "type": "boolean",
-        "description": "Require @mention to trigger"
-      },
-      "systemPrompt": {
-        "type": "string",
-        "description": "Custom system prompt"
-      },
-      "enableDeduplication": {
-        "type": "boolean",
-        "description": "Enable message deduplication"
-      },
-      "enableErrorNotify": {
-        "type": "boolean",
-        "description": "Enable error notifications"
-      },
-      "autoApproveRequests": {
-        "type": "boolean",
-        "description": "Auto approve friend/group requests"
-      },
-      "maxMessageLength": {
-        "type": "number",
-        "description": "Max message length"
-      },
-      "formatMarkdown": {
-        "type": "boolean",
-        "description": "Format markdown to plain text"
-      },
-      "antiRiskMode": {
-        "type": "boolean",
-        "description": "Enable anti-risk processing"
-      },
-      "allowedGroups": {
-        "type": "array",
-        "items": { "type": "number" },
-        "description": "Allowed group IDs"
-      },
-      "blockedUsers": {
-        "type": "array",
-        "items": { "type": "number" },
-        "description": "Blocked user IDs"
-      },
-      "historyLimit": {
-        "type": "number",
-        "description": "History message limit"
-      },
-      "keywordTriggers": {
-        "type": "array",
-        "items": { "type": "string" },
-        "description": "Keyword triggers"
-      },
-      "enableTTS": {
-        "type": "boolean",
-        "description": "Enable TTS"
-      },
-      "enableGuilds": {
-        "type": "boolean",
-        "description": "Enable QQ Guild support"
-      },
-      "rateLimitMs": {
-        "type": "number",
-        "description": "Rate limit in ms"
-      },
-      "reactionEmoji": {
-        "type": "string",
-        "description": "Reaction emoji ID"
-      },
-      "enableReactions": {
-        "type": "boolean",
-        "description": "Enable reactions feature (allow external action calls to add/remove emoji reactions)"
-      },
-      "autoMarkRead": {
-        "type": "boolean",
-        "description": "Auto mark messages as read"
-      },
-      "aiVoiceId": {
-        "type": "string",
-        "description": "NapCat AI voice ID"
-      },
-      "enableSTT": {
-        "type": "boolean",
-        "description": "Enable speech-to-text for voice messages"
-      },
-      "markdownMode": {
-        "type": "string",
-        "description": "Markdown handling mode: passthrough / strip / native"
-      },
-      "deliverDebounce": {
-        "type": "object",
-        "description": "Outbound message debounce config",
-        "properties": {
-          "enabled": { "type": "boolean" },
-          "windowMs": { "type": "number" },
-          "maxWaitMs": { "type": "number" },
-          "separator": { "type": "string" }
-        }
-      },
-      "enableUpdateCheck": {
-        "type": "boolean",
-        "description": "Check npm registry for updates on startup"
-      },
-      "logBufferSize": {
-        "type": "number",
-        "description": "Number of log lines retained for /logs command"
-      },
-      "inboundRateLimitMs": {
-        "type": "number",
-        "description": "Per-user/group inbound rate limit in ms (0 = disabled)"
-      },
-      "silentKeywords": {
-        "type": "array",
-        "items": { "type": "string" },
-        "description": "Messages containing any of these keywords are silently dropped"
-      },
-      "ssrfProtection": {
-        "type": "object",
-        "description": "SSRF protection: restrict which domains can be fetched when processing voice/image URLs",
-        "properties": {
-          "allowedDomains": {
-            "type": "array",
-            "items": { "type": "string" },
-            "description": "Allowed domain suffixes (e.g. qpic.cn, qcloud.com). Defaults to QQ/Tencent CDN domains if empty"
-          },
-          "allowHttp": {
-            "type": "boolean",
-            "description": "Allow HTTP URLs (not just HTTPS). Defaults to false"
-          }
-        }
-      }
-    }
+    "properties": {}
   }
 }

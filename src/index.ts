@@ -1,21 +1,37 @@
-import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
-import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
+/**
+ * QQ (NapCat) channel plugin for OpenClaw.
+ *
+ * Uses OneBot v11 protocol to connect to QQ via NapCat or similar implementations.
+ */
+import { defineChannelPluginEntry } from "openclaw/plugin-sdk/channel-core";
 import { qqChannel } from "./channel.js";
-import { setQQRuntime } from "./runtime.js";
 
+export default defineChannelPluginEntry({
+  id: "qq",
+  name: "QQ (NapCat)",
+  description: "QQ channel plugin via OneBot v11 (NapCat, LLOneBot, etc.)",
+  plugin: qqChannel,
+  registerCliMetadata(api) {
+    api.registerCli(
+      ({ program }) => {
+        program
+          .command("qq")
+          .description("QQ channel management");
+      },
+      {
+        descriptors: [
+          {
+            name: "qq",
+            description: "QQ channel management",
+            hasSubcommands: false,
+          },
+        ],
+      },
+    );
+  },
+});
+
+// Re-export public APIs
 export { sendProactive, sendBulkProactive, broadcastToKnownUsers } from "./proactive.js";
 export { listKnownUsers, getKnownUsersStats, recordKnownUser, flushKnownUsers } from "./known-users.js";
 export type { KnownUser } from "./known-users.js";
-
-const plugin = {
-  id: "qq",
-  name: "QQ (OneBot)",
-  description: "QQ channel plugin via OneBot v11",
-  configSchema: emptyPluginConfigSchema(),
-  register(api: OpenClawPluginApi) {
-    setQQRuntime(api.runtime);
-    api.registerChannel({ plugin: qqChannel });
-  },
-};
-
-export default plugin;

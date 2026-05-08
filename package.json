@@ -17,8 +17,9 @@
   },
   "openclaw": {
     "extensions": [
-      "./dist/src/index.js"
+      "./src/index.ts"
     ],
+    "setupEntry": "./src/setup-entry.ts",
     "skills": [
       "skills/qq-napcat"
     ],
