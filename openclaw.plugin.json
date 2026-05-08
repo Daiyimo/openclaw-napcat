@@ -5,52 +5,7 @@
   ],
   "channelConfigs": {
     "qq": {
-      "label": "QQ (NapCat)",
-      "description": "QQ bot via NapCat WebSocket (OneBot v11)",
-      "schema": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "wsUrl": { "type": "string" },
-          "httpUrl": { "type": "string" },
-          "reverseWsPort": { "type": "number" },
-          "accessToken": { "type": "string" },
-          "admins": { "type": "array", "items": { "type": "number" } },
-          "requireMention": { "type": "boolean" },
-          "systemPrompt": { "type": "string" },
-          "enableDeduplication": { "type": "boolean" },
-          "enableErrorNotify": { "type": "boolean" },
-          "autoApproveRequests": { "type": "boolean" },
-          "maxMessageLength": { "type": "number" },
-          "formatMarkdown": { "type": "boolean" },
-          "antiRiskMode": { "type": "boolean" },
-          "allowedGroups": { "type": "array", "items": { "type": "number" } },
-          "blockedUsers": { "type": "array", "items": { "type": "number" } },
-          "historyLimit": { "type": "number" },
-          "keywordTriggers": { "type": "array", "items": { "type": "string" } },
-          "enableTTS": { "type": "boolean" },
-          "enableGuilds": { "type": "boolean" },
-          "rateLimitMs": { "type": "number" },
-          "reactionEmoji": { "type": "string" },
-          "enableReactions": { "type": "boolean" },
-          "autoMarkRead": { "type": "boolean" },
-          "aiVoiceId": { "type": "string" },
-          "enableSTT": { "type": "boolean" },
-          "markdownMode": { "type": "string" },
-          "deliverDebounce": { "type": "object" },
-          "enableUpdateCheck": { "type": "boolean" },
-          "logBufferSize": { "type": "number" },
-          "inboundRateLimitMs": { "type": "number" },
-          "silentKeywords": { "type": "array", "items": { "type": "string" } },
-          "ssrfProtection": {
-            "type": "object",
-            "properties": {
-              "allowedDomains": { "type": "array", "items": { "type": "string" } },
-              "allowHttp": { "type": "boolean" }
-            }
-          }
-        }
-      }
+      "preferOver": ["qqbot"]
     }
   },
   "configSchema": {
