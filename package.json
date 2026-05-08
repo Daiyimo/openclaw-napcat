@@ -18,7 +18,22 @@
   "openclaw": {
     "extensions": [
       "./dist/src/index.js"
-    ]
+    ],
+    "skills": [
+      "skills/qq-napcat"
+    ],
+    "channel": {
+      "id": "qq",
+      "label": "QQ (NapCat)",
+      "selectionLabel": "QQ via NapCat",
+      "docsPath": "/channels/napcat",
+      "blurb": "QQ bot via NapCat WebSocket (OneBot v11)",
+      "order": 80,
+      "aliases": [
+        "napcat",
+        "qq-napcat"
+      ]
+    }
   },
   "dependencies": {
     "mpg123-decoder": "^1.0.3",

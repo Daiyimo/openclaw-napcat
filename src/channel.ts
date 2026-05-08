@@ -52,7 +52,7 @@ const QQ_CDN_DOMAINS = [".qpic.cn", ".qcloud.com", ".gtimg.cn", ".weiyun.com", "
 function isSafeExternalUrl(rawUrl: string, cfg: QQConfig): boolean {
   try {
     const u = new URL(rawUrl);
-    const ssrf = cfg.ssrfProtection ?? {};
+    const ssrf = (cfg.ssrfProtection ?? {}) as QQConfig["ssrfProtection"] & {};
     const allowHttp = ssrf.allowHttp ?? false;
 
     if (!allowHttp && u.protocol !== "https:") return false;
@@ -60,7 +60,7 @@ function isSafeExternalUrl(rawUrl: string, cfg: QQConfig): boolean {
 
     // 优先使用用户配置的域名列表，否则使用安全默认值
     const userDomains = ssrf.allowedDomains ?? QQ_CDN_DOMAINS;
-    return userDomains.some((d) => u.hostname.endsWith(d));
+    return userDomains.some((d: string) => u.hostname.endsWith(d));
   } catch {
     return false;
   }
