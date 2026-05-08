@@ -8,7 +8,6 @@
     "qq": {
       "schema": {
         "type": "object",
-        "additionalProperties": false,
         "properties": {
           "wsUrl": {
             "type": "string",
