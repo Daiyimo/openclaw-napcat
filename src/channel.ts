@@ -46,6 +46,26 @@ import { initRefIndexStore, recordRef, lookupRef, flushRefIndex } from "./ref-in
 import { handleAdminCommand } from "./admin-commands.js";
 import { convertSilkToWav } from "./utils/audio-convert.js";
 
+// ── SSRF 防护 ────────────────────────────────────────────────────────────────
+const QQ_CDN_DOMAINS = [".qpic.cn", ".qcloud.com", ".gtimg.cn", ".weiyun.com", ".tencent.com"];
+
+function isSafeExternalUrl(rawUrl: string, cfg: QQConfig): boolean {
+  try {
+    const u = new URL(rawUrl);
+    const ssrf = cfg.ssrfProtection ?? {};
+    const allowHttp = ssrf.allowHttp ?? false;
+
+    if (!allowHttp && u.protocol !== "https:") return false;
+    if (allowHttp && u.protocol !== "https:" && u.protocol !== "http:") return false;
+
+    // 优先使用用户配置的域名列表，否则使用安全默认值
+    const userDomains = ssrf.allowedDomains ?? QQ_CDN_DOMAINS;
+    return userDomains.some((d) => u.hostname.endsWith(d));
+  } catch {
+    return false;
+  }
+}
+
 export type ResolvedQQAccount = ChannelAccountSnapshot & {
   config: QQConfig;
   client?: OneBotClient;
@@ -446,6 +466,10 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
                   let wavPath: string | null = null;
                   try {
                     const voiceUrl = seg.data.url;
+                    if (!isSafeExternalUrl(voiceUrl, cfg as QQConfig)) {
+                      resolvedText += ` [语音消息: URL 不安全]`;
+                      continue;
+                    }
                     const voiceResp = await fetch(voiceUrl);
                     if (voiceResp.ok) {
                       const buf = await voiceResp.arrayBuffer();

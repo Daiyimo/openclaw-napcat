@@ -135,6 +135,21 @@
         "type": "array",
         "items": { "type": "string" },
         "description": "Messages containing any of these keywords are silently dropped"
+      },
+      "ssrfProtection": {
+        "type": "object",
+        "description": "SSRF protection: restrict which domains can be fetched when processing voice/image URLs",
+        "properties": {
+          "allowedDomains": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Allowed domain suffixes (e.g. qpic.cn, qcloud.com). Defaults to QQ/Tencent CDN domains if empty"
+          },
+          "allowHttp": {
+            "type": "boolean",
+            "description": "Allow HTTP URLs (not just HTTPS). Defaults to false"
+          }
+        }
       }
     }
   }

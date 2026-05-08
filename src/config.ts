@@ -37,6 +37,10 @@ export const QQConfigSchema = z.object({
   logBufferSize: z.number().int().min(10).max(10000).optional().default(200).describe("Number of log lines to retain for /logs command"),
   inboundRateLimitMs: z.number().int().min(0).max(60000).optional().default(0).describe("Per-user/group inbound rate limit in ms. 0 = disabled. E.g. 3000 means the same source can only trigger AI once every 3 seconds"),
   silentKeywords: z.array(z.string().min(1)).optional().describe("Silent keyword list. If the message body contains any of these, the message is silently dropped without triggering AI or sending any reply"),
+  ssrfProtection: z.object({
+    allowedDomains: z.array(z.string().min(1)).optional().describe("Allowed domain suffixes for fetching external resources (voice/image URLs). E.g. ['qpic.cn', 'qcloud.com']. If empty, uses safe defaults covering QQ/Tencent CDN domains"),
+    allowHttp: z.boolean().optional().default(false).describe("Allow fetching resources over HTTP (not just HTTPS). Defaults to false (HTTPS only)"),
+  }).optional().describe("SSRF protection: restrict which domains can be fetched when processing voice/image URLs. Leave empty to use safe defaults"),
 });
 
 export type QQConfig = z.infer<typeof QQConfigSchema>;
