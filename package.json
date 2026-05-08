@@ -17,9 +17,9 @@
   },
   "openclaw": {
     "extensions": [
-      "./src/index.ts"
+      "./dist/src/index.js"
     ],
-    "setupEntry": "./src/setup-entry.ts",
+    "setupEntry": "./dist/src/setup-entry.js",
     "skills": [
       "skills/qq-napcat"
     ],
@@ -34,7 +34,8 @@
         "napcat",
         "qq-napcat"
       ]
-    }
+    },
+    "hooks": {}
   },
   "dependencies": {
     "mpg123-decoder": "^1.0.3",
