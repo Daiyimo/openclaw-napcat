@@ -1,6 +1,6 @@
 {
   "name": "@openclaw/qq",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "type": "module",
   "description": "OpenClaw QQ channel plugin via OneBot v11",
   "main": "./dist/src/index.js",

@@ -88,8 +88,8 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
   capabilities: {
     chatTypes: ["direct", "group"],
     media: true,
-    // @ts-ignore
-    deleteMessage: true,
+    reactions: true,
+    unsend: true,
   },
   configSchema: buildChannelConfigSchema(QQConfigSchema),
   config: {
@@ -112,14 +112,17 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
         config: accountConfig || {},
       };
     },
-    defaultAccountId: () => DEFAULT_ACCOUNT_ID,
-    describeAccount: (acc: ChannelAccountSnapshot) => ({
+    defaultAccountId: (_cfg: OpenClawConfig) => DEFAULT_ACCOUNT_ID,
+    describeAccount: (acc: ResolvedQQAccount, _cfg: OpenClawConfig) => ({
       accountId: acc.accountId,
-      configured: acc.enabled,
+      name: acc.name,
+      enabled: acc.enabled ?? true,
+      configured: acc.configured,
     }),
   },
   directory: {
-    listPeers: async (params: { accountId?: string }) => {
+    // 3.31: ChannelDirectoryListParams 新增 runtime: RuntimeEnv（对外暴露为 any，忽略即可）
+    listPeers: async (params: { cfg: OpenClawConfig; accountId?: string | null; query?: string | null; limit?: number | null; runtime: any }) => {
       const client = getClientForAccount(params.accountId || DEFAULT_ACCOUNT_ID);
       if (!client) return [];
       try {
@@ -127,14 +130,13 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
         return friends.map((f) => ({
           id: String(f.user_id),
           name: f.remark || f.nickname,
-          type: "user" as const,
-          metadata: { ...f },
+          kind: "user" as const,
         }));
       } catch {
         return [];
       }
     },
-    listGroups: async (params: { accountId?: string; cfg?: any }) => {
+    listGroups: async (params: { cfg: OpenClawConfig; accountId?: string | null; query?: string | null; limit?: number | null; runtime: any }) => {
       const client = getClientForAccount(params.accountId || DEFAULT_ACCOUNT_ID);
       if (!client) return [];
       try {
@@ -142,8 +144,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
         return groups.map((g) => ({
           id: String(g.group_id),
           name: g.group_name,
-          type: "group" as const,
-          metadata: { ...g },
+          kind: "group" as const,
         }));
       } catch {
         return [];
@@ -151,7 +152,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
     },
   },
   status: {
-    probeAccount: async ({ account, timeoutMs }) => {
+    probeAccount: async ({ account, timeoutMs, cfg: _cfg }: { account: ResolvedQQAccount; timeoutMs: number; cfg: OpenClawConfig }) => {
       if (!account.config.wsUrl && !account.config.reverseWsPort)
         return { ok: false, error: "Missing wsUrl or reverseWsPort" };
 
@@ -188,7 +189,8 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
         client.connect();
       });
     },
-    buildAccountSnapshot: ({ account, runtime }) => {
+    // 3.31: cfg 已改为必选；probe/audit 泛型默认 unknown 均可选
+    buildAccountSnapshot: ({ account, cfg: _cfg, runtime }: { account?: ResolvedQQAccount; cfg: OpenClawConfig; runtime?: any; probe?: any; audit?: any }) => {
       return {
         accountId: account?.accountId ?? "unknown",
         name: account?.name ?? "Unknown",
@@ -201,16 +203,17 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
     },
   },
   setup: {
-    resolveAccountId: (params: { accountId?: string | null }) =>
+    // 3.31: cfg/accountId 均已改为必选
+    resolveAccountId: (params: { cfg: OpenClawConfig; accountId?: string; input?: any }) =>
       normalizeAccountId(params.accountId),
-    applyAccountName: (params: { cfg: OpenClawConfig; accountId: string; name: string }) =>
+    applyAccountName: (params: { cfg: OpenClawConfig; accountId: string; name?: string }) =>
       applyAccountNameToChannelSection({
         cfg: params.cfg,
         channelKey: "qq",
         accountId: params.accountId,
-        name: params.name,
+        name: params.name ?? "",
       }),
-    validateInput: (params: { input: any }) => null,
+    validateInput: (_params: { cfg: OpenClawConfig; accountId: string; input: any }) => null,
     applyAccountConfig: (params: { cfg: OpenClawConfig; accountId: string; input: any }) => {
       const namedConfig = applyAccountNameToChannelSection({
         cfg: params.cfg,
@@ -262,14 +265,20 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
     startAccount: async (ctx: {
       account: ResolvedQQAccount;
       cfg: OpenClawConfig;
+      accountId: string;
       abortSignal: AbortSignal;
       log?: any;
-      onReady: () => void;
-      onError: (error: Error) => void;
+      getStatus?: () => any;
+      setStatus?: (next: any) => void;
+      channelRuntime?: import("openclaw/plugin-sdk").PluginRuntimeChannel;
+      runtime?: any;
     }) => {
       const { account, cfg } = ctx;
       const config = account.config;
       const log = ctx.log ?? console;
+
+      // 优先使用 ctx.channelRuntime（3.31+ 注入方式），回退到全局单例
+      const channelRuntime = ctx.channelRuntime ?? getQQRuntime().channel;
 
       if (!config.wsUrl && !config.reverseWsPort)
         throw new Error("QQ: either wsUrl or reverseWsPort is required");
@@ -333,12 +342,13 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
           if (info?.user_id) client.setSelfId(info.user_id);
           if (info?.nickname)
             console.log(`[napcat-QQ] Logged in as: ${info.nickname} (${info.user_id})`);
-          getQQRuntime().channel.activity.record({
+          channelRuntime.activity.record({
             channel: "qq",
             accountId: account.accountId,
             direction: "inbound",
           });
-          ctx.onReady();
+          // 3.31: setStatus 接收完整 ChannelAccountSnapshot（含 accountId），不再是 Partial
+          ctx.setStatus?.({ ...ctx.getStatus?.(), accountId: account.accountId, running: true, connected: true });
         } catch {}
       });
 
@@ -834,9 +844,42 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             conversationLabel = `QQ Guild ${guildId} Channel ${channelId}`;
           }
 
-          const runtime = getQQRuntime();
+          // ── 入站频控 & 静默关键词过滤（原 hooks.beforeDispatch，3.31 内联处理）────
+          {
+            const store = inboundStores.get(account.accountId);
+            if (store) {
+              const { config: storeConfig } = store;
+
+              if (storeConfig.inboundRateLimitMs > 0 && fromId) {
+                const key = `${account.accountId}:${fromId}`;
+                const now = Date.now();
+                const last = store.lastTrigger.get(key) ?? 0;
+                if (now - last < storeConfig.inboundRateLimitMs) {
+                  console.log(
+                    `[napcat-QQ][rate_limit] rate limited: ${key} (${now - last}ms < ${storeConfig.inboundRateLimitMs}ms)`,
+                  );
+                  return;
+                }
+                if (store.lastTrigger.size > 5000) store.lastTrigger.clear();
+                store.lastTrigger.set(key, now);
+              }
+
+              if (storeConfig.silentKeywords?.length) {
+                const body = cleanCQCodes(text);
+                for (const kw of storeConfig.silentKeywords) {
+                  if (body.includes(kw)) {
+                    console.log(
+                      `[napcat-QQ][silent_keyword] matched "${kw}", dropping message from ${fromId}`,
+                    );
+                    return;
+                  }
+                }
+              }
+            }
+          }
+
           const { dispatcher, replyOptions } =
-            runtime.channel.reply.createReplyDispatcherWithTyping({ deliver });
+            channelRuntime.reply.createReplyDispatcherWithTyping({ deliver });
 
           let replyToBody = "";
           let replyToSender = "";
@@ -861,7 +904,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
           if (historyContext) systemBlock += `<history>\n${historyContext}\n</history>\n\n`;
           bodyWithReply = systemBlock + bodyWithReply;
 
-          const ctxPayload = runtime.channel.reply.finalizeInboundContext({
+          const ctxPayload = channelRuntime.reply.finalizeInboundContext({
             Provider: "qq",
             Channel: "qq",
             From: fromId,
@@ -888,8 +931,8 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
             }),
           });
 
-          await runtime.channel.session.recordInboundSession({
-            storePath: runtime.channel.session.resolveStorePath(cfg.session?.store, {
+          await channelRuntime.session.recordInboundSession({
+            storePath: channelRuntime.session.resolveStorePath(cfg.session?.store, {
               agentId: "default",
             }),
             sessionKey: ctxPayload.SessionKey!,
@@ -908,7 +951,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
           typing.start();
 
           try {
-            await runtime.channel.reply.dispatchReplyFromConfig({
+            await channelRuntime.reply.dispatchReplyFromConfig({
               ctx: ctxPayload,
               cfg,
               dispatcher,
@@ -972,12 +1015,14 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
         inboundStores.delete(account.accountId);
       }
     },
-    logoutAccount: async ({ accountId, cfg }) => {
+    logoutAccount: async ({ accountId, cfg: _cfg }: { accountId: string; cfg: OpenClawConfig; account?: any; runtime?: any; log?: any }) => {
       return { loggedOut: true, cleared: true };
     },
   },
   outbound: {
-    sendText: async ({ to, text, accountId, replyTo }) => {
+    // 3.31: deliveryMode 为必选字段
+    deliveryMode: "direct" as const,
+    sendText: async ({ to, text, accountId, replyToId }: { to: string; text: string; accountId?: string | null; replyToId?: string | null; cfg?: any }) => {
       if (!to || to === "heartbeat") return { channel: "qq", sent: true };
       console.log(
         `[napcat-QQ][outbound.sendText] called: to=${to}, accountId=${accountId}, text=${text?.slice(0, 100)}`,
@@ -990,9 +1035,9 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
         const chunks = splitMessage(text, 4000);
         for (let i = 0; i < chunks.length; i++) {
           let message: OneBotMessage | string = chunks[i];
-          if (replyTo && i === 0)
+          if (replyToId && i === 0)
             message = [
-              { type: "reply", data: { id: String(replyTo) } },
+              { type: "reply", data: { id: String(replyToId) } },
               { type: "text", data: { text: chunks[i] } },
             ];
           await dispatchMessage(client, target, message);
@@ -1004,7 +1049,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
         return { channel: "qq", sent: false, error: String(err) };
       }
     },
-    sendMedia: async ({ to, text, mediaUrl, accountId, replyTo }) => {
+    sendMedia: async ({ to, text, mediaUrl, accountId, replyToId }) => {
       if (!to || to === "heartbeat") return { channel: "qq", sent: true };
       const client = getClientForAccount(accountId || DEFAULT_ACCOUNT_ID);
       if (!client) return { channel: "qq", sent: false, error: "Client not connected" };
@@ -1012,7 +1057,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
         const target = parseTarget(to);
         const finalUrl = await resolveMediaUrl(mediaUrl);
         const message: OneBotMessage = [];
-        if (replyTo) message.push({ type: "reply", data: { id: String(replyTo) } });
+        if (replyToId) message.push({ type: "reply", data: { id: String(replyToId) } });
         if (text) message.push({ type: "text", data: { text } });
         if (isImageFile(mediaUrl) || isImageFile(finalUrl))
           message.push({ type: "image", data: { file: finalUrl } });
@@ -1043,6 +1088,9 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
       looksLikeId: (id) => /^\d{5,12}$/.test(id) || /^(group|guild|private):/.test(id),
       hint: "QQ号, private:QQ号, group:群号, 或 guild:频道ID:子频道ID",
     },
+  },
+  // 3.31: describeMessageTool 从 messaging 迁移到 actions
+  actions: {
     describeMessageTool(_params: {
       cfg: any;
       currentChannelId?: string | null;
@@ -1050,53 +1098,11 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
       sessionKey?: string | null;
       [key: string]: any;
     }) {
-      // QQ (NapCat) channel supports these message actions via OneBot v11
       return {
         actions: ["send", "reply", "react", "unsend", "read"] as const,
       };
     },
   },
-  hooks: {
-    beforeDispatch(ctx: any) {
-      const accountId: string = ctx.AccountId ?? ctx.accountId ?? "";
-      const store = inboundStores.get(accountId);
-      if (!store) return ctx; // account not started yet, pass through
-
-      const config = store.config;
-
-      // 1. 入站频控（仅在 From 存在时才做频控）
-      if (config.inboundRateLimitMs > 0 && ctx.From) {
-        const key = `${accountId}:${ctx.From}`;
-        const now = Date.now();
-        const last = store.lastTrigger.get(key) ?? 0;
-        if (now - last < config.inboundRateLimitMs) {
-          console.log(
-            `[napcat-QQ][before_dispatch] rate limited: ${key} (${now - last}ms < ${config.inboundRateLimitMs}ms)`,
-          );
-          return null; // 拦截，不分发
-        }
-        // 防止 lastTrigger Map 无限增长（简单全清策略：超过 5000 条时清空所有记录，
-        // 下一条消息将重新计时。这会导致一次短暂的频控豁免，属于已知权衡。）
-        if (store.lastTrigger.size > 5000) {
-          store.lastTrigger.clear();
-        }
-        store.lastTrigger.set(key, now);
-      }
-
-      // 2. 静默关键词过滤
-      if (config.silentKeywords && config.silentKeywords.length > 0) {
-        const body: string = ctx.Body ?? ctx.RawBody ?? "";
-        for (const kw of config.silentKeywords) {
-          if (body.includes(kw)) {
-            console.log(
-              `[napcat-QQ][before_dispatch] silent keyword matched: "${kw}", dropping message from ${ctx.From ?? "unknown"}`,
-            );
-            return null; // 拦截，不分发
-          }
-        }
-      }
-
-      return ctx; // 继续分发
-    },
-  },
+  // 3.31: hooks.beforeDispatch 已从 ChannelPlugin 移除。
+  // 频控 & 静默关键词过滤逻辑已内联到 gateway.startAccount 中处理，此处不再保留。
 };
