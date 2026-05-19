@@ -1,0 +1,25 @@
+{
+  "network": {
+    "httpServers": [
+      {
+        "name": "openclawHttp",
+        "enable": true,
+        "port": 3000,
+        "host": "0.0.0.0",
+        "messagePostFormat": "array",
+        "token": ""
+      }
+    ],
+    "websocketClients": [
+      {
+        "name": "openclawReverseWs",
+        "enable": true,
+        "url": "ws://openclaw:3002",
+        "messagePostFormat": "array",
+        "reportSelfMessage": false,
+        "token": "",
+        "reconnectInterval": 5000
+      }
+    ]
+  }
+}

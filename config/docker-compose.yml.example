@@ -1,0 +1,145 @@
+# OpenClaw QQ 插件 (openclaw-napcat) — Docker Compose 配置示例
+#
+# 使用方式：
+#   cp config/.env.example .env          # 复制并修改环境变量
+#   cp config/docker-compose.yml.example docker-compose.yml
+#   docker compose up -d
+#
+# 配置向导（首次运行或需要修改配置时）：
+#   docker exec -it openclaw node openclaw.mjs gateway setup
+
+# =============================================================================
+# 场景一：单机部署（推荐）
+# NapCat + OpenClaw 同一台机器，容器间内网通信
+# =============================================================================
+
+services:
+
+  # ── NapCat：QQ 协议端 ──────────────────────────────────────────────────────
+  napcat:
+    image: mlikiowa/napcat-docker:latest    # NapCat 官方 Docker 镜像
+    container_name: napcat
+    network_mode: bridge
+    # QQ 登录需要挂载数据目录（首次需扫码登录）
+    volumes:
+      - ./napcat-data:/app/napcat/config    # NapCat 数据持久化
+    environment:
+      - NAPCAT_GID=1000
+      - NAPCAT_UID=1000
+    ports:
+      - "6099:6099"       # NapCat WebUI（首次扫码登录用）
+      - "3000:3000"       # HTTP API
+      # WS Server 3001 不需要暴露给宿主机，容器间内网访问即可
+    restart: unless-stopped
+
+  # ── OpenClaw：AI 网关 + QQ 插件 ───────────────────────────────────────────
+  openclaw:
+    build:
+      context: .              # 项目根目录（含 docker/Dockerfile）
+      dockerfile: docker/Dockerfile
+    image: openclaw-qq:latest
+    container_name: openclaw
+    depends_on:
+      - napcat
+    volumes:
+      - ${OPENCLAW_CONFIG_DIR:-./openclaw-data}:/home/node/.openclaw
+    environment:
+      HOME: /home/node
+      TZ: ${TZ:-Asia/Shanghai}
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
+      # QQ 连接配置（对应 channels.qq.*）
+      QQ_HTTP_URL: http://napcat:3000
+      QQ_WS_URL: ws://napcat:3001
+      QQ_ACCESS_TOKEN: ${QQ_ACCESS_TOKEN:-}
+      # 权限配置
+      QQ_ADMINS: ${QQ_ADMINS:-}
+      QQ_REQUIRE_MENTION: ${QQ_REQUIRE_MENTION:-true}
+      QQ_ALLOWED_GROUPS: ${QQ_ALLOWED_GROUPS:-}
+      QQ_BLOCKED_USERS: ${QQ_BLOCKED_USERS:-}
+      # AI 行为
+      QQ_SYSTEM_PROMPT: ${QQ_SYSTEM_PROMPT:-}
+      QQ_HISTORY_LIMIT: ${QQ_HISTORY_LIMIT:-5}
+      QQ_MARKDOWN_MODE: ${QQ_MARKDOWN_MODE:-passthrough}
+    ports:
+      - "${OPENCLAW_GATEWAY_PORT:-18789}:18789"   # OpenClaw WebUI 及 API
+    init: true
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:18789/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+# =============================================================================
+# 场景二：多机部署
+# NapCat 和 OpenClaw 部署在不同服务器，通过公网 IP 或内网穿透互联
+#
+# NapCat 服务器 docker-compose.yml:
+# =============================================================================
+#
+# services:
+#   napcat:
+#     image: mlikiowa/napcat-docker:latest
+#     ports:
+#       - "3000:3000"     # HTTP API（开放给 OpenClaw 服务器）
+#       - "3001:3001"     # WS Server（开放给 OpenClaw 服务器）
+#       - "6099:6099"     # WebUI 扫码登录
+#     volumes:
+#       - ./napcat-data:/app/napcat/config
+#     restart: unless-stopped
+#
+# OpenClaw 服务器 docker-compose.yml:
+#
+# services:
+#   openclaw:
+#     build:
+#       context: .
+#       dockerfile: docker/Dockerfile
+#     environment:
+#       QQ_HTTP_URL: http://<napcat-server-ip>:3000
+#       QQ_WS_URL: ws://<napcat-server-ip>:3001
+#       ...
+#     ports:
+#       - "18789:18789"
+#     restart: unless-stopped
+#
+# ⚠️ 确保 NapCat 服务器防火墙已开放 3000 和 3001 端口
+
+# =============================================================================
+# 场景三：反向 WS 模式
+# 当 NapCat 无法被 OpenClaw 直连时（NAT 穿透、内网穿透等），
+# 由 NapCat 主动连接 OpenClaw 的 WS 服务端（端口 3002）。
+#
+# NapCat 网络配置：参考 config/napcat-reverse.json.example
+# =============================================================================
+#
+# services:
+#   napcat:
+#     image: mlikiowa/napcat-docker:latest
+#     ports:
+#       - "3000:3000"
+#       - "6099:6099"
+#     volumes:
+#       - ./napcat-data:/app/napcat/config
+#     restart: unless-stopped
+#
+#   openclaw:
+#     build:
+#       context: .
+#       dockerfile: docker/Dockerfile
+#     environment:
+#       QQ_HTTP_URL: http://napcat:3000     # HTTP 发送仍走容器内网
+#       QQ_REVERSE_WS_PORT: "3002"          # openclaw 监听 NapCat 连入
+#     ports:
+#       - "18789:18789"
+#       - "3002:3002"                       # 暴露反向 WS 端口给 NapCat
+#     restart: unless-stopped
+#
+# NapCat 侧 websocketClients.url 填写 openclaw 容器的可访问地址：
+#   ws://openclaw:3002  （同 compose 网络）
+#   ws://192.168.1.100:3002  （宿主机 IP，不同网络时）
