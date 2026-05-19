@@ -163,43 +163,37 @@ NapCat 事件 → OneBotClient.emit("message")
 
 内置 QQ 插件的 OpenClaw 一体化容器，开箱即用。
 
-#### 前置条件
-- Docker 20.10+、Docker Compose V2
-- NapCat 已在同一台机器或可访问的服务器上运行
-
-#### 步骤
+#### 一键安装
 
 ```bash
-# 1. 克隆仓库
-git clone https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat.git
-cd openclaw-napcat
+# 国内服务器（gh-proxy 代理）
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/scripts/docker-setup.sh | bash
 
-# 2. 复制配置文件
-cp config/docker-compose.yml.example docker-compose.yml
-cp config/.env.example .env
-
-# 3. 按需修改 .env（NapCat 地址、管理员 QQ 等）
-#    最低只需填写：QQ_HTTP_URL 和 QQ_WS_URL
-
-# 4. 构建镜像 + 启动（首次构建需几分钟）
-docker compose up -d --build
-
-# 5. 查看启动日志
-docker compose logs -f openclaw
+# 直连 GitHub
+curl -fsSL https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/scripts/docker-setup.sh | bash
 ```
 
-#### 验证与配置
+脚本会依次完成：
+1. 检查 Docker / Docker Compose / Git 依赖
+2. 克隆仓库到 `~/openclaw-napcat`
+3. 交互式收集 NapCat 地址、管理员 QQ 等配置
+4. 生成 `.env` 和 `docker-compose.yml`
+5. 构建镜像 + 启动容器（约 3-5 分钟）
+6. 打印 OpenClaw 配置向导和 NapCat 扫码入口
+
+#### 配置向导（首次运行后）
 
 ```bash
-# 确认 openclaw 版本
-docker exec openclaw openclaw --version
-
-# 交互式配置向导（可替代 .env 手动配置）
+# 进容器，运行 OpenClaw 频道配置向导
 docker exec -it openclaw openclaw gateway setup
-# → 在弹出的菜单中选择 QQ (OneBot)，按提示填写 NapCat 地址
+# → 选择 QQ (OneBot) 频道，按提示填写 NapCat 地址
+```
 
-# 查看 QQ 频道连接状态
-docker exec openclaw openclaw status
+#### 验证状态
+
+```bash
+docker exec openclaw openclaw --version    # OpenClaw x.x.x
+docker exec openclaw openclaw status       # 查看 qq 频道连接状态
 ```
 
 #### NapCat 网络配置示例
