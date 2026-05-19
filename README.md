@@ -99,7 +99,7 @@ NapCat 事件 → OneBotClient.emit("message")
 
 ---
 
-> **兼容性** 本插件当前版本已适配 **OpenClaw 2026.3.28**（含 `describeMessageTool`、`before_dispatch` hook 等新特性支持）。
+> **兼容性** 本插件当前版本已适配 **OpenClaw 2026.3.31**（`deliveryMode` 必选、`actions.describeMessageTool`、`hooks.beforeDispatch` 已移除等 3.31 变更均已对齐）。
 
 ## ✨ 核心特性
 
@@ -159,7 +159,58 @@ NapCat 事件 → OneBotClient.emit("message")
 
 ## 🚀 安装指南
 
-### 快速部署 (一行命令)
+### 方法一：Docker 部署（推荐）
+
+内置 QQ 插件的 OpenClaw 一体化容器，开箱即用。
+
+#### 前置条件
+- Docker 20.10+、Docker Compose V2
+- NapCat 已在同一台机器或可访问的服务器上运行
+
+#### 步骤
+
+```bash
+# 1. 克隆仓库
+git clone https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat.git
+cd openclaw-napcat
+
+# 2. 复制配置文件
+cp config/docker-compose.yml.example docker-compose.yml
+cp config/.env.example .env
+
+# 3. 按需修改 .env（NapCat 地址、管理员 QQ 等）
+#    最低只需填写：QQ_HTTP_URL 和 QQ_WS_URL
+
+# 4. 构建镜像 + 启动（首次构建需几分钟）
+docker compose up -d --build
+
+# 5. 查看启动日志
+docker compose logs -f openclaw
+```
+
+#### 验证与配置
+
+```bash
+# 确认 openclaw 版本
+docker exec openclaw openclaw --version
+
+# 交互式配置向导（可替代 .env 手动配置）
+docker exec -it openclaw openclaw gateway setup
+# → 在弹出的菜单中选择 QQ (OneBot)，按提示填写 NapCat 地址
+
+# 查看 QQ 频道连接状态
+docker exec openclaw openclaw status
+```
+
+#### NapCat 网络配置示例
+- **正向模式**（openclaw → NapCat WS Server）：参考 [`config/napcat-forward.json.example`](config/napcat-forward.json.example)
+- **反向模式**（NapCat → openclaw WS Server）：参考 [`config/napcat-reverse.json.example`](config/napcat-reverse.json.example)
+
+> 详细 Docker 文件说明见 [`docker/README.md`](docker/README.md)
+
+---
+
+### 方法二：Linux/macOS 一键脚本（裸机部署）
 
 **推荐：安装 + 配置 + 启动一步完成**
 
@@ -177,17 +228,14 @@ curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/opencl
 curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/scripts/update_json.sh | sudo bash
 
 # 一行命令添加 StepFun 模型并设为主模型 (Linux/macOS)
-# 提供三种接入方式：
-#   1) OpenRouter 免费版（无需付费，有速率限制 50 RPM）
-#   2) StepFun 官方 API（按量计费，需要官方 API Key）
-#   3) StepFun Step Plan（需订阅 Step Plan）
 curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/scripts/add_stepfun.sh | sudo bash
 
 # Windows 用户请使用 PowerShell 脚本（自动请求管理员权限）
 irm "https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/scripts/install_stepfun.ps1" -UseBasicParsing | iex
 ```
 
-### 方法 : 使用 OpenClaw CLI (推荐)
+### 方法三：OpenClaw CLI 手动安装
+
 如果你的 OpenClaw 版本支持插件市场或 CLI 安装：
 ```bash
 # 进入插件目录
