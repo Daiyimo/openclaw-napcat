@@ -58,7 +58,8 @@ if [ -d "qq" ]; then
 fi
 
 echo "正在克隆插件..."
-git clone https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat.git -b 2026.3.24 qq
+git clone https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat.git qq \
+    || git clone https://github.com/Daiyimo/openclaw-napcat.git qq
 
 cd qq
 
@@ -74,13 +75,13 @@ echo "编译插件..."
 npm run build
 
 # 5. 验证编译结果
-if [ ! -f "dist/index.js" ]; then
-    echo "错误: 编译失败，dist/index.js 不存在"
+if [ ! -f "dist/src/index.js" ]; then
+    echo "错误: 编译失败，dist/src/index.js 不存在"
     exit 1
 fi
 
 echo ""
 echo "=== 安装完成 ==="
 echo "插件路径: $EXT_DIR/qq"
-echo "dist/index.js: 已生成 ✓"
+echo "dist/src/index.js: 已生成 ✓"
 echo "请重启 openclaw 使插件生效"
