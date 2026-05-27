@@ -1,7 +1,7 @@
 {
-  "id": "qq",
+  "id": "napcat",
   "channels": [
-    "qq"
+    "napcat"
   ],
   "configSchema": {
     "type": "object",
@@ -97,7 +97,7 @@
       },
       "enableReactions": {
         "type": "boolean",
-        "description": "Enable reactions feature (allow external action calls to add/remove emoji reactions)"
+        "description": "Enable reactions feature"
       },
       "autoMarkRead": {
         "type": "boolean",
@@ -136,6 +136,12 @@
         "items": { "type": "string" },
         "description": "Messages containing any of these keywords are silently dropped"
       }
+    }
+  },
+  "channelConfigs": {
+    "napcat": {
+      "label": "NapCat (OneBot 11)",
+      "description": "Connect to QQ via NapCat/OneBot v11"
     }
   }
 }

@@ -79,8 +79,8 @@ function buildUpdateInfo(tags: Record<string, string>): UpdateInfo {
   const stableTag = tags.latest || null;
   const alphaTag = tags.alpha || null;
 
-  // 严格隔离：alpha 只跟 alpha 比，正式版只跟正式版比，不交叉
-  const compareTarget = currentIsPrerelease ? alphaTag : stableTag;
+  // 预发布用户优先与 alpha tag 比较；alpha 不存在时降级到 stable，避免静默失效
+  const compareTarget = currentIsPrerelease ? (alphaTag ?? stableTag) : stableTag;
 
   const hasUpdate =
     typeof compareTarget === "string" &&

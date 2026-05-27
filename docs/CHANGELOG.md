@@ -2,6 +2,73 @@
 
 # 更新日志
 
+### v1.7.0 - 架构重构 + 旁观模式 + 跨会话投递 + Docker 部署 (2026-05-27)
+
+本版本为架构级重构，将单文件 900 行 channel.ts 拆分为模块化架构，新增旁观模式、跨会话投递、配置热重载等特性，并引入完整测试覆盖。
+
+#### 新增
+
+- **旁观模式（Passive Mode）**：AI 监听群聊全部消息，自主判断是否发言，支持冷却时间和自定义 system prompt
+- **跨会话投递**：AI 回复中使用 `[TO:group:群号]` 或 `[TO:private:QQ号]` 前缀将消息发送到非当前会话
+- **`/sendto` 管理命令**：管理员直接向指定目标发送消息（`/sendto group:88888888 内容`）
+- **`/reload` 管理命令**：运行时热重载配置，无需重启容器
+- **HTTP 指数退避重试**：OneBot HTTP API 调用失败时自动重试（5xx/网络错误），延迟 200→400→800ms
+- **群路由自动刷新**：每 6 小时同步群组列表，确保新群的 cron 投递和跨会话发送正常工作
+- **裸数字群号自动识别**：outbound 发送时裸数字 `to` 自动匹配已知群号，彻底修复 cron 群投递问题
+- **Docker 一键部署**：支持 `curl | bash` 安装，适配 NAS Docker UI 场景
+- **Vitest 测试框架**：引入完整测试基础设施
+
+#### 重构
+
+- **模块化架构拆分（P0/P1/P2）**：
+  - 提取 `gateway/`（connection + inbound + lifecycle）和 `outbound/`（send-text + send-media）子模块
+  - 提取 `PassiveModeManager` 类，状态机管理旁观模式冷却
+  - 提取 `MessageSender` 类，统一回复投递逻辑（分片/TTS/Markdown）
+  - 提取 `MessageProcessor` 纯函数（文本解析/触发检测/上下文构建）
+  - 提取 `ConfigRef` 热更新支持（config-watcher.ts）
+  - `channel.ts` 瘦身为纯组装层（从 ~900 行降至 ~330 行）
+- **常量治理**：所有魔法数字提取到 `constants.ts`，带来源注释
+- **渠道 ID 重命名**：从 `"qq"` 改为 `"napcat"`，避免与官方 QQ Bot 插件冲突
+- **类型严格化**：新增 `types/channel-types.ts`，为 gateway/outbound 定义严格接口
+
+#### 性能
+
+- **ref-index-store 异步批量写**：`appendFileSync` 改为写队列 + 异步批量 flush，`compactFile` 后台化执行
+
+#### 修复
+
+- 修复旁观模式孤儿哨兵抖动 bug，`isAllowed` 懒释放时正确删除条目
+- 修复裸数字群号 API 探测兜底逻辑，消息接收时顺手缓存已知群号
+- 修复 `registerGroupRoute` 作用域编译错误
+- 修复群路由注册未同时覆盖裸数字和带前缀两种 key 的问题
+- 修复 `normalizeTarget` 未剥离 `napcat:` 前缀的问题
+- 修复容器内 TypeScript 编译缺失（@types/ws 移入 dependencies）
+- 修复 `listAccountIds` / `resolveAccount` 错误读取 `channels.qq` 而非 `channels.napcat`
+- 修复 `resolveAccount` 未通过 Zod 解析导致默认值缺失
+- 修复所有 NapCat API 数字 ID 未统一转 string 的兼容性问题
+- 修复 14+ 处深度审查发现的 bug（详见 commit 81018ec, 54be11e, b40080d）
+
+#### 测试
+
+- 新增 `message-parser` 全纯函数单元测试
+- 新增 `config` Zod Schema 验证测试
+- 新增 `deliver-debounce` 防抖合并逻辑测试（fake timers）
+- 新增 `admin-commands` 管理命令处理测试
+- 新增 `passive-mode` 状态机 14 条单元测试
+- 新增 `message-sender` 投递逻辑 15 条单元测试
+- 新增 `message-processor` 文本/触发/上下文 25 条单元测试
+- 新增 `ref-index-store` 异步写测试
+- 新增 `retry` 指数退避重试测试
+- 新增 `config-watcher` 热更新测试
+- 新增 `inbound-pipeline` 集成测试（12 个场景端到端覆盖）
+
+#### 适配
+
+- 适配 OpenClaw 3.31 插件 SDK（`defineChannelPluginEntry` 注册模式）
+- 支持 `registrationMode` 区分 setup-only / cli-metadata / full 模式
+
+---
+
 ### v1.6.1 - 基于 OpenClaw 2026.3.24 (2026-03-27)
 
 #### 修复

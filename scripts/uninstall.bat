@@ -22,7 +22,7 @@ if %errorLevel% neq 0 (
 )
 
 REM 如果已经是管理员，继续执行
-echo === OpenClaw QQ 插件卸载脚本 ===
+echo === OpenClaw NapCat 插件卸载脚本 ===
 echo.
 
 REM 1. 查找插件目录
@@ -30,9 +30,9 @@ echo [INFO] 正在搜索 OpenClaw 插件目录...
 
 set "FOUND_EXT_DIR="
 for %%d in (
-    "%USERPROFILE%\.openclaw\extensions\qq"
-    "C:\openclaw\extensions\qq"
-    "D:\openclaw\extensions\qq"
+    "%USERPROFILE%\.openclaw\extensions\napcat"
+    "C:\openclaw\extensions\napcat"
+    "D:\openclaw\extensions\napcat"
     "%ProgramFiles%\openclaw\extensions\qq"
 ) do (
     if exist "%%~d" (
@@ -123,10 +123,10 @@ powershell -Command "& {
     try {
         \$json = Get-Content '%FOUND_CONFIG%' -Raw | ConvertFrom-Json
         if (\$json.plugins -and \$json.plugins.entries) {
-            \$json.plugins.entries.PSObject.Properties.Remove('qq') | Out-Null
+            \$json.plugins.entries.PSObject.Properties.Remove('napcat') | Out-Null
         }
         if (\$json.channels) {
-            \$json.channels.PSObject.Properties.Remove('qq') | Out-Null
+            \$json.channels.PSObject.Properties.Remove('napcat') | Out-Null
         }
         \$json | ConvertTo-Json -Depth 10 | Set-Content '%FOUND_CONFIG%'
         Write-Host '[SUCCESS] 配置清理完成（使用 PowerShell JSON）'
@@ -151,13 +151,13 @@ if exist "%FOUND_EXT_DIR%\" (
 REM 8. 删除数据文件
 echo [INFO] 清理插件数据文件...
 
-if exist "%USERPROFILE%\.openclaw\data\qq\" (
-    rmdir /s /q "%USERPROFILE%\.openclaw\data\qq"
+if exist "%USERPROFILE%\.openclaw\data\napcat\" (
+    rmdir /s /q "%USERPROFILE%\.openclaw\data\napcat"
     echo [SUCCESS] 已删除数据目录
 )
 
-del /q "%USERPROFILE%\.openclaw\logs\qq-*.log" 2>nul
-if exist "%USERPROFILE%\.openclaw\logs\qq-*.log" (
+del /q "%USERPROFILE%\.openclaw\logs\napcat-*.log" 2>nul
+if exist "%USERPROFILE%\.openclaw\logs\napcat-*.log" (
     echo [SUCCESS] 已删除日志文件
 )
 
@@ -176,7 +176,7 @@ if exist "%FOUND_EXT_DIR%\" (
 REM 10. 输出总结
 echo.
 echo === 卸载完成 ===
-echo [SUCCESS] QQ 插件已成功卸载
+echo [SUCCESS] NapCat 插件已成功卸载
 echo.
 echo 已执行的操作：
 echo   1. 停止 OpenClaw 网关服务

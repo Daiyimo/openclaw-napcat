@@ -111,15 +111,18 @@ function saveUsersToFile(): void {
 }
 
 /**
- * 实际执行保存
+ * 实际执行保存（原子写：先写 .tmp 再 rename，防止崩溃导致数据丢失）
  */
 function doSaveUsersToFile(): void {
   if (!usersCache || !isDirty) return;
 
   try {
     ensureDir();
+    const filePath = getKnownUsersFile();
+    const tmpPath = filePath + ".tmp";
     const users = Array.from(usersCache.values());
-    fs.writeFileSync(getKnownUsersFile(), JSON.stringify(users, null, 2), "utf-8");
+    fs.writeFileSync(tmpPath, JSON.stringify(users, null, 2), "utf-8");
+    fs.renameSync(tmpPath, filePath);
     isDirty = false;
   } catch (err) {
     console.error(`[known-users] Failed to save users: ${err}`);

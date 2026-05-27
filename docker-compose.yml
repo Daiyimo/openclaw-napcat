@@ -1,0 +1,60 @@
+# openclaw-napcat docker-compose (docker-adaptation 分支)
+#
+# 本分支仅管理 OpenClaw 容器，NapCat 由独立的 docker-compose 运行。
+#
+# 部署流程：
+#   1. 复制 config/.env.example 为 .env 并填写参数
+#   2. docker compose up -d
+#   3. docker exec -it openclaw sh -c "curl -fsSL https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/docker-adaptation/scripts/docker-install.sh | OPENCLAW_NAPCAT_BRANCH=docker-adaptation bash"
+#   4. docker exec -it openclaw openclaw onboard
+#   5. docker compose restart openclaw
+#
+# 后续更新插件：重新执行步骤 3，然后 docker compose restart openclaw
+#
+# 修改 QQ_* 配置后，需手动同步到 openclaw.json：
+#   docker exec openclaw node /home/node/.openclaw/extensions/napcat/docker/setup-config.cjs
+#   docker compose restart openclaw
+
+services:
+  openclaw:
+    image: ghcr.io/openclaw/openclaw:latest
+    container_name: openclaw
+    user: "0:0"
+    restart: always
+    ports:
+      - "${OPENCLAW_GATEWAY_PORT:-18789}:18789"
+      - "${QQ_REVERSE_WS_PORT:-3002}:${QQ_REVERSE_WS_PORT:-3002}"
+    volumes:
+      - ${OPENCLAW_DATA_DIR:-/volume1/docker/openclaw}:/home/node/.openclaw
+    environment:
+      HOME: /home/node
+      TZ: ${TZ:-Asia/Shanghai}
+      OPENCLAW_GATEWAY_BIND: lan
+      OPENCLAW_DISABLE_BONJOUR: 1
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
+      OPENCLAW_EXTRA_EXTENSIONS_DIR: /home/node/.openclaw/extensions
+      # ── NapCat 连接配置 ────────────────────────────────────────────────────
+      # QQ_HTTP_URL: NapCat HTTP API 地址，必须是宿主机 IP，不能用 127.0.0.1
+      QQ_HTTP_URL: ${QQ_HTTP_URL:-http://192.168.1.100:3000}
+      QQ_REVERSE_WS_PORT: ${QQ_REVERSE_WS_PORT:-3002}
+      QQ_ACCESS_TOKEN: ${QQ_ACCESS_TOKEN:-}
+      # ── 权限与触发 ─────────────────────────────────────────────────────────
+      QQ_ADMINS: ${QQ_ADMINS:-}
+      QQ_REQUIRE_MENTION: ${QQ_REQUIRE_MENTION:-true}
+      QQ_ALLOWED_GROUPS: ${QQ_ALLOWED_GROUPS:-}
+      QQ_BLOCKED_USERS: ${QQ_BLOCKED_USERS:-}
+      QQ_KEYWORD_TRIGGERS: ${QQ_KEYWORD_TRIGGERS:-}
+      # ── AI 行为 ────────────────────────────────────────────────────────────
+      QQ_SYSTEM_PROMPT: ${QQ_SYSTEM_PROMPT:-}
+      QQ_HISTORY_LIMIT: ${QQ_HISTORY_LIMIT:-5}
+      QQ_MARKDOWN_MODE: ${QQ_MARKDOWN_MODE:-passthrough}
+      # ── 风控 ───────────────────────────────────────────────────────────────
+      QQ_RATE_LIMIT_MS: ${QQ_RATE_LIMIT_MS:-1000}
+      QQ_INBOUND_RATE_LIMIT_MS: ${QQ_INBOUND_RATE_LIMIT_MS:-0}
+      QQ_SILENT_KEYWORDS: ${QQ_SILENT_KEYWORDS:-}
+      QQ_ANTI_RISK_MODE: ${QQ_ANTI_RISK_MODE:-false}
+      # ── 旁观模式（可选，需配合 requireMention: true）─────────────────────────
+      # QQ_PASSIVE_MODE_ENABLED: "true"
+      # QQ_PASSIVE_MODE_COOLDOWN_MS: "15000"
+      # QQ_PASSIVE_MODE_SYSTEM_PROMPT: ""
+    command: ["openclaw", "gateway", "--port", "18789", "--allow-unconfigured"]

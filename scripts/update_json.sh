@@ -64,7 +64,7 @@ jq \
 '
 # 1. 写入完整的 channels 配置
 .channels = {
-  "qq": {
+  "napcat": {
     "reverseWsPort": $reverseWsPort,
     "httpUrl": $httpUrl,
     "accessToken": "123456",
@@ -98,7 +98,7 @@ jq \
 # 4. 写入 plugins 配置
 .plugins = {
   "entries": {
-    "qq": {
+    "napcat": {
       "enabled": true
     }
   }
@@ -136,7 +136,7 @@ else
 fi
 PLUGIN_LIST=$($OPENCLAW_CMD plugins list 2>&1)
 
-if echo "$PLUGIN_LIST" | grep -i "qq" | grep -i "loaded" &> /dev/null; then
+if echo "$PLUGIN_LIST" | grep -i "napcat" | grep -i "loaded" &> /dev/null; then
     echo "检测到 QQ 插件当前处于 loaded 状态。"
 else
     echo "未检测到运行中的 QQ 插件或服务。"
@@ -146,7 +146,7 @@ else
         exit 0
     fi
     echo "正在启用 QQ 插件..."
-    $OPENCLAW_CMD plugins enable qq
+    $OPENCLAW_CMD plugins enable napcat
 fi
 
 # ── 设备配对引导 (OpenClaw 2026.3.8+) ──────────────────────

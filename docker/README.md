@@ -4,9 +4,9 @@
 
 | 文件 | 说明 |
 |------|------|
-| `Dockerfile` | 基于官方 openclaw 镜像构建，内置 QQ 插件 |
+| `Dockerfile` | 基于官方 openclaw 镜像构建，内置 NapCat 插件 |
 | `entrypoint.sh` | 容器启动脚本（环境变量 → 配置 + 启动 openclaw） |
-| `setup-config.js` | 将 `QQ_*` 环境变量写入 openclaw 配置的 Node.js 脚本 |
+| `setup-config.cjs` | 将 `QQ_*` 环境变量写入 openclaw 配置的 Node.js 脚本 |
 
 ## 快速开始
 
@@ -25,7 +25,7 @@ docker compose up -d --build
 docker compose logs -f openclaw
 ```
 
-## 通过向导配置 QQ 频道
+## 通过向导配置 NapCat 频道
 
 如果不使用环境变量，可在容器内运行 openclaw 的交互式配置向导：
 
@@ -33,7 +33,7 @@ docker compose logs -f openclaw
 docker exec -it openclaw openclaw gateway setup
 ```
 
-选择 **QQ (OneBot)** 频道，按提示填写 NapCat 地址和参数即可。
+选择 **NapCat (OneBot 11)** 频道，按提示填写 NapCat 地址和参数即可。
 
 ## 验证插件已加载
 
@@ -42,5 +42,5 @@ docker exec openclaw openclaw --version
 # 输出：OpenClaw x.x.x
 
 docker exec openclaw openclaw status
-# 应看到 qq 频道状态
+# 应看到 napcat 频道状态
 ```

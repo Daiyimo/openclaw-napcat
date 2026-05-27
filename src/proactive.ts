@@ -7,7 +7,8 @@ import { OneBotClient } from "./client.js";
 import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk";
 import { listKnownUsers, getKnownUsersStats } from "./known-users.js";
 import type { KnownUser } from "./known-users.js";
-import { parseTarget } from "./message-parser.js";
+import { parseTarget, isImageFile, dispatchMessage } from "./message-parser.js";
+import type { OneBotMessage } from "./types.js";
 
 // Re-export for convenience
 export { listKnownUsers, getKnownUsersStats };
@@ -58,31 +59,27 @@ export async function sendProactive(options: ProactiveSendOptions): Promise<Proa
   try {
     const target = parseTarget(options.to);
 
+    // 入参守卫
+    if (!options.text && !options.mediaUrl) {
+      return { success: false, error: "text 和 mediaUrl 不能同时为空" };
+    }
+
     if (options.mediaUrl) {
-      const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(options.mediaUrl);
-      if (isImage) {
-        const segments: any[] = [];
+      // 去除 query string / fragment 后再判断扩展名，避免 CDN 签名 URL 误判
+      const urlPath = options.mediaUrl.split("?")[0].split("#")[0];
+      if (isImageFile(urlPath)) {
+        const segments: OneBotMessage = [];
         if (options.text) segments.push({ type: "text", data: { text: options.text } });
         segments.push({ type: "image", data: { file: options.mediaUrl } });
-        if (target.type === "group") await client.sendGroupMsg(target.groupId!, segments);
-        else if (target.type === "guild") await client.sendGuildChannelMsg(target.guildId!, target.channelId!, segments);
-        else await client.sendPrivateMsg(target.userId!, segments);
+        await dispatchMessage(client, target, segments);
       } else {
-        // 非图片：先发文本再发文件链接
-        if (options.text) {
-          if (target.type === "group") await client.sendGroupMsg(target.groupId!, options.text);
-          else if (target.type === "guild") await client.sendGuildChannelMsg(target.guildId!, target.channelId!, options.text);
-          else await client.sendPrivateMsg(target.userId!, options.text);
-        }
-        const fileMsg: any[] = [{ type: "file", data: { file: options.mediaUrl } }];
-        if (target.type === "group") await client.sendGroupMsg(target.groupId!, fileMsg);
-        else if (target.type === "guild") await client.sendGuildChannelMsg(target.guildId!, target.channelId!, fileMsg);
-        else await client.sendPrivateMsg(target.userId!, fileMsg);
+        // 非图片：先发文本再发文件
+        if (options.text) await dispatchMessage(client, target, options.text);
+        const fileMsg: OneBotMessage = [{ type: "file", data: { file: options.mediaUrl } }];
+        await dispatchMessage(client, target, fileMsg);
       }
     } else {
-      if (target.type === "group") await client.sendGroupMsg(target.groupId!, options.text);
-      else if (target.type === "guild") await client.sendGuildChannelMsg(target.guildId!, target.channelId!, options.text);
-      else await client.sendPrivateMsg(target.userId!, options.text);
+      await dispatchMessage(client, target, options.text!);
     }
 
     return { success: true };
@@ -133,10 +130,16 @@ export async function broadcastToKnownUsers(
     activeWithin: options?.activeWithin,
   });
 
-  const recipients: string[] = users.map((u: KnownUser) => {
-    if (u.type === "group" && u.groupId) return `group:${u.groupId}`;
-    return String(u.openid);
-  });
+  // 同一个群可能存在多条已知用户记录，需去重，否则群会收到重复消息
+  const seen = new Set<string>();
+  const recipients: string[] = [];
+  for (const u of users) {
+    const target = (u.type === "group" && u.groupId) ? `group:${u.groupId}` : String(u.openid);
+    if (!seen.has(target)) {
+      seen.add(target);
+      recipients.push(target);
+    }
+  }
 
   const results = await sendBulkProactive(recipients, text, options?.accountId);
 

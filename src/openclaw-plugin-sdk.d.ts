@@ -510,6 +510,18 @@ declare module "openclaw/plugin-sdk" {
 
   export type ReplyPayload = {
     text?: string;
+    /** 多媒体 URL 列表（优先级高于 mediaUrl） */
+    mediaUrls?: string[];
+    /** 单媒体 URL（向后兼容，优先使用 mediaUrls） */
+    mediaUrl?: string;
+    replyToId?: string;
+    audioAsVoice?: boolean;
+    sensitiveMedia?: boolean;
+    isError?: boolean;
+    isReasoning?: boolean;
+    isStatusNotice?: boolean;
+    channelData?: Record<string, unknown>;
+    /** @deprecated 历史 deliver 路径遗留，新路径请用 mediaUrls */
     files?: Array<{ url: string; name?: string }>;
   };
 

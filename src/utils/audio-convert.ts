@@ -167,8 +167,8 @@ function resolveTTSFromBlock(
 export function resolveTTSConfig(cfg: Record<string, unknown>): TTSConfig | null {
   const c = cfg as any;
 
-  // 优先使用 channels.qq.tts（插件专属配置）
-  const channelTts = c?.channels?.qq?.tts;
+  // 优先使用 channels.napcat.tts（插件专属配置）
+  const channelTts = c?.channels?.napcat?.tts;
   if (channelTts && channelTts.enabled !== false) {
     const providerId: string = channelTts?.provider || "openai";
     const providerCfg = c?.models?.providers?.[providerId];
@@ -264,9 +264,10 @@ export async function textToSpeechPCM(
       // mp3 需要解码为 PCM
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "tts-"));
       const tmpMp3 = path.join(tmpDir, "tts.mp3");
-      fs.writeFileSync(tmpMp3, rawBuffer);
 
       try {
+        // writeFileSync 在 try 内，确保无论何种失败 tmpDir 都能被 finally 清理
+        fs.writeFileSync(tmpMp3, rawBuffer);
         const ffmpegCmd = await checkFfmpeg();
         if (ffmpegCmd) {
           const pcmBuf = await ffmpegToPCM(ffmpegCmd, tmpMp3, sampleRate);

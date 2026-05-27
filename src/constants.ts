@@ -1,0 +1,55 @@
+/**
+ * 项目级常量
+ * 所有跨文件的魔法数字集中在此，每条带来源注释。
+ */
+
+// === WebSocket / Client ===
+
+/** WebSocket ping 间隔（ms）。NapCat 默认心跳 30s，45s 穿透大多数 NAT 60s 空闲超时 */
+export const WS_HEARTBEAT_INTERVAL_MS = 45_000;
+
+/** sendWithResponseWs API 调用超时（ms） */
+export const WS_RESPONSE_TIMEOUT_MS = 5_000;
+
+// === 消息管道 ===
+
+/** connect handler 中 getLoginInfo 的超时保护（ms） */
+export const LOGIN_INFO_TIMEOUT_MS = 5_000;
+
+/** 去重集合最大容量，超过后触发修剪 */
+export const DEDUP_MAX_SIZE = 2_000;
+
+/** 修剪后保留最新的 N 条消息 ID */
+export const DEDUP_KEEP_SIZE = 1_000;
+
+/** 去重集合 + 旁观冷却的定期清理间隔（ms）*/
+export const CLEANUP_INTERVAL_MS = 60_000;
+
+// === 旁观模式 ===
+
+/** 旁观派发中（-1 哨兵）的兜底释放超时（ms）。避免 AI 崩溃后旁观永久沉默 */
+export const PASSIVE_SENTINEL_TIMEOUT_MS = 30_000;
+
+/** 旁观冷却条目最大保留时长（ms）。超过 1 小时后在 cleanup 时清除 */
+export const PASSIVE_COOLDOWN_MAX_AGE_MS = 3_600_000;
+
+// === 群路由 ===
+
+/** 群路由定时刷新间隔（ms）。每 6 小时同步新加入/退出的群 */
+export const GROUP_ROUTE_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1_000;
+
+// === 投递 ===
+
+/** 向多个管理员发错误通知时的发送间隔（ms），避免触发 QQ 发送频率限制 */
+export const ERROR_NOTIFY_SLEEP_MS = 500;
+
+/** outbound.sendText 多分片时的分片间隔（ms） */
+export const OUTBOUND_MULTI_CHUNK_SLEEP_MS = 1_000;
+
+// === HTTP 重试 ===
+
+/** HTTP API 最大重试次数（不含首次调用） */
+export const HTTP_MAX_RETRIES = 3;
+
+/** HTTP 重试首次延迟（ms），后续按 2x 指数增长：200 → 400 → 800 */
+export const HTTP_RETRY_BASE_DELAY_MS = 200;

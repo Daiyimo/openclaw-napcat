@@ -13,7 +13,10 @@
   ],
   "scripts": {
     "build": "tsc --project tsconfig.json",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "openclaw": {
     "extensions": [
@@ -21,6 +24,8 @@
     ]
   },
   "dependencies": {
+    "@types/node": "^25.4.0",
+    "@types/ws": "^8.18.1",
     "mpg123-decoder": "^1.0.3",
     "silk-wasm": "^3.7.1",
     "ws": "^8.18.0",
@@ -30,8 +35,8 @@
     "openclaw": "*"
   },
   "devDependencies": {
-    "@types/node": "^25.4.0",
-    "@types/ws": "^8.18.1",
-    "typescript": "^5.9.3"
+    "@vitest/coverage-v8": "^3.2.4",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
   }
 }

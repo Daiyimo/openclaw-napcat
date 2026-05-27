@@ -12,6 +12,7 @@ import type { OneBotMessage } from "./types.js";
 import { getUpdateInfo } from "./update-checker.js";
 import { getRecentLogs, formatLogEntry } from "./log-buffer.js";
 import { getPackageVersion } from "./utils/pkg-version.js";
+import { updateConfigRef, type ConfigRef } from "./config-watcher.js";
 
 // ============ 上下文类型 ============
 
@@ -25,6 +26,12 @@ export interface AdminCmdContext {
   message?: OneBotMessage | string;
   /** 发送时间戳（ms），用于 /ping 延迟计算 */
   eventTime?: number;
+  /** 配置引用，供 /reload 命令使用 */
+  configRef?: ConfigRef;
+  /** 完整 OpenClaw 配置，供 /reload 读取最新值 */
+  fullCfg?: Record<string, unknown>;
+  /** 群路由刷新回调，供 /groups 命令使用。返回注册的群数量 */
+  refreshGroupRoutes?: () => Promise<number>;
 }
 
 // ============ 辅助函数 ============
@@ -130,10 +137,14 @@ export async function handleAdminCommand(
   if (cmd === "/help") {
     const helpMsg =
       `[OpenClaw QQ] 管理命令\n` +
-      `/status          - 查看状态\n` +
-      `/ping            - 测量延迟\n` +
-      `/version         - 查看版本和更新\n` +
-      `/logs [N]        - 最近 N 条日志（默认 20）\n` +
+      `/status                    - 查看状态\n` +
+      `/ping                      - 测量延迟\n` +
+      `/version                   - 查看版本和更新\n` +
+      `/logs [N]                  - 最近 N 条日志（默认 20）\n` +
+      `/reload                    - 热重载运行时配置\n` +
+      `/groups                    - 手动刷新群路由（解决 cron 投递问题）\n` +
+      `/sendto <目标> <内容>      - 跨会话发送消息\n` +
+      `  示例: /sendto group:群号 内容\n` +
       `/mute @用户 [分] - 禁言（默认 30 分钟）\n` +
       `/kick @用户      - 踢出群组\n` +
       `/help            - 显示本帮助`;
@@ -163,6 +174,68 @@ export async function handleAdminCommand(
       await reply(ctx, `已踢出 ${targetId}。`);
     } else {
       await reply(ctx, `用法：/kick @用户`);
+    }
+    return true;
+  }
+
+  // ── /sendto ──────────────────────────────────────────────
+  // 跨会话发送，绕过 OpenClaw 会话树限制
+  // 用法：/sendto group:群号 消息内容
+  //       /sendto 私聊QQ号 消息内容
+  //       /sendto private:QQ号 消息内容
+  if (cmd === "/sendto") {
+    const target = parts[1];
+    const msgText = parts.slice(2).join(" ");
+    if (!target || !msgText) {
+      await reply(ctx, `用法：/sendto <目标> <消息内容>\n示例：\n  /sendto group:88888888 早上好\n  /sendto 12345678 你好`);
+      return true;
+    }
+    try {
+      const { sendProactive } = await import("./proactive.js");
+      const result = await sendProactive({ to: target, text: msgText });
+      if (result.success) {
+        await reply(ctx, `✅ 已发送到 ${target}`);
+      } else {
+        await reply(ctx, `❌ 发送失败：${result.error}`);
+      }
+    } catch (err) {
+      await reply(ctx, `❌ 发送失败：${err instanceof Error ? err.message : String(err)}`);
+    }
+    return true;
+  }
+
+  // ── /reload ─────────────────────────────────────────────
+  if (cmd === "/reload") {
+    if (!ctx.configRef || !ctx.fullCfg) {
+      await reply(ctx, "❌ 热更新未启用");
+      return true;
+    }
+    const napcat = (ctx.fullCfg as any)?.channels?.napcat;
+    const result = updateConfigRef(ctx.configRef, napcat);
+    if (result.success) {
+      let msg = "✅ 配置已重载";
+      if (result.connectionChanged) {
+        msg += "\n⚠️ 连接参数有变更，需重启容器才能生效";
+      }
+      await reply(ctx, msg);
+    } else {
+      await reply(ctx, `❌ 配置验证失败，保留旧配置\n${result.error}`);
+    }
+    return true;
+  }
+
+  // ── /groups ─────────────────────────────────────────────
+  // 手动刷新群路由，解决 cron 无法向未激活群投递的问题
+  if (cmd === "/groups") {
+    if (!ctx.refreshGroupRoutes) {
+      await reply(ctx, "❌ 群路由刷新未启用");
+      return true;
+    }
+    try {
+      const count = await ctx.refreshGroupRoutes();
+      await reply(ctx, `✅ 已刷新 ${count} 个群路由，cron 投递现在可用`);
+    } catch (err) {
+      await reply(ctx, `❌ 刷新失败：${err instanceof Error ? err.message : String(err)}`);
     }
     return true;
   }
