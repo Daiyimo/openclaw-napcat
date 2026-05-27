@@ -32,11 +32,19 @@ export const QQConfigSchema = z.object({
     windowMs: z.number().int().min(100).max(30000).optional(),
     maxWaitMs: z.number().int().min(1000).max(120000).optional(),
     separator: z.string().optional(),
-  }).optional().describe("Debounce consecutive text replies into one message (windowMs default 1500, maxWaitMs default 8000)"),
+  }).optional().refine(
+    (d) => !d || !d.windowMs || !d.maxWaitMs || d.maxWaitMs >= d.windowMs,
+    { message: "deliverDebounce.maxWaitMs must be >= windowMs" },
+  ).describe("Debounce consecutive text replies into one message (windowMs default 1500, maxWaitMs default 8000)"),
   enableUpdateCheck: z.boolean().optional().default(true).describe("Check npm registry for plugin updates on startup"),
   logBufferSize: z.number().int().min(10).max(10000).optional().default(200).describe("Number of log lines to retain for /logs command"),
   inboundRateLimitMs: z.number().int().min(0).max(60000).optional().default(0).describe("Per-user/group inbound rate limit in ms. 0 = disabled. E.g. 3000 means the same source can only trigger AI once every 3 seconds"),
   silentKeywords: z.array(z.string().min(1)).optional().describe("Silent keyword list. If the message body contains any of these, the message is silently dropped without triggering AI or sending any reply"),
+  passiveMode: z.object({
+    enabled: z.boolean().optional().default(false),
+    cooldownMs: z.number().int().min(0).max(3600000).optional().default(10000),
+    systemPrompt: z.string().optional(),
+  }).optional().describe("Passive observation mode: AI watches all group messages and decides whether to chime in. AI replies [SILENT] to stay quiet."),
 });
 
 export type QQConfig = z.infer<typeof QQConfigSchema>;

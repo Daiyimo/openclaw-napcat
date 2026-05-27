@@ -4,3 +4,5 @@ package-lock.json
 *.log
 .DS_Store
 compile_errors.txt
+coverage/
+docs/superpowers/

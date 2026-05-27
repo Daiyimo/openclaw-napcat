@@ -50,7 +50,7 @@ LABEL org.opencontainers.image.title="OpenClaw + QQ (openclaw-napcat)" \
 USER root
 
 # 将编译产物复制到 openclaw 扩展目录
-ENV QQ_PLUGIN_DIR=/app/extensions/qq
+ENV QQ_PLUGIN_DIR=/app/extensions/napcat
 RUN mkdir -p ${QQ_PLUGIN_DIR}
 
 COPY --from=plugin-builder --chown=node:node /build/dist            ${QQ_PLUGIN_DIR}/dist/
@@ -58,7 +58,7 @@ COPY --from=plugin-builder --chown=node:node /build/node_modules    ${QQ_PLUGIN_
 COPY --chown=node:node package.json openclaw.plugin.json            ${QQ_PLUGIN_DIR}/
 
 # 复制 Docker 辅助脚本
-COPY --chown=node:node docker/setup-config.js  ${QQ_PLUGIN_DIR}/docker/setup-config.js
+COPY --chown=node:node docker/setup-config.cjs  ${QQ_PLUGIN_DIR}/docker/setup-config.cjs
 COPY docker/entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
@@ -75,4 +75,4 @@ EXPOSE 18789
 EXPOSE 3002
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
-CMD ["node", "openclaw.mjs", "gateway", "--allow-unconfigured", "--bind", "lan"]
+CMD ["node", "openclaw.mjs", "gateway", "--bind", "lan"]

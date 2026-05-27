@@ -59,8 +59,8 @@ find_ext_dir() {
 
     # 优先检查已知标准路径
     local known_paths=(
-        "/usr/lib/node_modules/openclaw/dist/extensions/qq"
-        "/usr/local/lib/node_modules/openclaw/dist/extensions/qq"
+        "/usr/lib/node_modules/openclaw/dist/extensions/napcat"
+        "/usr/local/lib/node_modules/openclaw/dist/extensions/napcat"
     )
     for p in "${known_paths[@]}"; do
         if [ -d "$p" ]; then
@@ -70,22 +70,22 @@ find_ext_dir() {
 
     # 再用 find 广搜
     if [ -z "$ext_dir" ]; then
-        ext_dir=$(find /usr /home /opt /var -type d -path "*/node_modules/openclaw/dist/extensions/qq" 2>/dev/null | head -n 1)
+        ext_dir=$(find /usr /home /opt /var -type d -path "*/node_modules/openclaw/dist/extensions/napcat" 2>/dev/null | head -n 1)
     fi
 
     # 如果没找到，尝试用 which 定位
     if [ -z "$ext_dir" ]; then
         if OPENCLAW_BIN=$(which openclaw 2>/dev/null); then
             OPENCLAW_DIR=$(dirname "$(dirname "$OPENCLAW_BIN")")/lib/node_modules/openclaw
-            if [ -d "$OPENCLAW_DIR/dist/extensions/qq" ]; then
-                ext_dir="$OPENCLAW_DIR/dist/extensions/qq"
+            if [ -d "$OPENCLAW_DIR/dist/extensions/napcat" ]; then
+                ext_dir="$OPENCLAW_DIR/dist/extensions/napcat"
             fi
         fi
     fi
 
     # 检查用户目录
-    if [ -z "$ext_dir" ] && [ -d "$HOME/.openclaw/dist/extensions/qq" ]; then
-        ext_dir="$HOME/.openclaw/dist/extensions/qq"
+    if [ -z "$ext_dir" ] && [ -d "$HOME/.openclaw/dist/extensions/napcat" ]; then
+        ext_dir="$HOME/.openclaw/dist/extensions/napcat"
     fi
 
     echo "$ext_dir"
@@ -161,7 +161,7 @@ clean_config() {
 
         # 使用 jq 清理 JSON（如果可用）
         if command -v jq &> /dev/null; then
-            if jq 'del(.plugins.entries.qq) | del(.channels.qq)' "$config" > "${config}.tmp" 2>/dev/null; then
+            if jq 'del(.plugins.entries.napcat) | del(.channels.napcat)' "$config" > "${config}.tmp" 2>/dev/null; then
                 mv "${config}.tmp" "$config"
                 success "配置清理完成"
                 return 0
@@ -172,9 +172,9 @@ clean_config() {
         warn "jq 不可用，使用文本清理..."
         backup_config "$config"
 
-        # 简单删除 qq 相关行（可能有残留）
-        if grep -q '"qq"' "$config" 2>/dev/null; then
-            grep -v '"qq"' "$config" > "${config}.tmp" 2>/dev/null || true
+        # 简单删除 napcat 相关行（可能有残留）
+        if grep -q '"napcat"' "$config" 2>/dev/null; then
+            grep -v '"napcat"' "$config" > "${config}.tmp" 2>/dev/null || true
             mv "${config}.tmp" "$config" 2>/dev/null || true
             warn "配置已进行基础清理，请手动检查"
         fi
@@ -198,14 +198,14 @@ clean_data() {
     log "清理插件数据文件..."
 
     # 数据目录
-    local data_dir="$HOME/.openclaw/data/qq"
+    local data_dir="$HOME/.openclaw/data/napcat"
     if [ -d "$data_dir" ]; then
         sudo rm -rf "$data_dir"
         success "已删除数据目录"
     fi
 
     # 日志文件
-    local log_files=$(find "$HOME/.openclaw/logs" -name "qq-*.log" 2>/dev/null || true)
+    local log_files=$(find "$HOME/.openclaw/logs" -name "napcat-*.log" 2>/dev/null || true)
     if [ -n "$log_files" ]; then
         sudo rm -f $log_files
         success "已删除日志文件"
@@ -226,8 +226,8 @@ verify_uninstall() {
         success "插件目录已删除"
     fi
 
-    if [ -f "$config" ] && grep -q '"qq"' "$config" 2>/dev/null; then
-        warn "配置文件中可能仍有 qq 相关配置，请手动检查"
+    if [ -f "$config" ] && grep -q '"napcat"' "$config" 2>/dev/null; then
+        warn "配置文件中可能仍有 napcat 相关配置，请手动检查"
     else
         success "配置文件中无 qq 引用"
     fi
@@ -252,7 +252,7 @@ confirm_uninstall() {
 
 # 主函数
 main() {
-    echo "=== OpenClaw QQ 插件卸载工具 ==="
+    echo "=== OpenClaw NapCat 插件卸载工具 ==="
     echo ""
 
     check_root
@@ -292,7 +292,7 @@ main() {
 
     # 完成
     echo ""
-    success "QQ 插件已成功卸载"
+    success "NapCat 插件已成功卸载"
     echo ""
     echo "已执行的操作："
     echo "  1. 停止 OpenClaw 网关服务"

@@ -127,7 +127,8 @@ export function getReplyMessageId(
 // ============ 目标解析 ============
 
 export function normalizeTarget(raw: string): string {
-  return raw.replace(/^(qq:)/i, "");
+  // 去掉 OpenClaw 可能附加的频道前缀（插件历史上曾叫 qq，现叫 napcat）
+  return raw.replace(/^(qq:|napcat:)/i, "");
 }
 
 export type TargetType = "private" | "group" | "guild";
@@ -268,8 +269,17 @@ export async function resolveMediaUrl(url: string): Promise<string> {
 
 // ============ 文件类型检测 ============
 
+/** 提取 URL 的路径部分（去除 query string / fragment），用于扩展名判断 */
+function urlPathname(url: string): string {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return url.split("?")[0].split("#")[0];
+  }
+}
+
 export function isImageFile(url: string): boolean {
-  const lower = url.toLowerCase();
+  const lower = urlPathname(url).toLowerCase();
   return (
     lower.endsWith(".jpg") ||
     lower.endsWith(".jpeg") ||
@@ -282,7 +292,7 @@ export function isImageFile(url: string): boolean {
 }
 
 export function isVideoFile(url: string): boolean {
-  const lower = url.toLowerCase();
+  const lower = urlPathname(url).toLowerCase();
   return (
     lower.endsWith(".mp4") ||
     lower.endsWith(".avi") ||
@@ -357,8 +367,8 @@ interface STTConfig {
 export function resolveSTTConfig(cfg: Record<string, unknown>): STTConfig | null {
   const c = cfg as any;
 
-  // 优先 channels.qq.stt（插件专属配置）
-  const channelStt = c?.channels?.qq?.stt;
+  // 优先 channels.napcat.stt（插件专属配置）
+  const channelStt = c?.channels?.napcat?.stt;
   if (channelStt && channelStt.enabled !== false) {
     const providerId: string = channelStt?.provider || "openai";
     const providerCfg = c?.models?.providers?.[providerId];
@@ -421,6 +431,3 @@ export async function transcribeAudioForNapcat(
   const result = (await resp.json()) as { text?: string };
   return result.text?.trim() || null;
 }
-
-// channel.ts 直接 import os/path/fsSync/convertSilkToWav，此处不再重复导出
-export { os, path, fsSync, convertSilkToWav };

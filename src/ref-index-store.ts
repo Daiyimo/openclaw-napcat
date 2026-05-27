@@ -96,7 +96,7 @@ function loadFromFile(): Map<string, RefEntry & { _createdAt: number }> {
       `[ref-index-store] Loaded ${cache.size} entries from ${totalLinesOnDisk} lines (${expired} expired)`,
     );
 
-    if (shouldCompact()) compactFile();
+    scheduleCompactIfNeeded();
   } catch (err) {
     console.error(`[ref-index-store] Failed to load: ${err}`);
     cache = new Map();
@@ -106,15 +106,49 @@ function loadFromFile(): Map<string, RefEntry & { _createdAt: number }> {
   return cache;
 }
 
-// ============ JSONL 追加写 ============
+// ============ 写队列（异步批量写）============
 
-function appendLine(line: RefIndexLine): void {
+let writeQueue: string[] = [];
+let flushTimer: NodeJS.Timeout | null = null;
+/** writeQueue 最大容量，超过时丢弃最旧条目防止 OOM */
+const MAX_WRITE_QUEUE_SIZE = 10_000;
+
+/**
+ * 将 JSONL 行加入写队列，100ms 后批量写入文件。
+ * 热路径调用：不阻塞事件循环。
+ */
+function queueLine(line: RefIndexLine): void {
+  writeQueue.push(JSON.stringify(line));
+  totalLinesOnDisk++; // 乐观更新，与实际 I/O 解耦
+  // 防止磁盘故障时队列无限增长导致 OOM
+  if (writeQueue.length > MAX_WRITE_QUEUE_SIZE) {
+    const dropped = writeQueue.length - MAX_WRITE_QUEUE_SIZE;
+    writeQueue = writeQueue.slice(dropped);
+    console.warn(`[ref-index-store] Write queue overflow, dropped ${dropped} oldest entries`);
+  }
+  if (!flushTimer) {
+    flushTimer = setTimeout(flushWriteQueue, 100);
+  }
+}
+
+async function flushWriteQueue(): Promise<void> {
+  flushTimer = null;
+  if (writeQueue.length === 0) return;
+  const batch = writeQueue.splice(0);
   try {
     ensureDir();
-    fs.appendFileSync(getRefIndexFile(), JSON.stringify(line) + "\n", "utf-8");
-    totalLinesOnDisk++;
+    await fs.promises.appendFile(
+      getRefIndexFile(),
+      batch.join("\n") + "\n",
+      "utf-8",
+    );
   } catch (err) {
-    console.error(`[ref-index-store] Failed to append: ${err}`);
+    console.error(`[ref-index-store] Failed to flush write queue: ${err}`);
+    // 写入失败时放回，但受 MAX_WRITE_QUEUE_SIZE 限制不会无限增长
+    writeQueue.unshift(...batch);
+    if (writeQueue.length > MAX_WRITE_QUEUE_SIZE) {
+      writeQueue = writeQueue.slice(writeQueue.length - MAX_WRITE_QUEUE_SIZE);
+    }
   }
 }
 
@@ -131,8 +165,27 @@ function shouldCompact(): boolean {
   return totalLinesOnDisk > cache.size * COMPACT_THRESHOLD_RATIO && totalLinesOnDisk > 1000;
 }
 
-function compactFile(): void {
+let isCompacting = false;
+
+function scheduleCompactIfNeeded(): void {
+  if (!shouldCompact() || isCompacting) return;
+  isCompacting = true;
+  setImmediate(() => {
+    compactFile().finally(() => {
+      isCompacting = false;
+    });
+  });
+}
+
+async function compactFile(): Promise<void> {
   if (!cache) return;
+  // 先 flush 写队列，避免 compact rename 覆盖刚 append 的数据
+  if (flushTimer) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
+  await flushWriteQueue();
+
   const before = totalLinesOnDisk;
   try {
     ensureDir();
@@ -153,10 +206,22 @@ function compactFile(): void {
       };
       lines.push(JSON.stringify(line));
     }
-    fs.writeFileSync(tmpPath, lines.join("\n") + "\n", "utf-8");
-    fs.renameSync(tmpPath, getRefIndexFile());
+    await fs.promises.writeFile(tmpPath, lines.join("\n") + "\n", "utf-8");
+
+    // 冻结：rename 前暂停 flush timer，防止在 rename 与 flush 之间产生竞态丢失
+    if (flushTimer) {
+      clearTimeout(flushTimer);
+      flushTimer = null;
+    }
+
+    await fs.promises.rename(tmpPath, getRefIndexFile());
     totalLinesOnDisk = cache.size;
     console.log(`[ref-index-store] Compacted: ${before} lines → ${totalLinesOnDisk} lines`);
+
+    // rename 后立即 flush 可能在 compact 期间积累的写队列（追加到新文件）
+    if (writeQueue.length > 0) {
+      await flushWriteQueue();
+    }
   } catch (err) {
     console.error(`[ref-index-store] Compact failed: ${err}`);
   }
@@ -164,15 +229,26 @@ function compactFile(): void {
 
 // ============ 溢出淘汰 ============
 
+/** 上次淘汰时间，防止高频调用 */
+let lastEvictTime = 0;
+/** 淘汰最小间隔（ms） */
+const EVICT_COOLDOWN_MS = 5_000;
+
 function evictIfNeeded(): void {
   if (!cache || cache.size < MAX_ENTRIES) return;
   const now = Date.now();
+  // 防止高频场景每条消息都触发排序
+  if (now - lastEvictTime < EVICT_COOLDOWN_MS) return;
+  lastEvictTime = now;
+
+  // 先做 TTL 清理（O(n)，大多数场景足够）
   for (const [key, entry] of cache) {
     if (now - entry._createdAt > TTL_MS) cache.delete(key);
   }
+  // TTL 清理后仍满：排序淘汰一批（摊薄 O(n log n) 成本）
   if (cache.size >= MAX_ENTRIES) {
     const sorted = [...cache.entries()].sort((a, b) => a[1]._createdAt - b[1]._createdAt);
-    const toRemove = sorted.slice(0, cache.size - MAX_ENTRIES + 1000);
+    const toRemove = sorted.slice(0, Math.max(1000, cache.size - MAX_ENTRIES + 1000));
     for (const [key] of toRemove) cache.delete(key);
     console.log(`[ref-index-store] Evicted ${toRemove.length} oldest entries`);
   }
@@ -202,9 +278,9 @@ export function recordRef(entry: RefEntry): void {
   const key = entry.accountId ? `${entry.accountId}:${entry.msgId}` : entry.msgId;
   store.set(key, { ...entry, _createdAt: now });
 
-  appendLine({ k: key, v: entry, t: now });
+  queueLine({ k: key, v: entry, t: now });
 
-  if (shouldCompact()) compactFile();
+  scheduleCompactIfNeeded();
 }
 
 /**
@@ -233,10 +309,18 @@ export function lookupRef(msgId: string, accountId?: string): RefEntry | null {
 }
 
 /**
- * 进程退出前强制 compact
+ * 进程退出前冲刷写队列并压实
  */
-export function flushRefIndex(): void {
-  if (cache && shouldCompact()) compactFile();
+export async function flushRefIndex(): Promise<void> {
+  // 1. 先把写队列冲刷到文件
+  if (flushTimer) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
+  await flushWriteQueue();
+
+  // 2. 如需压实，同步执行（进程退出前，setImmediate 可能已来不及）
+  if (cache && shouldCompact()) await compactFile();
 }
 
 /**

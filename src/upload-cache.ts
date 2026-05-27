@@ -23,8 +23,9 @@ export class UploadCache {
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(private readonly defaultTtlMs = DEFAULT_TTL_MS) {
-    // 每 10 分钟清理一次过期条目
+    // 每 10 分钟清理一次过期条目（unref 使定时器不阻止进程退出）
     this.cleanupTimer = setInterval(() => this.cleanup(), 10 * 60 * 1000);
+    this.cleanupTimer.unref();
   }
 
   /**

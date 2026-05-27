@@ -4,7 +4,7 @@
  *
  * 职责：
  *  1. 读取 QQ_* 环境变量
- *  2. 写入 ~/.openclaw/openclaw.json（channels.qq 节）
+ *  2. 写入 ~/.openclaw/openclaw.json（channels.napcat 节 + plugins.entries.napcat）
  *  3. 不覆盖已有配置（除非 QQ_FORCE_RECONFIGURE=true）
  *
  * 用法：由 entrypoint.sh 调用，不建议直接执行。
@@ -18,7 +18,7 @@ const path = require("path");
 const CONFIG_DIR  = path.join(process.env.HOME || "/home/node", ".openclaw");
 const CONFIG_PATH = path.join(CONFIG_DIR, "openclaw.json");
 
-// ── 从环境变量构建 channels.qq 配置 ─────────────────────────────────────────
+// ── 从环境变量构建 channels.napcat 配置 ─────────────────────────────────────────
 
 function parseIntList(raw) {
   if (!raw) return undefined;
@@ -89,6 +89,16 @@ if (silentKws)               qqEnv.silentKeywords   = silentKws;
 if (env.QQ_ANTI_RISK_MODE !== undefined)
                              qqEnv.antiRiskMode      = parseBool(env.QQ_ANTI_RISK_MODE, false);
 
+// ── 旁观模式 ─────────────────────────────────────────────────────────────────
+if (env.QQ_PASSIVE_MODE_ENABLED !== undefined) {
+  const passiveMode = {};
+  passiveMode.enabled = parseBool(env.QQ_PASSIVE_MODE_ENABLED, false);
+  const cooldownMs = parseIntOpt(env.QQ_PASSIVE_MODE_COOLDOWN_MS);
+  if (cooldownMs !== undefined) passiveMode.cooldownMs = cooldownMs;
+  if (env.QQ_PASSIVE_MODE_SYSTEM_PROMPT) passiveMode.systemPrompt = env.QQ_PASSIVE_MODE_SYSTEM_PROMPT;
+  qqEnv.passiveMode = passiveMode;
+}
+
 // ── 无可配置的 env vars → 退出，让 openclaw 自主加载现有配置 ───────────────────
 
 if (Object.keys(qqEnv).length === 0) {
@@ -109,17 +119,31 @@ if (fs.existsSync(CONFIG_PATH)) {
 }
 
 const forceReconfigure = parseBool(env.QQ_FORCE_RECONFIGURE, false);
-const qqExists = !!(config.channels?.qq?.wsUrl || config.channels?.qq?.reverseWsPort);
+const qqExists = !!(
+  config.channels?.napcat?.wsUrl ||
+  config.channels?.napcat?.reverseWsPort ||
+  config.channels?.napcat?.httpUrl
+);
 
 if (qqExists && !forceReconfigure) {
-  console.log("[openclaw-napcat] channels.qq 已存在，跳过环境变量写入（设 QQ_FORCE_RECONFIGURE=true 强制覆盖）");
+  console.log("[openclaw-napcat] channels.napcat 已存在，跳过环境变量写入（设 QQ_FORCE_RECONFIGURE=true 强制覆盖）");
   process.exit(0);
 }
 
 // ── 合并写入 ──────────────────────────────────────────────────────────────────
 
 config.channels            = config.channels ?? {};
-config.channels.qq         = { ...(config.channels.qq ?? {}), ...qqEnv };
+config.channels.napcat = { ...(config.channels.napcat ?? {}), ...qqEnv };
 
-fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + "\n", "utf8");
-console.log("[openclaw-napcat] channels.qq 已从环境变量写入 →", CONFIG_PATH);
+config.plugins             = config.plugins ?? {};
+config.plugins.entries     = config.plugins.entries ?? {};
+config.plugins.entries.napcat = { enabled: true };
+
+config.gateway             = config.gateway ?? {};
+if (!config.gateway.mode)  config.gateway.mode = "local";
+config.gateway.controlUi = { ...(config.gateway.controlUi ?? {}), allowInsecureAuth: true };
+
+const tmpPath = CONFIG_PATH + ".tmp";
+fs.writeFileSync(tmpPath, JSON.stringify(config, null, 2) + "\n", "utf8");
+fs.renameSync(tmpPath, CONFIG_PATH); // 同目录 rename 在 Linux 下是原子操作
+console.log("[openclaw-napcat] channels.napcat + plugins.entries.napcat + gateway.mode 已写入 →", CONFIG_PATH);

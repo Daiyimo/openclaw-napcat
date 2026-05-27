@@ -4,12 +4,12 @@
 
 ## 完整配置清单
 
-编辑 `~/.openclaw/openclaw.json`，在 `channels.qq` 下添加以下配置：
+编辑 `~/.openclaw/openclaw.json`，在 `channels.napcat` 下添加以下配置：
 
 ```json
 {
   "channels": {
-    "qq": {
+    "napcat": {
       "reverseWsPort": 3002,
       "httpUrl": "http://127.0.0.1:3000",
       "accessToken": "123456",
@@ -45,7 +45,7 @@
   },
   "plugins": {
     "entries": {
-      "qq": { "enabled": true }
+      "napcat": { "enabled": true }
     }
   }
 }

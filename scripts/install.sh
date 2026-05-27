@@ -52,16 +52,16 @@ echo "扩展目录: $EXT_DIR"
 
 # 2. 进入扩展目录，清理旧版本并克隆
 cd "$EXT_DIR"
-if [ -d "qq" ]; then
+if [ -d "napcat" ]; then
     echo "检测到旧版本，正在删除..."
-    rm -rf qq
+    rm -rf napcat
 fi
 
 echo "正在克隆插件..."
-git clone https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat.git qq \
-    || git clone https://github.com/Daiyimo/openclaw-napcat.git qq
+git clone https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat.git napcat \
+    || git clone https://github.com/Daiyimo/openclaw-napcat.git napcat
 
-cd qq
+cd napcat
 
 # 3. 安装依赖（含 devDependencies 以支持编译）
 echo "安装依赖..."
@@ -82,6 +82,6 @@ fi
 
 echo ""
 echo "=== 安装完成 ==="
-echo "插件路径: $EXT_DIR/qq"
+echo "插件路径: $EXT_DIR/napcat"
 echo "dist/src/index.js: 已生成 ✓"
 echo "请重启 openclaw 使插件生效"

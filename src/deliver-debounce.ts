@@ -16,6 +16,10 @@
 const DEFAULT_WINDOW_MS = 1500;
 const DEFAULT_MAX_WAIT_MS = 8000;
 const DEFAULT_SEPARATOR = "\n\n---\n\n";
+/** flush 失败后最大重试次数 */
+const MAX_FLUSH_RETRIES = 3;
+/** flush 重试间隔（ms），每次翻倍：2000 → 4000 → 8000 */
+const FLUSH_RETRY_BASE_MS = 2000;
 
 // ============ 类型定义 ============
 
@@ -66,6 +70,10 @@ export class DeliverDebouncer {
   private flushing = false;
   /** 已销毁标记 */
   private disposed = false;
+  /** 连续 flush 失败次数 */
+  private retryCount = 0;
+  /** flush 失败后的重试定时器 */
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     config: DeliverDebounceOptions | undefined,
@@ -167,11 +175,32 @@ export class DeliverDebouncer {
         );
       }
       await this.executor({ text: merged }, info);
+      this.retryCount = 0; // 成功后重置重试计数
     } catch (err) {
       // 归还缓冲内容，防止静默丢失
       this.bufferedTexts = [...texts, ...this.bufferedTexts];
       this.lastInfo = info;
-      this.log?.error(`${this.prefix} Flush executor failed, ${texts.length} message(s) restored to buffer: ${err}`);
+      this.retryCount++;
+      this.log?.error(`${this.prefix} Flush executor failed (attempt ${this.retryCount}/${MAX_FLUSH_RETRIES}), ${texts.length} message(s) restored to buffer: ${err}`);
+
+      // 调度重试：未 disposed 且未超过最大重试次数
+      if (!this.disposed && this.retryCount <= MAX_FLUSH_RETRIES) {
+        const retryDelay = FLUSH_RETRY_BASE_MS * Math.pow(2, this.retryCount - 1);
+        this.log?.info(`${this.prefix} Scheduling retry in ${retryDelay}ms`);
+        this.retryTimer = setTimeout(() => {
+          this.retryTimer = null;
+          this.flush().catch((retryErr) => {
+            this.log?.error(`${this.prefix} Retry flush failed: ${retryErr}`);
+          });
+        }, retryDelay);
+      } else if (this.retryCount > MAX_FLUSH_RETRIES) {
+        const lost = this.bufferedTexts.splice(0);
+        this.lastInfo = null;
+        this.log?.error(
+          `${this.prefix} Max retries (${MAX_FLUSH_RETRIES}) exhausted, ${lost.length} message(s) permanently lost`,
+        );
+      }
+
       throw err;
     } finally {
       this.flushing = false;
@@ -179,15 +208,27 @@ export class DeliverDebouncer {
   }
 
   /**
-   * 销毁：flush 剩余缓冲并清除定时器
+   * 销毁：flush 剩余缓冲并清除定时器。
+   * 若 flush 失败，记录丢失的消息并 log 错误（不再无限归还到已 disposed 的 buffer）。
    */
   async dispose(): Promise<void> {
     this.disposed = true;
     if (this.debounceTimer) { clearTimeout(this.debounceTimer); this.debounceTimer = null; }
     if (this.maxWaitTimer) { clearTimeout(this.maxWaitTimer); this.maxWaitTimer = null; }
+    if (this.retryTimer) { clearTimeout(this.retryTimer); this.retryTimer = null; }
     if (this.bufferedTexts.length > 0) {
       this.flushing = false; // 确保 flush 能执行
-      await this.flush();
+      this.retryCount = 0;  // dispose 阶段重置计数，给最后一次 flush 机会
+      try {
+        await this.flush();
+      } catch (err) {
+        // dispose 阶段 flush 失败：不再归还（因为 disposed=true 后无人可重试），
+        // 直接丢弃并记录，防止消息永久困在 buffer
+        const lost = this.bufferedTexts.splice(0);
+        this.log?.error(
+          `${this.prefix} Dispose flush failed, ${lost.length} message(s) lost: ${err}`,
+        );
+      }
     }
   }
 

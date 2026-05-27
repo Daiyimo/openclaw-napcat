@@ -60,18 +60,18 @@ function Write-Success {
     Write-Host "[SUCCESS] $Message" -ForegroundColor Green
 }
 
-Write-Host "=== OpenClaw QQ 插件卸载脚本 ===" -ForegroundColor White
+Write-Host "=== OpenClaw NapCat 插件卸载脚本 ===" -ForegroundColor White
 Write-Host ""
 
 # 2. 查找插件目录
 Write-Info "正在搜索 OpenClaw 插件目录..."
 
 $possiblePaths = @(
-    "${env:USERPROFILE}\.openclaw\extensions\qq",
-    "C:\openclaw\extensions\qq",
-    "D:\openclaw\extensions\qq",
-    "${env:ProgramFiles}\openclaw\extensions\qq",
-    "${env:ProgramFiles(x86)}\openclaw\extensions\qq"
+    "${env:USERPROFILE}\.openclaw\extensions\napcat",
+    "C:\openclaw\extensions\napcat",
+    "D:\openclaw\extensions\napcat",
+    "${env:ProgramFiles}\openclaw\extensions\napcat",
+    "${env:ProgramFiles(x86)}\openclaw\extensions\napcat"
 )
 
 # 尝试通过 where 命令找到 openclaw
@@ -79,7 +79,7 @@ try {
     $openclawPath = (Get-Command openclaw -ErrorAction SilentlyContinue).Source
     if ($openclawPath) {
         $openclawDir = Split-Path (Split-Path $openclawPath) -Parent
-        $nodeModulesPath = Join-Path $openclawDir "lib\node_modules\openclaw\extensions\qq"
+        $nodeModulesPath = Join-Path $openclawDir "lib\node_modules\openclaw\extensions\napcat"
         $possiblePaths += $nodeModulesPath
     }
 } catch {
@@ -188,16 +188,16 @@ Write-Info "清理配置文件..."
 try {
     $jsonContent = Get-Content $FoundConfig -Raw | ConvertFrom-Json
 
-    # 删除 plugins.entries.qq
-    if ($jsonContent.plugins -and $jsonContent.plugins.entries -and $jsonContent.plugins.entries.qq) {
-        $jsonContent.plugins.entries.PSObject.Properties.Remove('qq') | Out-Null
-        Write-Info "已删除 plugins.entries.qq"
+    # 删除 plugins.entries.napcat
+    if ($jsonContent.plugins -and $jsonContent.plugins.entries -and $jsonContent.plugins.entries.napcat) {
+        $jsonContent.plugins.entries.PSObject.Properties.Remove('napcat') | Out-Null
+        Write-Info "已删除 plugins.entries.napcat"
     }
 
-    # 删除 channels.qq
-    if ($jsonContent.channels -and $jsonContent.channels.qq) {
-        $jsonContent.channels.PSObject.Properties.Remove('qq') | Out-Null
-        Write-Info "已删除 channels.qq"
+    # 删除 channels.napcat
+    if ($jsonContent.channels -and $jsonContent.channels.napcat) {
+        $jsonContent.channels.PSObject.Properties.Remove('napcat') | Out-Null
+        Write-Info "已删除 channels.napcat"
     }
 
     # 保存配置
@@ -214,7 +214,7 @@ try {
 
     # 文本清理（简单替换）
     (Get-Content $FoundConfig) |
-        Where-Object { $_ -notmatch '"qq"\s*:' } |
+        Where-Object { $_ -notmatch '"napcat"\s*:' } |
         Set-Content $FoundConfig
 
     Write-Success "配置已进行基础清理，请手动检查"
@@ -246,8 +246,8 @@ if (Test-Path $FoundExtDir) {
 Write-Info "清理插件数据文件..."
 
 $dataPaths = @(
-    "${env:USERPROFILE}\.openclaw\data\qq",
-    "${env:USERPROFILE}\.openclaw\logs\qq-*.log"
+    "${env:USERPROFILE}\.openclaw\data\napcat",
+    "${env:USERPROFILE}\.openclaw\logs\napcat-*.log"
 )
 
 foreach ($path in $dataPaths) {
@@ -283,8 +283,8 @@ if (Test-Path $FoundExtDir) {
 # 检查配置文件中是否还有 qq 引用
 try {
     $configContent = Get-Content $FoundConfig -Raw
-    if ($configContent -match '"qq"') {
-        Write-Warn "配置文件中可能仍有 qq 相关配置"
+    if ($configContent -match '"napcat"') {
+        Write-Warn "配置文件中可能仍有 napcat 相关配置"
         Write-Info "请手动检查: $FoundConfig"
     } else {
         Write-Success "配置文件中无 qq 引用"
@@ -296,7 +296,7 @@ try {
 # 11. 输出总结
 Write-Host ""
 Write-Host "=== 卸载完成 ===" -ForegroundColor Green
-Write-Success "QQ 插件已成功卸载"
+Write-Success "NapCat 插件已成功卸载"
 Write-Host ""
 Write-Host "已执行的操作："
 Write-Host "  1. 停止 OpenClaw 网关服务"
@@ -307,7 +307,7 @@ Write-Host "  5. 删除日志和数据文件"
 Write-Host ""
 Write-Info "下一步："
 Write-Host "  - 重启 OpenClaw 网关（如果不再需要）"
-Write-Host "  - 如需重新安装，请运行 install_stepfun.ps1"
+Write-Host "  - 如需重新安装 QQ 插件，请参考 docs/DOCKER.md"
 Write-Host "  - 配置文件备份: $BackupConfig"
 Write-Host ""
 

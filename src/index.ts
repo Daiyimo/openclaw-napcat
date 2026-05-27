@@ -11,9 +11,9 @@ export type { KnownUser } from "./known-users.js";
 // 注意：3.31 的 register 会收到 api.registrationMode，
 // setup-only / cli-metadata 模式下不需要初始化 runtime。
 const plugin = {
-  id: "qq",
-  name: "QQ (OneBot)",
-  description: "QQ channel plugin via OneBot v11",
+  id: "napcat",
+  name: "NapCat (OneBot 11)",
+  description: "QQ channel plugin via OneBot v11 (NapCat)",
   configSchema: emptyPluginConfigSchema(),
   register(api: OpenClawPluginApi) {
     // 仅在完整注册模式下初始化 runtime 单例

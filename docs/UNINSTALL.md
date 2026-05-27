@@ -1,6 +1,6 @@
 # 插件卸载指南
 
-本文档说明如何卸载 OpenClaw QQ 插件。
+本文档说明如何卸载 OpenClaw NapCat 插件。
 
 ## 🚀 快速卸载
 
@@ -56,17 +56,17 @@ sudo pkill -f "openclaw gateway"
 
 ```bash
 # 标准位置
-rm -rf /usr/lib/node_modules/openclaw/dist/extensions/qq
+rm -rf /usr/lib/node_modules/openclaw/dist/extensions/napcat
 # 或 Windows
-rmdir /s /q "%USERPROFILE%\.openclaw\extensions\qq"
+rmdir /s /q "%USERPROFILE%\.openclaw\extensions\napcat"
 ```
 
 ### **步骤 3：清理配置**
 
 编辑 `~/.openclaw/openclaw.json`：
 
-1. 删除 `plugins.entries.qq` 项
-2. 删除 `channels.qq` 整个对象
+1. 删除 `plugins.entries.napcat` 项
+2. 删除 `channels.napcat` 整个对象
 
 示例：
 ```json
@@ -74,12 +74,12 @@ rmdir /s /q "%USERPROFILE%\.openclaw\extensions\qq"
   // 删除前
   "plugins": {
     "entries": {
-      "qq": { "enabled": true },  ← 删除这行
+      "napcat": { "enabled": true },  ← 删除这行
       "other-plugin": { ... }
     }
   },
   "channels": {
-    "qq": { ... },  ← 删除整个 "qq" 对象
+    "napcat": { ... },  ← 删除整个 "napcat" 对象
     "other-channel": { ... }
   }
 }
@@ -88,8 +88,8 @@ rmdir /s /q "%USERPROFILE%\.openclaw\extensions\qq"
 ### **步骤 4：删除数据文件（可选）**
 
 ```bash
-rm -rf ~/.openclaw/data/qq
-rm -f ~/.openclaw/logs/qq-*.log
+rm -rf ~/.openclaw/data/napcat
+rm -f ~/.openclaw/logs/napcat-*.log
 ```
 
 ### **步骤 5：重启网关**
@@ -105,11 +105,11 @@ sudo openclaw gateway
 ```bash
 # 查看插件列表
 openclaw plugins list
-# 不应再显示 "qq" 插件
+# 不应再显示 "napcat" 插件
 
 # 检查状态
 openclaw status
-# 不应再显示 qq 通道信息
+# 不应再显示 napcat 通道信息
 ```
 
 ---
@@ -134,12 +134,12 @@ openclaw status
 **解决**：手动指定路径，或在运行脚本时输入正确的插件路径。
 
 常见位置：
-- Linux/macOS: `/usr/lib/node_modules/openclaw/dist/extensions/qq`
-- Windows: `C:\Users\<用户名>\.openclaw\extensions\qq`
+- Linux/macOS: `/usr/lib/node_modules/openclaw/dist/extensions/napcat`
+- Windows: `C:\Users\<用户名>\.openclaw\extensions\napcat`
 
-### **问题：配置文件中的 qq 引用未完全删除**
+### **问题：配置文件中的 napcat 引用未完全删除**
 
-**解决**：手动编辑配置文件，搜索并删除所有 `"qq"` 相关项。
+**解决**：手动编辑配置文件，搜索并删除所有 `"napcat"` 相关项。
 
 推荐安装 `jq` 工具以获得更精确的 JSON 处理：
 ```bash
@@ -162,12 +162,12 @@ sudo yum install jq
 sudo pkill -f "openclaw gateway"
 
 # 2. 运行卸载脚本
-cd /usr/lib/node_modules/openclaw/dist/extensions/qq  # 进入插件目录
+cd /usr/lib/node_modules/openclaw/dist/extensions/napcat  # 进入插件目录
 ./scripts/uninstall.sh
 
 # 3. 如果脚本提示找不到配置，手动指定
 # 在脚本提示时输入：
-# 插件路径: /usr/lib/node_modules/openclaw/dist/extensions/qq
+# 插件路径: /usr/lib/node_modules/openclaw/dist/extensions/napcat
 # 配置路径: /home/用户名/.openclaw/openclaw.json
 
 # 4. 重启网关
@@ -183,8 +183,8 @@ sudo openclaw gateway
 ```bash
 # Linux/macOS
 cd /usr/lib/node_modules/openclaw/dist/extensions
-git clone https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat.git qq
-cd qq
+git clone https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat.git napcat
+cd napcat
 pnpm install
 
 # 配置
