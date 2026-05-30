@@ -99,4 +99,61 @@ describe("sendText — passive mode silent interception", () => {
     expect(deps.passiveMode.markDone).toHaveBeenCalled();
     expect(deps.passiveMode.markSilent).not.toHaveBeenCalled();
   });
+
+  it("intercepts NO_REPLY with trailing punctuation (NO_REPLY.)", async () => {
+    const client = makeClient();
+    const deps = makeDeps({ getClient: () => client });
+    const result = await sendText(
+      { to: "group:88888", text: "NO_REPLY." },
+      deps,
+    );
+    expect(result).toEqual({ channel: "napcat", sent: true });
+    expect(client.sendGroupMsg).not.toHaveBeenCalled();
+    expect(deps.passiveMode.markSilent).toHaveBeenCalled();
+  });
+
+  it("intercepts NO_REPLY with exclamation mark (NO_REPLY!)", async () => {
+    const client = makeClient();
+    const deps = makeDeps({ getClient: () => client });
+    const result = await sendText(
+      { to: "group:88888", text: "NO_REPLY!" },
+      deps,
+    );
+    expect(result).toEqual({ channel: "napcat", sent: true });
+    expect(client.sendGroupMsg).not.toHaveBeenCalled();
+  });
+
+  it("intercepts NO_REPLY with space separator (NO REPLY)", async () => {
+    const client = makeClient();
+    const deps = makeDeps({ getClient: () => client });
+    const result = await sendText(
+      { to: "group:88888", text: "NO REPLY" },
+      deps,
+    );
+    expect(result).toEqual({ channel: "napcat", sent: true });
+    expect(client.sendGroupMsg).not.toHaveBeenCalled();
+  });
+
+  it("intercepts NO_REPLY with underscore (NO_REPLY)", async () => {
+    const client = makeClient();
+    const deps = makeDeps({ getClient: () => client });
+    const result = await sendText(
+      { to: "group:88888", text: "NO_REPLY" },
+      deps,
+    );
+    expect(result).toEqual({ channel: "napcat", sent: true });
+    expect(client.sendGroupMsg).not.toHaveBeenCalled();
+  });
+
+  it("does NOT intercept NO_REPLY as substring (say NO_REPLY please)", async () => {
+    const client = makeClient();
+    const deps = makeDeps({ getClient: () => client });
+    const result = await sendText(
+      { to: "group:88888", text: "say NO_REPLY please" },
+      deps,
+    );
+    expect(result.sent).toBe(true);
+    expect(client.sendGroupMsg).toHaveBeenCalled();
+    expect(deps.passiveMode.markSilent).not.toHaveBeenCalled();
+  });
 });
