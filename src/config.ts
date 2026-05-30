@@ -17,6 +17,7 @@ export const QQConfigSchema = z.object({
   allowedGroups: z.array(z.number().int().positive()).optional().describe("Whitelist of group IDs allowed to interact with"),
   blockedUsers: z.array(z.number().int().positive()).optional().describe("Blacklist of user IDs to ignore"),
   ignoreSenderBot: z.boolean().optional().default(true).describe("Ignore messages from other bot accounts (sender.bot=true) to prevent bot-to-bot loops. When true, bot messages are dropped and passiveMode.botSuppressionMs takes effect; when false, bot messages pass through and botSuppressionMs has no effect"),
+  knownBotIds: z.array(z.number().int().positive()).optional().describe("Known bot QQ IDs for cross-server bot-to-bot recognition. When set, messages from these IDs are treated as bot messages regardless of sender.bot field. Use this when bots are deployed on different servers and NapCat's sender.bot flag is unreliable"),
   /** 不可见 bot 签名（追加到发出的消息末尾，用于友军识别）。默认零宽字符序列，用户不可见 */
   botSignature: z.string().optional().default("​‌‍").describe("Invisible signature appended to outgoing messages for bot-to-bot recognition. Default: zero-width characters"),
   historyLimit: z.number().int().min(0).max(100).optional().default(5).describe("Number of history messages to include in context"),
