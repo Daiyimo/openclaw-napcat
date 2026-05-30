@@ -127,7 +127,7 @@ export function installMessageHandler(
         return;
       }
       if (String(event.user_id) === String(selfId)) {
-        console.log(`[napcat-QQ][debug-self-filter] dropping self message event.user_id=${event.user_id} selfId=${selfId}`);
+        if (config.debug) console.log(`[napcat-QQ][debug-self-filter] dropping self message event.user_id=${event.user_id} selfId=${selfId}`);
         return;
       }
 
@@ -164,17 +164,20 @@ export function installMessageHandler(
       // 三层检测：sender.bot 字段 → 自维护 bot ID 缓存 → 不可见签名
       if (isGroup) {
         const sigMatch = config.botSignature && text.includes(config.botSignature);
-        const knownBotMatch = knownBotUserIds.has(String(userId));
+        const userIdStr = userId != null ? String(userId) : null;
+        const knownBotMatch = userIdStr !== null && knownBotUserIds.has(userIdStr);
         const isBot = event.sender?.bot || knownBotMatch || sigMatch;
-        console.log(
-          `[napcat-QQ][debug-bot-filter] userId=${userId} sender.bot=${event.sender?.bot} ` +
-            `knownBot=${knownBotMatch} sig=${sigMatch} isBot=${isBot} ` +
-            `text="${text.slice(0, 80)}"`,
-        );
+        if (config.debug) {
+          console.log(
+            `[napcat-QQ][debug-bot-filter] userId=${userId} sender.bot=${event.sender?.bot} ` +
+              `knownBot=${knownBotMatch} sig=${sigMatch} isBot=${isBot} ` +
+              `text="${text.slice(0, 80)}"`,
+          );
+        }
         if (isBot) {
           // 通过签名检测到的 bot 自动加入缓存，后续无需签名也能识别
           if (sigMatch || event.sender?.bot) {
-            knownBotUserIds.add(String(userId));
+            if (userIdStr !== null) knownBotUserIds.add(userIdStr);
           }
           if (config.ignoreSenderBot !== false) passiveMode.markBotActive(`group:${groupId}`);
           return;
@@ -302,7 +305,7 @@ export function installMessageHandler(
       if (checkMention) {
         const effectiveSelfId = client.getSelfId() ?? event.self_id;
         if (!effectiveSelfId) return;
-        isMentioned = detectMention(event, effectiveSelfId, text, repliedMsg);
+        isMentioned = detectMention(event, effectiveSelfId, text, repliedMsg, config.debug);
       }
 
       if (!isTriggered) {
@@ -417,12 +420,14 @@ export function installMessageHandler(
             else if (/睡|困|累|休息|晚安|倦/.test(t)) emojiId = "8";
           }
 
-          console.log(
-            `[napcat-QQ][debug-reaction] msgId=${event.message_id} emojiId=${emojiId} ` +
-              `userId=${event.user_id} selfId=${selfId} isBot=${event.sender?.bot} text="${text.slice(0, 50)}"`,
-          );
+          if (config.debug) {
+            console.log(
+              `[napcat-QQ][debug-reaction] msgId=${event.message_id} emojiId=${emojiId} ` +
+                `userId=${event.user_id} selfId=${selfId} isBot=${event.sender?.bot} text="${text.slice(0, 50)}"`,
+            );
+          }
           await client.setMsgEmojiLike(event.message_id, emojiId);
-          console.log(`[napcat-QQ][debug-reaction] success msgId=${event.message_id}`);
+          if (config.debug) console.log(`[napcat-QQ][debug-reaction] success msgId=${event.message_id}`);
         } catch (err) {
           console.error(`[napcat-QQ][debug-reaction] FAILED msgId=${event.message_id} err=`, err);
         }
@@ -432,9 +437,11 @@ export function installMessageHandler(
         event.message_id &&
         (String(event.user_id) === String(selfId) || event.sender?.bot)
       ) {
-        console.log(
-          `[napcat-QQ][debug-reaction] SKIP self/bot msgId=${event.message_id} userId=${event.user_id} selfId=${selfId} isBot=${event.sender?.bot}`,
-        );
+        if (config.debug) {
+          console.log(
+            `[napcat-QQ][debug-reaction] SKIP self/bot msgId=${event.message_id} userId=${event.user_id} selfId=${selfId} isBot=${event.sender?.bot}`,
+          );
+        }
       }
 
       // ── 入站频控 & 静默关键词过滤 ────────────────────
@@ -466,7 +473,9 @@ export function installMessageHandler(
         if (storeConfig.silentKeywords?.length) {
           const body = cleanCQCodes(text);
           for (const kw of storeConfig.silentKeywords) {
-            if (body.includes(kw)) {
+            // 词边界匹配：ww 匹配 "ww签到" 但不匹配 "www"
+            const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            if (new RegExp(`\\b${escaped}\\b`).test(body)) {
               console.log(
                 `[napcat-QQ][silent_keyword] matched "${kw}", dropping message from ${fromId}`,
               );

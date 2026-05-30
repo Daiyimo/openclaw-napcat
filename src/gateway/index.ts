@@ -5,5 +5,5 @@
  */
 
 export { installConnectHandler, type ConnectionResult } from "./connection.js";
-export { installMessageHandler } from "./inbound.js";
+export { installMessageHandler, resetKnownBotUserIds } from "./inbound.js";
 export { startAccount } from "./lifecycle.js";

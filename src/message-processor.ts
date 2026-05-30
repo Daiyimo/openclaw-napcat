@@ -145,9 +145,10 @@ export function detectMention(
   selfId: number | string,
   text: string,
   repliedMsg?: { sender?: { user_id?: any } } | null,
+  debug = false,
 ): boolean {
   // ── 诊断日志：打印所有 at 段和关键字段 ──
-  if (Array.isArray(event.message)) {
+  if (debug && Array.isArray(event.message)) {
     const atSegs = event.message.filter((s) => s.type === "at");
     if (atSegs.length > 0) {
       console.log(
@@ -161,18 +162,18 @@ export function detectMention(
         if (
           String((s as any).data?.qq) === String(selfId) || (s as any).data?.qq === "all"
         ) {
-          console.log(`[napcat-QQ][debug-mention] MATCH at segment qq=${(s as any).data?.qq} selfId=${selfId}`);
+          if (debug) console.log(`[napcat-QQ][debug-mention] MATCH at segment qq=${(s as any).data?.qq} selfId=${selfId}`);
           return true;
         }
       }
     }
   } else if (text.includes(`[CQ:at,qq=${selfId}]`)) {
-    console.log(`[napcat-QQ][debug-mention] MATCH text fallback selfId=${selfId}`);
+    if (debug) console.log(`[napcat-QQ][debug-mention] MATCH text fallback selfId=${selfId}`);
     return true;
   }
   if (repliedMsg?.sender?.user_id !== undefined) {
     if (String(repliedMsg.sender.user_id) === String(selfId)) {
-      console.log(`[napcat-QQ][debug-mention] MATCH reply sender userId=${repliedMsg.sender.user_id} selfId=${selfId}`);
+      if (debug) console.log(`[napcat-QQ][debug-mention] MATCH reply sender userId=${repliedMsg.sender.user_id} selfId=${selfId}`);
       return true;
     }
   }
