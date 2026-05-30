@@ -114,7 +114,10 @@ export function installMessageHandler(
         );
         return;
       }
-      if (String(event.user_id) === String(selfId)) return;
+      if (String(event.user_id) === String(selfId)) {
+        console.log(`[napcat-QQ][debug-self-filter] dropping self message event.user_id=${event.user_id} selfId=${selfId}`);
+        return;
+      }
 
       // 消息去重
       if (config.enableDeduplication !== false && event.message_id) {
