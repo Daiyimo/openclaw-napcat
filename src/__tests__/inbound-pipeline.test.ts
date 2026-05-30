@@ -268,6 +268,52 @@ describe("installMessageHandler — inbound pipeline integration (12 cases)", ()
     expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
   });
 
+  // 3b-2. @mention of OTHER user does NOT trigger even with keyword trigger
+  it("3b-2. group message @mentioning other user does not trigger even with keyword match", async () => {
+    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+      requireMention: true,
+      keywordTriggers: ["wake up"],
+    });
+    installMessageHandler(client, ctx);
+
+    client.emit(
+      "message",
+      makeGroupEvent({
+        message: [
+          { type: "at", data: { qq: "99999" } },  // @ someone else
+          { type: "text", data: { text: " wake up" } },
+        ],
+        raw_message: "[CQ:at,qq=99999] wake up",
+      }),
+    );
+    await flush();
+
+    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+  });
+
+  // 3b-3. @mention of OTHER user does NOT trigger even with passive mode enabled
+  it("3b-3. group message @mentioning other user does not trigger even with passive mode enabled", async () => {
+    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+      requireMention: true,
+      passiveMode: { enabled: true, cooldownMs: 1000, minIntervalMs: 0 },
+    });
+    installMessageHandler(client, ctx);
+
+    client.emit(
+      "message",
+      makeGroupEvent({
+        message: [
+          { type: "at", data: { qq: "99999" } },  // @ someone else
+          { type: "text", data: { text: " hello" } },
+        ],
+        raw_message: "[CQ:at,qq=99999] hello",
+      }),
+    );
+    await flush();
+
+    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+  });
+
   // 3c. Message with [BOT:ID] signature is identified as bot message
   it("3c. group message containing [BOT:99999] signature is dropped as bot message", async () => {
     const { client, ctx, dispatchReplyFromConfig } = makeCtx({ requireMention: true });
