@@ -33,6 +33,18 @@ import { MessageSender } from "../message-sender.js";
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
+// ── 友军识别：自维护 bot ID 缓存 ──────────────────────────────
+// 通过签名检测自动发现 bot，无需手动配置。检测到签名后记录发送者，
+// 后续即使没有签名也能识别。
+const knownBotUserIds = new Set<string>();
+
+/**
+ * 重置 bot 识别缓存（测试用）。
+ */
+export function resetKnownBotUserIds(): void {
+  knownBotUserIds.clear();
+}
+
 /**
  * 安装 message 事件处理器。
  */
@@ -149,19 +161,21 @@ export function installMessageHandler(
         return;
 
       // 友军识别：bot 消息记录活跃时间后跳过
-      // 三层检测：sender.bot 字段 → knownBotIds 手动列表 → 不可见签名
+      // 三层检测：sender.bot 字段 → 自维护 bot ID 缓存 → 不可见签名
       if (isGroup) {
         const sigMatch = config.botSignature && text.includes(config.botSignature);
-        const knownBotMatch = config.knownBotIds?.length
-          ? config.knownBotIds.some((id) => String(id) === String(userId))
-          : false;
+        const knownBotMatch = knownBotUserIds.has(String(userId));
         const isBot = event.sender?.bot || knownBotMatch || sigMatch;
         console.log(
           `[napcat-QQ][debug-bot-filter] userId=${userId} sender.bot=${event.sender?.bot} ` +
-            `knownBotMatch=${knownBotMatch} sigMatch=${sigMatch} isBot=${isBot} ` +
+            `knownBot=${knownBotMatch} sig=${sigMatch} isBot=${isBot} ` +
             `text="${text.slice(0, 80)}"`,
         );
         if (isBot) {
+          // 通过签名检测到的 bot 自动加入缓存，后续无需签名也能识别
+          if (sigMatch || event.sender?.bot) {
+            knownBotUserIds.add(String(userId));
+          }
           if (config.ignoreSenderBot !== false) passiveMode.markBotActive(`group:${groupId}`);
           return;
         }
