@@ -32,7 +32,7 @@ import {
   buildBodyWithReply,
 } from "../message-processor.js";
 import { MessageSender } from "../message-sender.js";
-import { BOT_SIGNATURE_PATTERN, BOT_SIGNATURE_ZW_PATTERN } from "../constants.js";
+import { BOT_SIGNATURE_PATTERN, BOT_SIGNATURE_ZW_PATTERN, ERROR_NOTIFY_SLEEP_MS } from "../constants.js";
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -311,7 +311,9 @@ export function installMessageHandler(
               )
               .join("\n");
           }
-        } catch {}
+        } catch (e) {
+          console.debug(`[napcat-QQ] Failed to fetch group history for ${groupId}:`, e);
+        }
       }
 
       // ── @其他人检测：跳过所有触发逻辑 ────────────────────────
@@ -644,7 +646,7 @@ export function installMessageHandler(
             `错误: ${err instanceof Error ? err.message : String(err)}`;
           for (const adminId of config.admins) {
             await client.sendPrivateMsg(adminId, errorMsg);
-            await sleep(500);
+            await sleep(ERROR_NOTIFY_SLEEP_MS);
           }
         } catch (notifyErr) {
           console.warn("[napcat-QQ] Failed to send error notification:", notifyErr);

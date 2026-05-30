@@ -39,7 +39,7 @@ export function installConnectHandler(
       if (info?.user_id) {
         client.setSelfId(info.user_id);
         // 存入 account config，供 outbound.sendText 生成友军签名使用
-        (ctx.account.config as any)._selfId = info.user_id;
+        ctx.account.config._selfId = info.user_id;
       }
       if (info?.nickname)
         console.log(`[napcat-QQ] Logged in as: ${info.nickname} (${info.user_id})`);
@@ -58,7 +58,7 @@ export function installConnectHandler(
       // 预注册群路由的局部函数
       const registerGroupRoute = async (groupId: string | number) => {
         const storePath = ctx.channelRuntime.session.resolveStorePath(
-          (ctx.cfg as any).session?.store,
+          ctx.cfg.session?.store,
           { agentId: "default" },
         );
         const groupFromId = `group:${groupId}`;
@@ -109,7 +109,9 @@ export function installConnectHandler(
             const groups = await client.getGroupList();
             await Promise.allSettled(groups.map((g) => registerGroupRoute(g.group_id)));
             console.log(`[napcat-QQ] Refreshed ${groups.length} group session routes`);
-          } catch {}
+          } catch (err) {
+            console.warn(`[napcat-QQ] Group route refresh failed: ${err}`);
+          }
         }, GROUP_ROUTE_REFRESH_INTERVAL_MS);
       }
     } catch (err) {
