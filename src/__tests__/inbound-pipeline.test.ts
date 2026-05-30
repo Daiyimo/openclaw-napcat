@@ -395,4 +395,83 @@ describe("installMessageHandler — inbound pipeline integration (12 cases)", ()
 
     expect(ctx.knownGroupIds.has(String(GROUP_ID))).toBe(true);
   });
+
+  // 13. Bot sender (sender.bot=true) in group is filtered by default
+  it("13. group message from bot sender (sender.bot=true) is dropped", async () => {
+    const { client, ctx, dispatchReplyFromConfig } = makeCtx({ requireMention: false });
+    installMessageHandler(client, ctx);
+
+    client.emit(
+      "message",
+      makeGroupEvent({
+        sender: { user_id: 99999, nickname: "OtherBot", bot: true },
+        user_id: 99999,
+      }),
+    );
+    await flush();
+
+    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+  });
+
+  // 14. Bot sender in private chat is NOT filtered (only group)
+  it("14. private message from bot sender is NOT filtered", async () => {
+    const { client, ctx, dispatchReplyFromConfig } = makeCtx();
+    installMessageHandler(client, ctx);
+
+    client.emit(
+      "message",
+      makePrivateEvent({
+        sender: { user_id: 99999, nickname: "OtherBot", bot: true },
+        user_id: 99999,
+      }),
+    );
+
+    await vi.waitFor(() => expect(dispatchReplyFromConfig).toHaveBeenCalledOnce(), {
+      timeout: 2000,
+    });
+  });
+
+  // 15. ignoreSenderBot=false: bot message still returns early, but does NOT mark bot active
+  it("15. bot message always returns early; markBotActive only called when ignoreSenderBot=true", async () => {
+    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+      requireMention: false,
+      ignoreSenderBot: false,
+    });
+    installMessageHandler(client, ctx);
+
+    client.emit(
+      "message",
+      makeGroupEvent({
+        sender: { user_id: 99999, nickname: "OtherBot", bot: true },
+        user_id: 99999,
+      }),
+    );
+    await flush();
+
+    // Bot messages always return before dispatch
+    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+  });
+
+  // 16. Bot message with ignoreSenderBot=true records bot activity via markBotActive
+  it("16. bot message with ignoreSenderBot=true calls markBotActive", async () => {
+    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+      requireMention: false,
+      ignoreSenderBot: true,
+    });
+    const markSpy = vi.spyOn(ctx.passiveMode, "markBotActive");
+    installMessageHandler(client, ctx);
+
+    client.emit(
+      "message",
+      makeGroupEvent({
+        sender: { user_id: 99999, nickname: "OtherBot", bot: true },
+        user_id: 99999,
+        group_id: 88888,
+      }),
+    );
+    await flush();
+
+    expect(markSpy).toHaveBeenCalledWith("group:88888");
+    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+  });
 });

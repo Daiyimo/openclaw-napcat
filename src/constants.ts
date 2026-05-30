@@ -38,6 +38,15 @@ export const PASSIVE_COOLDOWN_MAX_AGE_MS = 3_600_000;
 /** 群路由定时刷新间隔（ms）。每 6 小时同步新加入/退出的群 */
 export const GROUP_ROUTE_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1_000;
 
+// === 友军识别 ===
+
+/**
+ * 不可见 bot 签名（零宽字符序列）。
+ * 追加到发出的消息末尾，接收方检测此签名判断是否为友军 bot。
+ * ​ = zero-width space, ‌ = zero-width non-joiner, ‍ = zero-width joiner
+ */
+export const DEFAULT_BOT_SIGNATURE = "​‌‍";
+
 // === 投递 ===
 
 /** 向多个管理员发错误通知时的发送间隔（ms），避免触发 QQ 发送频率限制 */

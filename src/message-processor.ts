@@ -224,6 +224,8 @@ export function buildBodyWithReply(opts: {
   historyContext: string;
   isPassiveMode: boolean;
   passivePrompt: string | undefined;
+  /** 不可见 bot 签名，发送给 AI 前剥离 */
+  botSignature?: string;
 }): string {
   const { text, repliedMsg, systemPrompt, historyContext, isPassiveMode, passivePrompt } = opts;
 
@@ -246,7 +248,11 @@ export function buildBodyWithReply(opts: {
     : "";
 
   const cleanText = cleanCQCodes(text);
-  const bodyWithReply = cleanText + replySuffix;
+  // 剥离不可见 bot 签名，防止 AI 学到签名并复现
+  const strippedText = opts.botSignature
+    ? cleanText.replaceAll(opts.botSignature, "")
+    : cleanText;
+  const bodyWithReply = strippedText + replySuffix;
 
   let systemBlock = "";
   if (systemPrompt) systemBlock += `<system>${systemPrompt}</system>\n\n`;
