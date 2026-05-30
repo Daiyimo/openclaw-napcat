@@ -331,20 +331,37 @@ export interface ExtractedMedia {
 
 /**
  * 从纯文本中提取媒体 URL，按扩展名分类为 image / video / file。
- * 仅匹配带有文件扩展名的 URL，普通网页链接不会被提取。
+ *
+ * 支持两种格式：
+ * 1. Markdown 图片语法：`![alt](url)` — 无条件识别为 image
+ * 2. 裸 URL 带文件扩展名：普通网页链接不会被提取
  */
 export function extractMediaUrlsFromText(text: string): ExtractedMedia[] {
   const results: ExtractedMedia[] = [];
   const seen = new Set<string>();
+
+  // ── 1. Markdown 图片语法 ──
+  const mdImageRe = /!\[([^\]]*)\]\(([^)]+)\)/g;
+  let mdMatch: RegExpExecArray | null;
+  while ((mdMatch = mdImageRe.exec(text)) !== null) {
+    let url = mdMatch[2].trim();
+    url = url.replace(/[.,;!?:)\]}>]+$/, "");
+    if (seen.has(url)) continue;
+    seen.add(url);
+    let pathname: string;
+    try { pathname = new URL(url).pathname; } catch { pathname = url.split("?")[0]; }
+    const name = decodeURIComponent(pathname.split("/").pop() || "image");
+    results.push({ url, type: "image", name });
+  }
+
+  // ── 2. 裸 URL（带媒体扩展名） ──
   let match: RegExpExecArray | null;
   const re = new RegExp(TEXT_URL_REGEX.source, "gi");
   while ((match = re.exec(text)) !== null) {
     let url = match[0];
-    // 去除尾部标点
     url = url.replace(/[.,;!?:)\]}>]+$/, "");
     if (seen.has(url)) continue;
 
-    // 取 URL pathname 部分来判断扩展名（忽略 query string）
     let pathname: string;
     try {
       pathname = new URL(url).pathname;

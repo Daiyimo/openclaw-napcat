@@ -266,4 +266,32 @@ describe("extractMediaUrlsFromText", () => {
     const result = extractMediaUrlsFromText("https://a.com/photo.jpg");
     expect(result[0].name).toBe("photo.jpg");
   });
+
+  // ── Markdown 图片语法 ──
+  it("extracts markdown image syntax", () => {
+    const result = extractMediaUrlsFromText("![alt text](https://example.com/img.png)");
+    expect(result).toHaveLength(1);
+    expect(result[0].url).toBe("https://example.com/img.png");
+    expect(result[0].type).toBe("image");
+  });
+
+  it("extracts markdown image without alt text", () => {
+    const result = extractMediaUrlsFromText("![](https://a.com/photo.jpg)");
+    expect(result).toHaveLength(1);
+    expect(result[0].type).toBe("image");
+  });
+
+  it("extracts both markdown and bare URL images", () => {
+    const text = "![md](https://a.com/md.png) and https://b.com/bare.jpg";
+    const result = extractMediaUrlsFromText(text);
+    expect(result).toHaveLength(2);
+    expect(result[0].url).toBe("https://a.com/md.png");
+    expect(result[1].url).toBe("https://b.com/bare.jpg");
+  });
+
+  it("does not duplicate URLs found in both markdown and bare form", () => {
+    const text = "![img](https://a.com/img.png) and https://a.com/img.png";
+    const result = extractMediaUrlsFromText(text);
+    expect(result).toHaveLength(1);
+  });
 });
