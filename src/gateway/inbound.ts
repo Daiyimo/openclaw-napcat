@@ -149,13 +149,16 @@ export function installMessageHandler(
         return;
 
       // 友军识别：bot 消息记录活跃时间后跳过
-      // 检测 sender.bot 字段 + 不可见签名（零宽字符）
+      // 三层检测：sender.bot 字段 → knownBotIds 手动列表 → 不可见签名
       if (isGroup) {
         const sigMatch = config.botSignature && text.includes(config.botSignature);
-        const isBot = event.sender?.bot || sigMatch;
+        const knownBotMatch = config.knownBotIds?.length
+          ? config.knownBotIds.some((id) => String(id) === String(userId))
+          : false;
+        const isBot = event.sender?.bot || knownBotMatch || sigMatch;
         console.log(
-          `[napcat-QQ][debug-bot-filter] userId=${userId} sender=${JSON.stringify(event.sender)} ` +
-            `sender.bot=${event.sender?.bot} sigMatch=${sigMatch} isBot=${isBot} ` +
+          `[napcat-QQ][debug-bot-filter] userId=${userId} sender.bot=${event.sender?.bot} ` +
+            `knownBotMatch=${knownBotMatch} sigMatch=${sigMatch} isBot=${isBot} ` +
             `text="${text.slice(0, 80)}"`,
         );
         if (isBot) {
