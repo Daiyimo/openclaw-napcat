@@ -536,10 +536,11 @@ export function installMessageHandler(
       });
 
       // ── 下载入站图片到本地 ──
+      // 框架要求 MediaUrls 和 MediaPaths 长度一致，同时传两个字段
       const imageUrls = extractImageUrls(event.message);
-      let mediaResult: { localPaths: string[]; localTypes: string[]; remoteUrls: string[] } = { localPaths: [], localTypes: [], remoteUrls: [] };
+      let downloaded: { path: string; type: string }[] = [];
       if (imageUrls.length > 0) {
-        mediaResult = await downloadImages(imageUrls);
+        downloaded = await downloadImages(imageUrls);
       }
 
       const ctxPayload = channelRuntime.reply.finalizeInboundContext({
@@ -559,15 +560,13 @@ export function installMessageHandler(
         OriginatingChannel: "qq",
         OriginatingTo: fromId,
         CommandAuthorized: isAdmin || (!isGroup && !isGuild),
-        ...(mediaResult.localPaths.length > 0 ? {
-          MediaPaths: mediaResult.localPaths,
-          MediaPath: mediaResult.localPaths[0],
-          MediaTypes: mediaResult.localTypes,
-          MediaType: mediaResult.localTypes[0],
-        } : {}),
-        ...(mediaResult.remoteUrls.length > 0 ? {
-          MediaUrls: mediaResult.remoteUrls,
-          MediaUrl: mediaResult.remoteUrls[0],
+        ...(downloaded.length > 0 ? {
+          MediaPaths: downloaded.map(d => d.path),
+          MediaPath: downloaded[0].path,
+          MediaTypes: downloaded.map(d => d.type),
+          MediaType: downloaded[0].type,
+          MediaUrls: imageUrls,
+          MediaUrl: imageUrls[0],
         } : {}),
         ...(replyMsgId && {
           ReplyToId: replyMsgId,

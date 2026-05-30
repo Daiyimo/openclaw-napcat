@@ -313,27 +313,20 @@ function guessImageExtension(url: string, contentType: string | null): string {
 }
 
 /**
- * 下载图片到本地目录，返回本地路径和远程 URL 的分类结果。
+ * 下载图片到本地目录，按原始顺序返回结果。
  *
- * 用于入站管线：将 QQ 图片 CDN URL 下载到本地，
- * 以 MediaPaths + MediaTypes 传递给 OpenClaw 框架供 AI 读取。
- * 下载失败的 URL 保留为 MediaUrls 作为回退。
+ * 每个条目：成功 = { path: 本地路径, type: MIME 类型 }，失败 = { path: 原始 URL, type: "image/jpeg" }。
+ * 返回数组长度与输入 urls 一致，保持顺序，便于直接作为 MediaPaths 使用。
  */
-export interface DownloadResult {
-  /** 成功下载的本地文件路径 */
-  localPaths: string[];
-  /** 对应的 MIME 类型 */
-  localTypes: string[];
-  /** 下载失败的远程 URL */
-  remoteUrls: string[];
+export interface DownloadedImage {
+  path: string;
+  type: string;
 }
 
-export async function downloadImages(urls: string[]): Promise<DownloadResult> {
+export async function downloadImages(urls: string[]): Promise<DownloadedImage[]> {
   console.log(`[napcat-QQ][downloadImages] downloading ${urls.length} image(s):`, urls.map(u => u.slice(0, 100)));
   const downloadDir = getQQBotDataDir("downloads");
-  const localPaths: string[] = [];
-  const localTypes: string[] = [];
-  const remoteUrls: string[] = [];
+  const results: DownloadedImage[] = [];
 
   for (const url of urls) {
     try {
@@ -343,7 +336,7 @@ export async function downloadImages(urls: string[]): Promise<DownloadResult> {
       });
       if (!resp.ok) {
         console.warn(`[napcat-QQ] Image download failed (${resp.status}): ${url}`);
-        remoteUrls.push(url);
+        results.push({ path: url, type: "image/jpeg" });
         continue;
       }
       const contentType = resp.headers.get("content-type");
@@ -354,15 +347,14 @@ export async function downloadImages(urls: string[]): Promise<DownloadResult> {
       const buf = Buffer.from(await resp.arrayBuffer());
       fsSync.writeFileSync(filePath, buf);
       console.log(`[napcat-QQ][downloadImages] saved: ${filePath} (${buf.length} bytes)`);
-      localPaths.push(filePath);
-      localTypes.push(mime);
+      results.push({ path: filePath, type: mime });
     } catch (err) {
       console.warn(`[napcat-QQ] Image download error: ${err instanceof Error ? err.message : String(err)}`);
-      remoteUrls.push(url);
+      results.push({ path: url, type: "image/jpeg" });
     }
   }
 
-  return { localPaths, localTypes, remoteUrls };
+  return results;
 }
 
 // ============ 文件类型检测 ============
