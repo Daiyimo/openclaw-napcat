@@ -365,6 +365,48 @@ describe("installMessageHandler — inbound pipeline integration (12 cases)", ()
     expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
   });
 
+  // 3e. knownBotIds whitelist: manual bot ID is recognized without signature
+  it("3e. knownBotIds whitelist recognizes bot without sender.bot or signature", async () => {
+    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+      requireMention: true,
+      knownBotIds: [99999],  // manual whitelist
+    });
+    installMessageHandler(client, ctx);
+
+    client.emit(
+      "message",
+      makeGroupEvent({
+        user_id: 99999,  // sender is in whitelist
+        sender: { user_id: 99999, nickname: "OtherBot" },  // no sender.bot flag
+        message: [{ type: "text", data: { text: "hello without any signature" } }],
+        raw_message: "hello without any signature",
+      }),
+    );
+    await flush();
+
+    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+  });
+
+  // 3f. Zero-width signature is detected as bot message
+  it("3f. zero-width signature (​ID‌) is detected as bot message", async () => {
+    const { client, ctx, dispatchReplyFromConfig } = makeCtx({ requireMention: true });
+    installMessageHandler(client, ctx);
+
+    // Zero-width signature: U+200B + ID + U+200C
+    const zwSignature = "​99999‌";
+    client.emit(
+      "message",
+      makeGroupEvent({
+        user_id: 99999,
+        message: [{ type: "text", data: { text: `hello from bot${zwSignature}` } }],
+        raw_message: `hello from bot${zwSignature}`,
+      }),
+    );
+    await flush();
+
+    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+  });
+
   // 4. Self-message filtered
   it("4. message from self (userId === selfId) is filtered out", async () => {
     const { client, ctx, dispatchReplyFromConfig } = makeCtx();

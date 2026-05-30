@@ -30,7 +30,7 @@ import {
   buildBodyWithReply,
 } from "../message-processor.js";
 import { MessageSender } from "../message-sender.js";
-import { BOT_SIGNATURE_PATTERN } from "../constants.js";
+import { BOT_SIGNATURE_PATTERN, BOT_SIGNATURE_ZW_PATTERN } from "../constants.js";
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -163,18 +163,25 @@ export function installMessageHandler(
         return;
 
       // 友军识别：bot 消息记录活跃时间后跳过
-      // 三层检测：sender.bot 字段 → 自维护 bot ID 缓存 → [BOT:ID] 签名
+      // 四层检测：白名单 → sender.bot 字段 → 自维护 bot ID 缓存 → 签名（可见/零宽）
       if (isGroup) {
-        const sigMatch = BOT_SIGNATURE_PATTERN.exec(text);
-        const matchedBotId = sigMatch?.[1] ?? null;
         const userIdStr = userId != null ? String(userId) : null;
-        const knownBotMatch = userIdStr !== null && knownBotUserIds.has(userIdStr);
-        const isBot = event.sender?.bot || knownBotMatch || matchedBotId !== null;
+        // Layer 0: 手动白名单（最高优先级）
+        const whitelistMatch = config.knownBotIds?.some(id => String(id) === userIdStr) ?? false;
+        // Layer 1: sender.bot 字段
+        const senderBot = event.sender?.bot === true;
+        // Layer 2: 自维护缓存
+        const cachedBotMatch = userIdStr !== null && knownBotUserIds.has(userIdStr);
+        // Layer 3: 签名检测（可见 [BOT:ID] + 零宽字符）
+        const sigMatch = BOT_SIGNATURE_PATTERN.exec(text);
+        const zwSigMatch = BOT_SIGNATURE_ZW_PATTERN.exec(text);
+        const matchedBotId = sigMatch?.[1] ?? zwSigMatch?.[1] ?? null;
+        const isBot = whitelistMatch || senderBot || cachedBotMatch || matchedBotId !== null;
         if (config.debug) {
           console.log(
-            `[napcat-QQ][debug-bot-filter] userId=${userId} sender.bot=${event.sender?.bot} ` +
-              `knownBot=${knownBotMatch} sigMatch=${matchedBotId} isBot=${isBot} ` +
-              `text="${text.slice(0, 80)}"`,
+            `[napcat-QQ][debug-bot-filter] userId=${userId} whitelist=${whitelistMatch} ` +
+              `sender.bot=${senderBot} cachedBot=${cachedBotMatch} sigMatch=${matchedBotId} ` +
+              `isBot=${isBot} text="${text.slice(0, 80)}"`,
           );
         }
         if (isBot) {

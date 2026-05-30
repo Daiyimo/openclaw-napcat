@@ -41,10 +41,25 @@ export const GROUP_ROUTE_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1_000;
 // === 友军识别 ===
 
 /**
- * 友军签名正则：匹配 [BOT:数字] 格式，提取 bot 的 QQ 号。
+ * 可见签名正则：匹配 [BOT:数字] 格式，提取 bot 的 QQ 号。
  * 例如 [BOT:123456] → 捕获组 1 = "123456"
  */
 export const BOT_SIGNATURE_PATTERN = /\[BOT:(\d+)\]/;
+
+/**
+ * 零宽字符签名正则：匹配 U+200B + 编码的 bot ID + U+200C 格式。
+ * 使用零宽字符作为分隔符，用户完全不可见。
+ * 注意：部分平台（如 NapCat）可能会剥离零宽字符，导致签名失效。
+ */
+export const BOT_SIGNATURE_ZW_PATTERN = /​(\d+)‌/;
+
+/**
+ * 生成零宽字符签名。
+ * @param botId bot 的 QQ 号
+ */
+export function makeZeroWidthSignature(botId: string | number): string {
+  return `​${botId}‌`;
+}
 
 // === 投递 ===
 

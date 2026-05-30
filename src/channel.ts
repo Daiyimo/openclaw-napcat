@@ -288,7 +288,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
       const accountCfg = resolvedAid === DEFAULT_ACCOUNT_ID ? qq : qq?.accounts?.[resolvedAid];
       const selfId = accountCfg?._selfId;
       return sendText(
-        { to, text, accountId, botSelfId: selfId },
+        { to, text, accountId, botSelfId: selfId, cfg: accountCfg },
         { getClient: getClientForAccount, knownGroupIds: getKnownGroupIds(resolvedAid), passiveMode },
       );
     },

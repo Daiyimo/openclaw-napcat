@@ -17,6 +17,8 @@ export const QQConfigSchema = z.object({
   allowedGroups: z.array(z.number().int().positive()).optional().describe("Whitelist of group IDs allowed to interact with"),
   blockedUsers: z.array(z.number().int().positive()).optional().describe("Blacklist of user IDs to ignore"),
   ignoreSenderBot: z.boolean().optional().default(true).describe("Ignore messages from other bot accounts (sender.bot=true) to prevent bot-to-bot loops. When true, bot messages are dropped and passiveMode.botSuppressionMs takes effect; when false, bot messages pass through and botSuppressionMs has no effect"),
+  knownBotIds: z.array(z.number().int().positive()).optional().describe("Manual whitelist of known bot QQ numbers. These IDs are always recognized as bots even without sender.bot flag or [BOT:] signature. Useful for bots that don't support auto-discovery."),
+  botSignatureStyle: z.enum(["visible", "zero-width"]).optional().default("visible").describe("Bot signature format: 'visible' uses [BOT:selfId] (reliable, user-visible), 'zero-width' uses invisible Unicode characters (clean UX, may be stripped by some platforms)"),
   debug: z.boolean().optional().default(false).describe("Enable verbose debug logging for message processing pipeline (self-filter, bot-filter, mention, reaction). Recommended only for troubleshooting"),
   historyLimit: z.number().int().min(0).max(100).optional().default(5).describe("Number of history messages to include in context"),
   keywordTriggers: z.array(z.string()).optional().describe("List of keywords that trigger the bot (without @)"),

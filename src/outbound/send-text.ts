@@ -15,7 +15,7 @@ import {
   splitMessage,
   dispatchMessage,
 } from "../message-parser.js";
-import { OUTBOUND_MULTI_CHUNK_SLEEP_MS } from "../constants.js";
+import { OUTBOUND_MULTI_CHUNK_SLEEP_MS, makeZeroWidthSignature } from "../constants.js";
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -53,7 +53,9 @@ export async function sendText(
   const resolvedAccountId = params.accountId || DEFAULT_ACCOUNT_ID;
   const cooldownKey = `${resolvedAccountId}:${to}`;
   const trimmed = text?.trim() ?? "";
-  if (/^\[SILENT\]$/i.test(trimmed) || /^NO_REPLY$/i.test(trimmed)) {
+  // 支持多种静默标记格式：[SILENT]、NO_REPLY、no reply、No Reply 等
+  // 允许前后有标点或空白（如 "NO_REPLY."、"NO_REPLY!"）
+  if (/^\[SILENT\]$/i.test(trimmed) || /^NO[_\s]?REPLY[.!?]*$/i.test(trimmed)) {
     console.log(`[napcat-QQ][passive] AI 选择静默 (to=${to})`);
     passiveMode.markSilent(cooldownKey);
     return { channel: "napcat", sent: true };
@@ -79,11 +81,20 @@ export async function sendText(
   );
 
   // ── 追加友军签名（仅群消息） ─────────────────────────────────
-  // 签名格式 [BOT:${selfId}]，带自身 QQ 号，接收方通过正则提取 bot ID。
-  // 相比零宽字符，此格式不会被传输层 stripping。
+  // 根据配置选择签名格式：
+  // - visible: [BOT:selfId] 格式，可靠但用户可见
+  // - zero-width: 零宽字符格式，用户不可见，但可能被平台剥离
   const isGroup = /^\d+$/.test(to) || to.startsWith("group:");
-  const botSig = params.botSelfId ? `[BOT:${params.botSelfId}]` : "";
-  const effectiveText = botSig && isGroup ? text + botSig : text;
+  let botSig = "";
+  if (params.botSelfId && isGroup) {
+    const style = params.cfg?.botSignatureStyle ?? "visible";
+    if (style === "zero-width") {
+      botSig = makeZeroWidthSignature(params.botSelfId);
+    } else {
+      botSig = `[BOT:${params.botSelfId}]`;
+    }
+  }
+  const effectiveText = botSig ? text + botSig : text;
   const client = getClient(resolvedAccountId);
   if (!client) return { channel: "napcat", sent: false, error: "Client not connected" };
 
