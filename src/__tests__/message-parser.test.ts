@@ -10,6 +10,9 @@ import {
   stripMarkdown,
   processAntiRisk,
   extractMediaUrlsFromText,
+  isImageFile,
+  isVideoFile,
+  resolveSTTConfig,
 } from "../message-parser.js";
 
 // ── escapeCQParam ──────────────────────────────────────────────────────────
@@ -293,5 +296,135 @@ describe("extractMediaUrlsFromText", () => {
     const text = "![img](https://a.com/img.png) and https://a.com/img.png";
     const result = extractMediaUrlsFromText(text);
     expect(result).toHaveLength(1);
+  });
+});
+
+// ── isImageFile ─────────────────────────────────────────────────────────────
+
+describe("isImageFile", () => {
+  it("returns true for .jpg", () => { expect(isImageFile("https://a.com/img.jpg")).toBe(true); });
+  it("returns true for .jpeg", () => { expect(isImageFile("https://a.com/img.jpeg")).toBe(true); });
+  it("returns true for .png", () => { expect(isImageFile("https://a.com/img.png")).toBe(true); });
+  it("returns true for .gif", () => { expect(isImageFile("https://a.com/img.gif")).toBe(true); });
+  it("returns true for .webp", () => { expect(isImageFile("https://a.com/img.webp")).toBe(true); });
+  it("returns true for .bmp", () => { expect(isImageFile("https://a.com/img.bmp")).toBe(true); });
+  it("returns true for .svg", () => { expect(isImageFile("https://a.com/img.svg")).toBe(true); });
+  it("returns false for .pdf", () => { expect(isImageFile("https://a.com/doc.pdf")).toBe(false); });
+  it("returns false for .mp4", () => { expect(isImageFile("https://a.com/vid.mp4")).toBe(false); });
+  it("returns false for no extension", () => { expect(isImageFile("https://a.com/page")).toBe(false); });
+  it("handles URL with query string", () => { expect(isImageFile("https://a.com/img.jpg?token=abc")).toBe(true); });
+  it("handles case insensitivity", () => { expect(isImageFile("https://a.com/IMG.PNG")).toBe(true); });
+});
+
+// ── isVideoFile ─────────────────────────────────────────────────────────────
+
+describe("isVideoFile", () => {
+  it("returns true for .mp4", () => { expect(isVideoFile("https://a.com/vid.mp4")).toBe(true); });
+  it("returns true for .avi", () => { expect(isVideoFile("https://a.com/vid.avi")).toBe(true); });
+  it("returns true for .mov", () => { expect(isVideoFile("https://a.com/vid.mov")).toBe(true); });
+  it("returns true for .mkv", () => { expect(isVideoFile("https://a.com/vid.mkv")).toBe(true); });
+  it("returns true for .webm", () => { expect(isVideoFile("https://a.com/vid.webm")).toBe(true); });
+  it("returns false for .jpg", () => { expect(isVideoFile("https://a.com/img.jpg")).toBe(false); });
+  it("returns false for no extension", () => { expect(isVideoFile("https://a.com/page")).toBe(false); });
+  it("handles URL with query string", () => { expect(isVideoFile("https://a.com/vid.mp4?t=123")).toBe(true); });
+});
+
+// ── resolveSTTConfig ────────────────────────────────────────────────────────
+
+describe("resolveSTTConfig", () => {
+  it("returns null when no STT config", () => {
+    expect(resolveSTTConfig({})).toBeNull();
+  });
+
+  it("returns config from channels.napcat.stt", () => {
+    const cfg = {
+      channels: {
+        napcat: {
+          stt: {
+            enabled: true,
+            baseUrl: "https://api.openai.com/v1",
+            apiKey: "sk-test",
+            model: "whisper-1",
+          },
+        },
+      },
+    };
+    const result = resolveSTTConfig(cfg as any);
+    expect(result).toEqual({
+      baseUrl: "https://api.openai.com/v1",
+      apiKey: "sk-test",
+      model: "whisper-1",
+    });
+  });
+
+  it("returns null when stt.enabled is false", () => {
+    const cfg = {
+      channels: {
+        napcat: {
+          stt: { enabled: false },
+        },
+      },
+    };
+    expect(resolveSTTConfig(cfg as any)).toBeNull();
+  });
+
+  it("returns null when baseUrl or apiKey is missing", () => {
+    const cfg = {
+      channels: {
+        napcat: {
+          stt: { enabled: true, baseUrl: "https://api.openai.com/v1" },
+        },
+      },
+    };
+    expect(resolveSTTConfig(cfg as any)).toBeNull();
+  });
+
+  it("uses provider config for baseUrl and apiKey", () => {
+    const cfg = {
+      channels: {
+        napcat: {
+          stt: { provider: "openai" },
+        },
+      },
+      models: {
+        providers: {
+          openai: {
+            baseUrl: "https://custom.api.com/v1",
+            apiKey: "sk-custom",
+          },
+        },
+      },
+    };
+    const result = resolveSTTConfig(cfg as any);
+    expect(result).not.toBeNull();
+    expect(result!.baseUrl).toBe("https://custom.api.com/v1");
+    expect(result!.apiKey).toBe("sk-custom");
+  });
+
+  it("strips trailing slashes from baseUrl", () => {
+    const cfg = {
+      channels: {
+        napcat: {
+          stt: {
+            baseUrl: "https://api.openai.com/v1///",
+            apiKey: "sk-test",
+          },
+        },
+      },
+    };
+    const result = resolveSTTConfig(cfg as any);
+    expect(result!.baseUrl).toBe("https://api.openai.com/v1");
+  });
+
+  it("defaults model to whisper-1", () => {
+    const cfg = {
+      channels: {
+        napcat: {
+          stt: { baseUrl: "https://api.com", apiKey: "key" },
+        },
+      },
+    };
+    const result = resolveSTTConfig(cfg as any);
+    expect(result!.model).toBe("whisper-1");
   });
 });

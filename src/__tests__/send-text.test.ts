@@ -157,3 +157,27 @@ describe("sendText — passive mode silent interception", () => {
     expect(deps.passiveMode.markSilent).not.toHaveBeenCalled();
   });
 });
+
+describe("sendText — edge cases", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    knownGroupIds.clear();
+  });
+
+  it("returns sent:true for empty to", async () => {
+    const result = await sendText({ to: "", text: "hello" }, makeDeps());
+    expect(result).toEqual({ channel: "napcat", sent: true });
+  });
+
+  it("returns sent:true for heartbeat target", async () => {
+    const result = await sendText({ to: "heartbeat", text: "hello" }, makeDeps());
+    expect(result).toEqual({ channel: "napcat", sent: true });
+  });
+
+  it("returns error when client not found", async () => {
+    const deps = makeDeps({ getClient: () => undefined });
+    const result = await sendText({ to: "group:88888", text: "hello" }, deps);
+    expect(result.sent).toBe(false);
+    expect(result.error).toContain("not connected");
+  });
+});
