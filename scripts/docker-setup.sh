@@ -245,7 +245,7 @@ cat >> "$ENV_FILE" <<EOF
 # ── 权限 ─────────────────────────────────────────────────────────────────────
 QQ_ADMINS=${QQ_ADMINS}
 QQ_REQUIRE_MENTION=${QQ_REQUIRE_MENTION}
-# QQ_ALLOWED_GROUPS=
+QQ_ALLOWED_GROUPS=${QQ_ALLOWED_GROUPS}
 # QQ_BLOCKED_USERS=
 
 # ── AI 行为 ───────────────────────────────────────────────────────────────────
