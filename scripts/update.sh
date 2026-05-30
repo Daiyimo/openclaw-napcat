@@ -31,10 +31,16 @@ fi
 echo "正在拉取最新代码..."
 git pull https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat.git main
 
+# 3. 重新编译 TypeScript
+echo "正在编译..."
+npm install --registry=https://registry.npmmirror.com 2>/dev/null || npm install
+npm run build
+npm prune --omit=dev
+
 echo "更新完成！"
 echo ""
 
-# 3. 重启 openclaw
+# 4. 重启 openclaw
 echo "正在重启 OpenClaw..."
 pkill -f "openclaw gateway" 2>/dev/null || true
 sleep 2
