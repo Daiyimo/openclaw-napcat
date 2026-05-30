@@ -85,6 +85,34 @@ describe("PassiveModeManager", () => {
     });
   });
 
+  describe("isBotSuppressed", () => {
+    it("无 bot 活跃记录时返回 false", () => {
+      expect(manager.isBotSuppressed("group:88888", 120_000)).toBe(false);
+    });
+
+    it("markBotActive 后抑制期内返回 true", () => {
+      manager.markBotActive("group:88888");
+      vi.advanceTimersByTime(60_000);
+      expect(manager.isBotSuppressed("group:88888", 120_000)).toBe(true);
+    });
+
+    it("markBotActive 后抑制到期返回 false", () => {
+      manager.markBotActive("group:88888");
+      vi.advanceTimersByTime(120_001);
+      expect(manager.isBotSuppressed("group:88888", 120_000)).toBe(false);
+    });
+
+    it("botSuppressionMs=0 时始终返回 false", () => {
+      manager.markBotActive("group:88888");
+      expect(manager.isBotSuppressed("group:88888", 0)).toBe(false);
+    });
+
+    it("不同群 key 互不影响", () => {
+      manager.markBotActive("group:11111");
+      expect(manager.isBotSuppressed("group:22222", 120_000)).toBe(false);
+    });
+  });
+
   describe("cleanup", () => {
     it("删除超龄条目（非哨兵）", () => {
       manager.markActive("key1");
@@ -107,6 +135,41 @@ describe("PassiveModeManager", () => {
       vi.advanceTimersByTime(3_700_000); // > PASSIVE_SENTINEL_TIMEOUT_MS
       manager.cleanup(3_600_000);
       expect(manager.isAllowed("key1", 0)).toBe(true);
+    });
+  });
+
+  describe("isIntervalAllowed", () => {
+    it("首次访问未知 key 返回 true", () => {
+      expect(manager.isIntervalAllowed("key1", 30_000)).toBe(true);
+    });
+
+    it("markCheck 后间隔内返回 false", () => {
+      manager.markCheck("key1");
+      vi.advanceTimersByTime(10_000);
+      expect(manager.isIntervalAllowed("key1", 30_000)).toBe(false);
+    });
+
+    it("markCheck 后间隔到期返回 true", () => {
+      manager.markCheck("key1");
+      vi.advanceTimersByTime(30_001);
+      expect(manager.isIntervalAllowed("key1", 30_000)).toBe(true);
+    });
+
+    it("多次 markCheck 以最后一次为准", () => {
+      manager.markCheck("key1");
+      vi.advanceTimersByTime(20_000);
+      manager.markCheck("key1"); // 重置计时
+      vi.advanceTimersByTime(20_000); // 距上次 markCheck 20s
+      expect(manager.isIntervalAllowed("key1", 30_000)).toBe(false);
+      vi.advanceTimersByTime(10_001); // 距上次 markCheck 30s+
+      expect(manager.isIntervalAllowed("key1", 30_000)).toBe(true);
+    });
+
+    it("cleanup 清理超龄 lastCheck 条目", () => {
+      manager.markCheck("key1");
+      vi.advanceTimersByTime(3_700_000); // > PASSIVE_COOLDOWN_MAX_AGE_MS
+      manager.cleanup(3_600_000);
+      expect(manager.isIntervalAllowed("key1", 0)).toBe(true);
     });
   });
 

@@ -19,6 +19,10 @@ export class PassiveModeManager {
   private readonly sentinels = new Map<string, number>();
   /** 已完成派发的冷却时间戳：key → 最近一次 markDone 的 Date.now() */
   private readonly cooldowns = new Map<string, number>();
+  /** 最近一次旁观检查时间戳（含 [SILENT]），用于 minIntervalMs 限流 */
+  private readonly lastCheck = new Map<string, number>();
+  /** 友军识别：最近一次其他 bot 在该群回复的时间戳 */
+  private readonly botActive = new Map<string, number>();
 
   /**
    * 检查是否允许触发旁观。
@@ -70,6 +74,43 @@ export class PassiveModeManager {
   }
 
   /**
+   * 检查最小间隔是否已过。
+   * 与 isAllowed（仅实质回复后冷却）不同，minIntervalMs 对 [SILENT] 也生效，
+   * 防止 AI 被频繁调用。
+   */
+  isIntervalAllowed(key: string, minIntervalMs: number): boolean {
+    const last = this.lastCheck.get(key);
+    if (last === undefined) return true;
+    return Date.now() - last >= minIntervalMs;
+  }
+
+  /**
+   * 记录本次旁观检查时间戳（在 markActive 时同步调用）。
+   */
+  markCheck(key: string): void {
+    this.lastCheck.set(key, Date.now());
+  }
+
+  /**
+   * 友军识别：检查该群是否有其他 bot 近期活跃。
+   * key 为群维度（不含 accountId），因为友军抑制是群级别的。
+   */
+  isBotSuppressed(groupKey: string, botSuppressionMs: number): boolean {
+    if (botSuppressionMs <= 0) return false;
+    const last = this.botActive.get(groupKey);
+    if (last === undefined) return false;
+    return Date.now() - last < botSuppressionMs;
+  }
+
+  /**
+   * 友军识别：标记该群有 bot 活跃。
+   * botKey 为群维度 key（如 "group:88888"）。
+   */
+  markBotActive(botKey: string): void {
+    this.botActive.set(botKey, Date.now());
+  }
+
+  /**
    * 清理超过 maxAgeMs 的过期冷却条目。
    * 不再刷新哨兵时间戳 — 哨兵生命期仅由 markActive 时写入的时间戳和
    * PASSIVE_SENTINEL_TIMEOUT_MS 兜底超时决定，cleanup 不应干扰。
@@ -86,6 +127,18 @@ export class PassiveModeManager {
     for (const [key, value] of this.cooldowns.entries()) {
       if (now - value > maxAgeMs) {
         this.cooldowns.delete(key);
+      }
+    }
+    // 清理超龄最小间隔条目
+    for (const [key, value] of this.lastCheck.entries()) {
+      if (now - value > maxAgeMs) {
+        this.lastCheck.delete(key);
+      }
+    }
+    // 清理超龄友军活跃条目
+    for (const [key, value] of this.botActive.entries()) {
+      if (now - value > maxAgeMs) {
+        this.botActive.delete(key);
       }
     }
   }

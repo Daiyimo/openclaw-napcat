@@ -145,6 +145,16 @@ export function installMessageHandler(
       if (isGroup && config.allowedGroups?.length && !config.allowedGroups.includes(groupId!))
         return;
 
+      // 友军识别：bot 消息记录活跃时间后跳过
+      // 检测 sender.bot 字段 + 不可见签名（零宽字符）
+      if (isGroup) {
+        const isBot = event.sender?.bot || (config.botSignature && text.includes(config.botSignature));
+        if (isBot) {
+          if (config.ignoreSenderBot !== false) passiveMode.markBotActive(`group:${groupId}`);
+          return;
+        }
+      }
+
       const isAdmin = config.admins?.includes(userId!) ?? false;
 
       // ── 管理员命令 ────────────────────────────────────
@@ -286,9 +296,20 @@ export function installMessageHandler(
         if (config.passiveMode?.enabled && isGroup) {
           const cooldownKey = `${account.accountId}:${fromId}`;
           const cooldownMs = config.passiveMode.cooldownMs ?? 10_000;
+          const minIntervalMs = config.passiveMode.minIntervalMs ?? 30_000;
+          const botSuppressionMs = config.passiveMode.botSuppressionMs ?? 120_000;
+          // 友军抑制：其他 bot 近期活跃则跳过（含预占消息）
+          if (botSuppressionMs > 0 && passiveMode.isBotSuppressed(`group:${groupId}`, botSuppressionMs)) {
+            // 检测到友军活跃，随机延迟错开处理时机，减少竞态
+            await sleep(Math.random() * 2000);
+            return;
+          }
+          // 最小间隔（含 [SILENT] 响应）→ 冷却（仅实质回复）
+          if (!passiveMode.isIntervalAllowed(cooldownKey, minIntervalMs)) return;
           if (!passiveMode.isAllowed(cooldownKey, cooldownMs)) return;
           isPassiveMode = true;
           passiveMode.markActive(cooldownKey);
+          passiveMode.markCheck(cooldownKey);
         } else {
           return;
         }
@@ -430,6 +451,7 @@ export function installMessageHandler(
         historyContext,
         isPassiveMode,
         passivePrompt: config.passiveMode?.systemPrompt,
+        botSignature: config.botSignature,
       });
 
       const ctxPayload = channelRuntime.reply.finalizeInboundContext({

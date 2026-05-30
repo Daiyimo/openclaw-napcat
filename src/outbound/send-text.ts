@@ -15,7 +15,7 @@ import {
   splitMessage,
   dispatchMessage,
 } from "../message-parser.js";
-import { OUTBOUND_MULTI_CHUNK_SLEEP_MS } from "../constants.js";
+import { OUTBOUND_MULTI_CHUNK_SLEEP_MS, DEFAULT_BOT_SIGNATURE } from "../constants.js";
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -26,6 +26,8 @@ export interface SendTextParams {
   accountId?: string | null;
   replyToId?: string | null;
   cfg?: any;
+  /** 不可见 bot 签名，追加到消息末尾用于友军识别。为空则不追加 */
+  botSignature?: string;
 }
 
 export interface SendTextDeps {
@@ -74,6 +76,11 @@ export async function sendText(
   console.log(
     `[napcat-QQ][outbound.sendText] called: to=${to}, accountId=${params.accountId}, text=${text?.slice(0, 100)}`,
   );
+
+  // ── 追加不可见 bot 签名（友军识别，仅群消息） ─────────────
+  // 私聊不会产生 bot 循环，无需追加签名
+  const isGroup = /^\d+$/.test(to) || to.startsWith("group:");
+  const effectiveText = params.botSignature && isGroup ? text + params.botSignature : text;
   const client = getClient(resolvedAccountId);
   if (!client) return { channel: "napcat", sent: false, error: "Client not connected" };
 
@@ -104,7 +111,7 @@ export async function sendText(
     }
 
     const target = parseTarget(effectiveTo);
-    const chunks = splitMessage(text, 4000);
+    const chunks = splitMessage(effectiveText, 4000);
     for (let i = 0; i < chunks.length; i++) {
       let message: OneBotMessage | string = chunks[i];
       if (replyToId && i === 0)

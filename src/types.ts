@@ -52,6 +52,8 @@ export type OneBotEvent = {
     age?: number;
     area?: string;
     gender?: "male" | "female" | "unknown";
+    /** 是否为 bot 账号（OneBot v11 标准字段，NapCat 支持） */
+    bot?: boolean;
   };
   // 新增字段
   file?: any;

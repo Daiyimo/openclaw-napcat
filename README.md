@@ -74,13 +74,38 @@
 
 原理：调用 `getGroupList()` 拉取所有已加入群，为每个群注册 session 路由。无需重启容器。
 
+### 友军识别（Bot-to-Bot Recognition）
+
+多个 bot 在同一群会产生循环对话？开启 `ignoreSenderBot`（默认 true），bot 消息会被自动过滤：
+
+- 检测 `sender.bot=true`（OneBot v11 标准字段）
+- 检测发出的消息末尾的不可见零宽字符签名
+- 检测到其他 bot 活跃后，本 bot 会静默 `botSuppressionMs` 毫秒（默认 120 秒）
+
+```json
+{ "ignoreSenderBot": true, "botSuppressionMs": 120000 }
+```
+
+签名使用零宽字符（`​‌‍`），用户不可见，仅在群消息中追加（私聊不追加，避免冗余）。
+
 ### 旁观模式（Passive Mode）
 
 AI 监听群聊所有消息，自主判断是否参与对话，无需 @：
 
 ```json
-{ "passiveMode": { "enabled": true, "cooldownMs": 10000 } }
+{
+  "passiveMode": {
+    "enabled": true,
+    "cooldownMs": 10000,
+    "minIntervalMs": 30000,
+    "botSuppressionMs": 120000
+  }
+}
 ```
+
+- `cooldownMs`：实质回复后的冷却时间（默认 10 秒）
+- `minIntervalMs`：最小触发间隔，含 [SILENT] 响应（默认 30 秒），防止 AI 被频繁调用
+- `botSuppressionMs`：友军识别抑制时长（默认 120 秒），检测到其他 bot 回复后静默
 
 ### 静默关键词过滤
 
@@ -156,6 +181,8 @@ services:
       QQ_RATE_LIMIT_MS: "1000"
       QQ_KEYWORD_TRIGGERS: ""
       QQ_SILENT_KEYWORDS: ""          # 静默关键词，逗号分隔
+      QQ_IGNORE_SENDER_BOT: "true"    # 过滤其他 bot 消息
+      QQ_BOT_SUPPRESSION_MS: "120000" # 友军抑制时长（ms），0=禁用
       QQ_INBOUND_RATE_LIMIT_MS: "0"
     restart: unless-stopped
 ```
@@ -225,6 +252,8 @@ docker compose restart openclaw
 | `requireMention` | boolean | `true` | 群聊是否需要 @ 触发 |
 | `allowedGroups` | number[] | `[]` | 群组白名单（空=全部） |
 | `blockedUsers` | number[] | `[]` | 用户黑名单 |
+| `ignoreSenderBot` | boolean | `true` | 过滤其他 bot 消息，防止循环对话 |
+| `botSuppressionMs` | number | `120000` | 友军抑制时长（ms），0=禁用 |
 | `keywordTriggers` | string[] | `[]` | 无需 @ 的触发关键词 |
 | `silentKeywords` | string[] | `[]` | 静默关键词（命中即丢弃） |
 | `historyLimit` | number | `5` | 携带历史消息条数 |

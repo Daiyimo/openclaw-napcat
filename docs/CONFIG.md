@@ -70,6 +70,7 @@
 | `antiRiskMode` | boolean | `false` | 是否开启风控规避（如给 URL 加空格）。 |
 | `allowedGroups` | number[] | `[]` | **群组白名单**。若设置，Bot 仅在这些群组响应；若为空，则响应所有群组。 |
 | `blockedUsers` | number[] | `[]` | **用户黑名单**。Bot 将忽略这些用户的消息。 |
+| `ignoreSenderBot` | boolean | `true` | **过滤其他 bot 消息**。收到 `sender.bot=true` 的消息时直接跳过，防止 bot 间循环对话。设为 `false` 时放行 bot 消息，`botSuppressionMs` 不生效。 |
 | `historyLimit` | number | `5` | **历史消息条数**。群聊时携带最近 N 条消息给 AI（0-100），设为 0 关闭。 |
 | `keywordTriggers` | string[] | `[]` | **关键词触发**。群聊中消息包含这些关键词时直接触发回复，无需同时 @机器人（私聊同样有效）。 |
 | `enableTTS` | boolean | `false` | (实验性) 是否将 AI 回复转为语音发送 (需服务端支持 TTS)。 |
@@ -84,7 +85,34 @@
 | `deliverDebounce` | object | - | 出站消息防抖配置。`enabled` 开关，`windowMs`（默认1500，100–30000）静默窗口，`maxWaitMs`（默认8000，1000–120000）最长等待，`separator` 合并分隔符。 |
 | `enableUpdateCheck` | boolean | `true` | 启动时检查 npm 是否有新版本。 |
 | `logBufferSize` | number | `200` | `/logs` 命令保留的日志行数（10–10000）。 |
+| `inboundRateLimitMs` | number | `0` | 入站频控（ms），同一来源两次触发的最小间隔。`0` = 禁用。 |
+| `silentKeywords` | string[] | `[]` | **静默关键词**。消息包含任一关键词时直接丢弃，不触发 AI、不回复（适合过滤其他 bot 指令）。 |
+| `passiveMode` | object | - | **旁观模式**配置，见下方详细说明。 |
 
 ## gateway 必填说明
 
 > **注意（OpenClaw 2026.2.25+）**：`gateway` 段为必填项。2026.2.26 新增了 Host 头校验，绑定 `0.0.0.0` 时需配置 `dangerouslyAllowHostHeaderOriginFallback: true`。2026.2.25 封堵了静默自动配对，首次使用 WebUI 前需完成设备配对，见 [README](../README.md) 设备配对章节。
+
+## passiveMode 详细说明
+
+```json
+{
+  "passiveMode": {
+    "enabled": true,
+    "cooldownMs": 10000,
+    "minIntervalMs": 30000,
+    "botSuppressionMs": 120000,
+    "systemPrompt": "你是一个观察者，仅在值得发言时回复，否则输出 [SILENT]"
+  }
+}
+```
+
+| 子字段 | 类型 | 默认值 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `enabled` | boolean | `false` | 是否开启旁观模式。开启后 AI 监听所有群消息，自主判断是否发言。 |
+| `cooldownMs` | number | `10000` | **实质回复冷却**。AI 真实回复后，该会话 `cooldownMs` 毫秒内不再触发（0–3600000）。 |
+| `minIntervalMs` | number | `30000` | **最小触发间隔**。含 [SILENT] 响应在内的所有检查的最小间隔，防止 AI 被频繁调用（0–3600000）。 |
+| `botSuppressionMs` | number | `120000` | **友军抑制时长**。检测到其他 bot 在该群回复后，本 bot 静音该时长（ms）。`0` = 禁用。依赖 `ignoreSenderBot=true`。 |
+| `systemPrompt` | string | - | **旁观人设**。仅在旁观模式下注入的额外系统提示词，指导 AI 何时发言、何时 [SILENT]。 |
+
+**工作流程：** 群消息到达 → 检测触发（@/关键词）→ 通过 `minIntervalMs` 限流 → 通过 `botSuppressionMs` 友军抑制 → 通过 `cooldownMs` 冷却 → AI 判断 → 输出回复 或 `[SILENT]`。

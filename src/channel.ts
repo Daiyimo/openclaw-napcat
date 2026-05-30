@@ -279,10 +279,14 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
   },
   outbound: {
     deliveryMode: "direct" as const,
-    sendText: async ({ to, text, accountId, replyToId }: { to: string; text: string; accountId?: string | null; replyToId?: string | null; cfg?: any }) => {
+    sendText: async ({ to, text, accountId, replyToId, cfg }: { to: string; text: string; accountId?: string | null; replyToId?: string | null; cfg?: any }) => {
       const resolvedAid = accountId || DEFAULT_ACCOUNT_ID;
+      // 从 QQ 配置中提取 botSignature
+      const qq = cfg?.channels?.napcat;
+      const accountCfg = resolvedAid === DEFAULT_ACCOUNT_ID ? qq : qq?.accounts?.[resolvedAid];
+      const botSignature = accountCfg?.botSignature;
       return sendText(
-        { to, text, accountId, replyToId },
+        { to, text, accountId, replyToId, botSignature },
         { getClient: getClientForAccount, knownGroupIds: getKnownGroupIds(resolvedAid), passiveMode },
       );
     },
