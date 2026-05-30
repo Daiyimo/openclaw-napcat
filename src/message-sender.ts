@@ -18,6 +18,7 @@ import {
   extractMediaUrlsFromText,
   resolveMediaUrl,
 } from "./message-parser.js";
+import { parseMediaTagsToSendQueue } from "./media-send.js";
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -67,6 +68,8 @@ export class MessageSender {
 
   /**
    * 发送纯文本。处理 markdown 模式、anti-risk、分片、TTS 和从文本中提取的媒体。
+   *
+   * 优先使用媒体标签系统（<qqimg>path</qqimg>），回退到 URL 正则提取。
    */
   private async sendText(text: string): Promise<void> {
     const { client, config, isGroup, isGuild, groupId, userId, guildId, channelId } = this.ctx;
@@ -77,89 +80,128 @@ export class MessageSender {
     if (effectiveMarkdownMode === "strip") processed = stripMarkdown(processed);
     if (config.antiRiskMode) processed = processAntiRisk(processed);
 
-    const chunks = splitMessage(processed, config.maxMessageLength || 4000);
-
-    for (let i = 0; i < chunks.length; i++) {
-      const chunk = chunks[i];
-
-      if (effectiveMarkdownMode === "native") {
-        const mdSegments: OneBotMessage = [];
-        if (isGroup && i === 0)
-          mdSegments.push({ type: "at", data: { qq: String(userId) } });
-        mdSegments.push({ type: "markdown", data: { content: chunk } });
-        if (isGroup) await client.sendGroupMsg(groupId!, mdSegments);
-        else if (isGuild) await client.sendGuildChannelMsg(guildId!, channelId!, mdSegments);
-        else await client.sendPrivateMsg(userId!, mdSegments);
-      } else {
-        if (isGroup) {
-          const segments: OneBotMessage = [];
-          if (i === 0) {
-            segments.push({ type: "at", data: { qq: String(userId) } });
-            segments.push({ type: "text", data: { text: " " + chunk } });
-          } else {
-            segments.push({ type: "text", data: { text: chunk } });
+    // ── 媒体标签优先路径 ──
+    const { hasMediaTags, sendQueue } = parseMediaTagsToSendQueue(processed);
+    if (hasMediaTags) {
+      let isFirstChunk = true;
+      for (const item of sendQueue) {
+        if (item.type === "text") {
+          const chunks = splitMessage(item.content, config.maxMessageLength || 4000);
+          for (const chunk of chunks) {
+            await this.sendTextChunk(chunk, effectiveMarkdownMode, isFirstChunk);
+            isFirstChunk = false;
+            if (config.rateLimitMs > 0) await sleep(config.rateLimitMs);
           }
-          await client.sendGroupMsg(groupId!, segments);
-        } else if (isGuild) {
-          await client.sendGuildChannelMsg(guildId!, channelId!, chunk);
-        } else {
-          await client.sendPrivateMsg(userId!, chunk);
-        }
-      }
-
-      // TTS（第一个分片且文字足够短）
-      if (!isGuild && config.enableTTS && i === 0 && chunk.length < 100) {
-        const tts = chunk.replace(/\[CQ:.*?\]/g, "").trim();
-        if (tts) {
+        } else if (item.type === "image") {
           try {
-            if (isGroup && config.aiVoiceId) {
-              await client.sendGroupAiRecord(groupId!, tts, config.aiVoiceId);
-            } else if (isGroup) {
-              await client.sendGroupMsg(groupId!, [{ type: "tts", data: { text: tts } }]);
-            } else {
-              await client.sendPrivateMsg(userId!, [{ type: "tts", data: { text: tts } }]);
-            }
-          } catch {
-            // TTS 失败不影响消息投递
-          }
-        }
-      }
-
-      // 从文本中提取媒体 URL 并以原生格式发送
-      const extractedMedia = extractMediaUrlsFromText(chunk);
-      for (const media of extractedMedia) {
-        try {
-          const resolvedUrl = await resolveMediaUrl(media.url);
-          if (media.type === "image") {
+            const resolvedUrl = await resolveMediaUrl(item.content);
             const imgSeg: OneBotMessage = [{ type: "image", data: { file: resolvedUrl } }];
             if (isGroup) await client.sendGroupMsg(groupId!, imgSeg);
             else if (isGuild) await client.sendGuildChannelMsg(guildId!, channelId!, imgSeg);
             else await client.sendPrivateMsg(userId!, imgSeg);
-          } else if (media.type === "video") {
-            const vidSeg: OneBotMessage = [{ type: "video", data: { file: resolvedUrl } }];
-            if (isGroup) await client.sendGroupMsg(groupId!, vidSeg);
-            else if (isGuild) await client.sendGuildChannelMsg(guildId!, channelId!, vidSeg);
-            else await client.sendPrivateMsg(userId!, vidSeg);
-          } else {
-            const fileName = media.name || "file";
-            try {
-              if (isGroup) await client.uploadGroupFile(groupId!, resolvedUrl, fileName);
-              else if (!isGuild) await client.uploadPrivateFile(userId!, resolvedUrl, fileName);
-              else await client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${resolvedUrl}`);
-            } catch {
-              const fileSeg: OneBotMessage = [{ type: "file", data: { file: resolvedUrl, name: fileName } }];
-              if (isGroup) await client.sendGroupMsg(groupId!, fileSeg);
-              else if (isGuild) await client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${resolvedUrl}`);
-              else await client.sendPrivateMsg(userId!, fileSeg);
-            }
+          } catch (err) {
+            console.warn(`[message-sender] Failed to send media tag image ${item.content}:`, err);
           }
           if (config.rateLimitMs > 0) await sleep(config.rateLimitMs);
-        } catch (mediaErr) {
-          console.warn(`[message-sender] Failed to send extracted media ${media.url}:`, mediaErr);
         }
       }
+      return;
+    }
 
+    // ── 回退路径：现有逻辑 ──
+    const chunks = splitMessage(processed, config.maxMessageLength || 4000);
+    for (let i = 0; i < chunks.length; i++) {
+      await this.sendTextChunk(chunks[i], effectiveMarkdownMode, i === 0);
       if (chunks.length > 1 && config.rateLimitMs > 0) await sleep(config.rateLimitMs);
+    }
+  }
+
+  /**
+   * 发送单个文本分片。处理 markdown 模式、@提及、TTS 和从文本中提取的媒体。
+   */
+  private async sendTextChunk(
+    chunk: string,
+    markdownMode: string,
+    isFirst: boolean,
+  ): Promise<void> {
+    const { client, config, isGroup, isGuild, groupId, userId, guildId, channelId } = this.ctx;
+
+    // ── 发送文本 ──
+    if (markdownMode === "native") {
+      const mdSegments: OneBotMessage = [];
+      if (isGroup && isFirst)
+        mdSegments.push({ type: "at", data: { qq: String(userId) } });
+      mdSegments.push({ type: "markdown", data: { content: chunk } });
+      if (isGroup) await client.sendGroupMsg(groupId!, mdSegments);
+      else if (isGuild) await client.sendGuildChannelMsg(guildId!, channelId!, mdSegments);
+      else await client.sendPrivateMsg(userId!, mdSegments);
+    } else {
+      if (isGroup) {
+        const segments: OneBotMessage = [];
+        if (isFirst) {
+          segments.push({ type: "at", data: { qq: String(userId) } });
+          segments.push({ type: "text", data: { text: " " + chunk } });
+        } else {
+          segments.push({ type: "text", data: { text: chunk } });
+        }
+        await client.sendGroupMsg(groupId!, segments);
+      } else if (isGuild) {
+        await client.sendGuildChannelMsg(guildId!, channelId!, chunk);
+      } else {
+        await client.sendPrivateMsg(userId!, chunk);
+      }
+    }
+
+    // ── TTS（第一个分片且文字足够短）──
+    if (!isGuild && config.enableTTS && isFirst && chunk.length < 100) {
+      const tts = chunk.replace(/\[CQ:.*?\]/g, "").trim();
+      if (tts) {
+        try {
+          if (isGroup && config.aiVoiceId) {
+            await client.sendGroupAiRecord(groupId!, tts, config.aiVoiceId);
+          } else if (isGroup) {
+            await client.sendGroupMsg(groupId!, [{ type: "tts", data: { text: tts } }]);
+          } else {
+            await client.sendPrivateMsg(userId!, [{ type: "tts", data: { text: tts } }]);
+          }
+        } catch {
+          // TTS 失败不影响消息投递
+        }
+      }
+    }
+
+    // ── 从文本中提取媒体 URL 并以原生格式发送 ──
+    const extractedMedia = extractMediaUrlsFromText(chunk);
+    for (const media of extractedMedia) {
+      try {
+        const resolvedUrl = await resolveMediaUrl(media.url);
+        if (media.type === "image") {
+          const imgSeg: OneBotMessage = [{ type: "image", data: { file: resolvedUrl } }];
+          if (isGroup) await client.sendGroupMsg(groupId!, imgSeg);
+          else if (isGuild) await client.sendGuildChannelMsg(guildId!, channelId!, imgSeg);
+          else await client.sendPrivateMsg(userId!, imgSeg);
+        } else if (media.type === "video") {
+          const vidSeg: OneBotMessage = [{ type: "video", data: { file: resolvedUrl } }];
+          if (isGroup) await client.sendGroupMsg(groupId!, vidSeg);
+          else if (isGuild) await client.sendGuildChannelMsg(guildId!, channelId!, vidSeg);
+          else await client.sendPrivateMsg(userId!, vidSeg);
+        } else {
+          const fileName = media.name || "file";
+          try {
+            if (isGroup) await client.uploadGroupFile(groupId!, resolvedUrl, fileName);
+            else if (!isGuild) await client.uploadPrivateFile(userId!, resolvedUrl, fileName);
+            else await client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${resolvedUrl}`);
+          } catch {
+            const fileSeg: OneBotMessage = [{ type: "file", data: { file: resolvedUrl, name: fileName } }];
+            if (isGroup) await client.sendGroupMsg(groupId!, fileSeg);
+            else if (isGuild) await client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${resolvedUrl}`);
+            else await client.sendPrivateMsg(userId!, fileSeg);
+          }
+        }
+        if (config.rateLimitMs > 0) await sleep(config.rateLimitMs);
+      } catch (mediaErr) {
+        console.warn(`[message-sender] Failed to send extracted media ${media.url}:`, mediaErr);
+      }
     }
   }
 
