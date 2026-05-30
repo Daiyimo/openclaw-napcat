@@ -343,6 +343,37 @@ describe("installMessageHandler — inbound pipeline integration (12 cases)", ()
     expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
   });
 
+  it("9b. keyword as standalone word matches (ww in 'ww签到') but not in 'www'", async () => {
+    const { client, ctx, dispatchReplyFromConfig } = makeCtx({ silentKeywords: ["ww"] });
+    installMessageHandler(client, ctx);
+
+    // "ww签到" → ww is a standalone word before Chinese chars → should match
+    client.emit(
+      "message",
+      makeGroupEvent({
+        message: [{ type: "text", data: { text: "ww签到" } }],
+        raw_message: "ww签到",
+      }),
+    );
+    await flush();
+    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+
+    // reset mock call count
+    (dispatchReplyFromConfig as any).mockClear();
+
+    // "www" → ww is part of a longer word → should NOT match → dispatch should fire
+    // use private event to bypass requireMention check
+    client.emit(
+      "message",
+      makePrivateEvent({
+        message: [{ type: "text", data: { text: "www" } }],
+        raw_message: "www",
+      }),
+    );
+    await flush();
+    expect(dispatchReplyFromConfig).toHaveBeenCalled();
+  });
+
   // 10. meta_event is ignored
   it("10. meta_event is ignored — no dispatch", async () => {
     const { client, ctx, dispatchReplyFromConfig } = makeCtx();

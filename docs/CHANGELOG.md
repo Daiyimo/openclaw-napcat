@@ -7,9 +7,15 @@
 #### 新增
 
 - **友军识别（Bot-to-Bot Recognition）**：检测 `sender.bot=true` 和不可见零宽字符签名，防止多 bot 在同一群产生循环对话；`ignoreSenderBot` 默认 true，`botSuppressionMs` 默认 120 秒
+- **自维护 bot ID 缓存**：不再需要手动配置 `knownBotIds`，插件通过签名检测自动发现并缓存 bot 用户 ID，跨服务器部署也能正确识别友军
 - **旁观模式频率控制**：新增 `minIntervalMs`（最小触发间隔，含 [SILENT] 响应），防止 AI 被频繁调用；`botSuppressionMs` 控制友军识别抑制时长
 - **智能延迟**：仅当检测到其他 bot 近期活跃时才随机延迟 0~2 秒错开处理，不拖慢正常响应
 - **零宽字符签名仅群追加**：bot 签名仅在群消息中追加，私聊不追加，避免冗余
+- **调试日志门控**：新增 `debug` 配置项（默认 false），开启后输出消息处理流水线的详细诊断日志，便于排查 @mention / bot 过滤 / 表情回应等问题
+
+#### 修复
+
+- **Docker 安装脚本支持 `QQ_ALLOWED_GROUPS` 环境变量**：`docker-setup.sh` 和 `update_json.sh` 现在可以交互式设置群组白名单
 
 ---
 

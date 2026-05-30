@@ -28,7 +28,7 @@ import {
   PASSIVE_COOLDOWN_MAX_AGE_MS,
 } from "../constants.js";
 import { installConnectHandler } from "./connection.js";
-import { installMessageHandler } from "./inbound.js";
+import { installMessageHandler, resetKnownBotUserIds } from "./inbound.js";
 
 /**
  * 启动单个 QQ 账号的完整生命周期。
@@ -148,6 +148,7 @@ export async function startAccount(
   // ── Cleanup ─────────────────────────────────────────
   clearInterval(cleanupInterval);
   if (connResult.groupRouteRefreshTimer) clearInterval(connResult.groupRouteRefreshTimer);
+  resetKnownBotUserIds();
   flushKnownUsers();
   await flushRefIndex();
   uploadCache.dispose();
