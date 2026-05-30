@@ -41,11 +41,10 @@ export const GROUP_ROUTE_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1_000;
 // === 友军识别 ===
 
 /**
- * 不可见 bot 签名（零宽字符序列）。
- * 追加到发出的消息末尾，接收方检测此签名判断是否为友军 bot。
- * ​ = zero-width space, ‌ = zero-width non-joiner, ‍ = zero-width joiner
+ * 友军签名正则：匹配 [BOT:数字] 格式，提取 bot 的 QQ 号。
+ * 例如 [BOT:123456] → 捕获组 1 = "123456"
  */
-export const DEFAULT_BOT_SIGNATURE = "​‌‍";
+export const BOT_SIGNATURE_PATTERN = /\[BOT:(\d+)\]/;
 
 // === 投递 ===
 

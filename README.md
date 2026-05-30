@@ -78,15 +78,15 @@
 
 多个 bot 在同一群会产生循环对话？开启 `ignoreSenderBot`（默认 true），bot 消息会被自动过滤：
 
-- **三层检测**：`sender.bot=true`（OneBot v11 标准字段）→ 自维护 bot ID 缓存 → 发出的消息末尾的不可见零宽字符签名
-- **自维护缓存**：检测到签名后自动记录 bot 用户 ID，后续即使没有签名也能识别，无需手动配置 `knownBotIds`
+- **三层检测**：`sender.bot=true`（OneBot v11 标准字段）→ 自维护 bot ID 缓存 → `[BOT:QQ号]` 签名
+- **自维护缓存**：检测到签名后自动记录 bot 用户 ID，后续即使没有签名也能识别，无需手动配置
 - **友军抑制**：检测到其他 bot 活跃后，本 bot 会静默 `botSuppressionMs` 毫秒（默认 120 秒）
 
 ```json
 { "ignoreSenderBot": true, "botSuppressionMs": 120000 }
 ```
 
-签名使用零宽字符（`​‌‍`），用户不可见，仅在群消息中追加（私聊不追加，避免冗余）。账号断开重连时缓存自动清空，重新学习。
+签名格式为 `[BOT:12345678]`（带自身 QQ 号），自动追加到群消息末尾，用户可见但不影响阅读。私聊不追加。账号断开重连时缓存自动清空，重新学习。
 
 ### 旁观模式（Passive Mode）
 
@@ -265,7 +265,6 @@ docker compose restart openclaw
 | `allowedGroups` | number[] | `[]` | 群组白名单（空=全部） |
 | `blockedUsers` | number[] | `[]` | 用户黑名单 |
 | `ignoreSenderBot` | boolean | `true` | 过滤其他 bot 消息，防止循环对话 |
-| `botSignature` | string | 零宽字符 | 不可见签名（追加到发出的消息末尾用于友军识别），留空=禁用 |
 | `debug` | boolean | `false` | 开启消息处理流水线的详细诊断日志（@mention / bot 过滤 / 表情），排查问题时临时开启 |
 | `botSuppressionMs` | number | `120000` | 友军抑制时长（ms），0=禁用 |
 | `keywordTriggers` | string[] | `[]` | 无需 @ 的触发关键词 |

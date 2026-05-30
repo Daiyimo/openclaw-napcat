@@ -36,7 +36,11 @@ export function installConnectHandler(
           setTimeout(() => reject(new Error("getLoginInfo timeout")), LOGIN_INFO_TIMEOUT_MS),
         ),
       ]);
-      if (info?.user_id) client.setSelfId(info.user_id);
+      if (info?.user_id) {
+        client.setSelfId(info.user_id);
+        // 存入 account config，供 outbound.sendText 生成友军签名使用
+        (ctx.account.config as any)._selfId = info.user_id;
+      }
       if (info?.nickname)
         console.log(`[napcat-QQ] Logged in as: ${info.nickname} (${info.user_id})`);
       ctx.channelRuntime.activity.record({

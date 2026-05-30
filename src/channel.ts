@@ -9,7 +9,7 @@ import {
   migrateBaseNameToDefaultAccount,
 } from "openclaw/plugin-sdk";
 import { OneBotClient } from "./client.js";
-import { QQConfigSchema, type QQConfig } from "./config.js";
+import { QQConfigSchema, type QQConfig, getQQConfigDefaults } from "./config.js";
 import { registerClientsMap } from "./proactive.js";
 import { normalizeTarget } from "./message-parser.js";
 import { PassiveModeManager } from "./passive-mode.js";
@@ -89,7 +89,9 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
       const qq = cfg.channels?.napcat;
       const accountConfig = id === DEFAULT_ACCOUNT_ID ? qq : qq?.accounts?.[id];
       const parsed = QQConfigSchema.safeParse(accountConfig ?? {});
-      const config = parsed.success ? parsed.data : (accountConfig || {});
+      const rawConfig = parsed.success ? parsed.data : (accountConfig || {});
+      // safeParse 不填充 .default()，手动合并默认值（用户显式设置的优先）
+      const config: QQConfig = { ...getQQConfigDefaults(), ...rawConfig };
       return {
         accountId: id,
         name: accountConfig?.name ?? "QQ Default",
@@ -281,12 +283,12 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
     deliveryMode: "direct" as const,
     sendText: async ({ to, text, accountId, replyToId, cfg }: { to: string; text: string; accountId?: string | null; replyToId?: string | null; cfg?: any }) => {
       const resolvedAid = accountId || DEFAULT_ACCOUNT_ID;
-      // 从 QQ 配置中提取 botSignature
+      // 提取本 bot 的 QQ 号用于生成友军签名 [BOT:${selfId}]
       const qq = cfg?.channels?.napcat;
       const accountCfg = resolvedAid === DEFAULT_ACCOUNT_ID ? qq : qq?.accounts?.[resolvedAid];
-      const botSignature = accountCfg?.botSignature;
+      const selfId = accountCfg?._selfId;
       return sendText(
-        { to, text, accountId, replyToId, botSignature },
+        { to, text, accountId, botSelfId: selfId },
         { getClient: getClientForAccount, knownGroupIds: getKnownGroupIds(resolvedAid), passiveMode },
       );
     },
