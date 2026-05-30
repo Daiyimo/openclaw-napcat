@@ -10,12 +10,14 @@ import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk";
 import type { OneBotClient } from "../client.js";
 import type { OneBotMessage } from "../types.js";
 import type { PassiveModeManager } from "../passive-mode.js";
+import type { QQConfig } from "../config.js";
 import {
   parseTarget,
   splitMessage,
   dispatchMessage,
 } from "../message-parser.js";
 import { OUTBOUND_MULTI_CHUNK_SLEEP_MS, makeZeroWidthSignature } from "../constants.js";
+import { maskIdsInText } from "../utils/log-sanitize.js";
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -25,7 +27,7 @@ export interface SendTextParams {
   text: string;
   accountId?: string | null;
   replyToId?: string | null;
-  cfg?: any;
+  cfg?: QQConfig;
   /** 本 bot 的 QQ 号，用于生成友军签名 [BOT:${selfId}] */
   botSelfId?: number | string;
 }
@@ -77,7 +79,7 @@ export async function sendText(
   }
 
   console.log(
-    `[napcat-QQ][outbound.sendText] called: to=${to}, accountId=${params.accountId}, text=${text?.slice(0, 100)}`,
+    `[napcat-QQ][outbound.sendText] called: to=${to}, accountId=${params.accountId}, text=${maskIdsInText(text?.slice(0, 100) || "")}`,
   );
 
   // ── 追加友军签名（仅群消息） ─────────────────────────────────

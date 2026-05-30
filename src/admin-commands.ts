@@ -7,6 +7,7 @@
  *   /logs    - 导出最近 N 条日志
  */
 
+import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { OneBotClient } from "./client.js";
 import type { OneBotMessage } from "./types.js";
 import { getUpdateInfo } from "./update-checker.js";
@@ -29,7 +30,7 @@ export interface AdminCmdContext {
   /** 配置引用，供 /reload 命令使用 */
   configRef?: ConfigRef;
   /** 完整 OpenClaw 配置，供 /reload 读取最新值 */
-  fullCfg?: Record<string, unknown>;
+  fullCfg?: OpenClawConfig;
   /** 群路由刷新回调，供 /groups 命令使用。返回注册的群数量 */
   refreshGroupRoutes?: () => Promise<number>;
 }
@@ -96,7 +97,8 @@ export async function handleAdminCommand(
       } else {
         msg += `\n更新状态: ✅ 已是最新版本`;
       }
-    } catch {
+    } catch (e) {
+      console.debug(`[napcat-QQ] Update check failed in /status:`, e);
       msg += `\n更新状态: 检查失败`;
     }
 
@@ -210,7 +212,7 @@ export async function handleAdminCommand(
       await reply(ctx, "❌ 热更新未启用");
       return true;
     }
-    const napcat = (ctx.fullCfg as any)?.channels?.napcat;
+    const napcat = ctx.fullCfg.channels?.napcat;
     const result = updateConfigRef(ctx.configRef, napcat);
     if (result.success) {
       let msg = "✅ 配置已重载";

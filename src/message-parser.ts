@@ -10,7 +10,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { OneBotMessage } from "./types.js";
 import type { OneBotClient } from "./client.js";
-import { convertSilkToWav } from "./utils/audio-convert.js";
+import type { OpenClawConfig } from "openclaw/plugin-sdk";
 
 // ============ CQ 码参数转义 ============
 
@@ -474,8 +474,8 @@ interface STTConfig {
   model: string;
 }
 
-export function resolveSTTConfig(cfg: Record<string, unknown>): STTConfig | null {
-  const c = cfg as any;
+export function resolveSTTConfig(cfg: OpenClawConfig): STTConfig | null {
+  const c = cfg;
 
   // 优先 channels.napcat.stt（插件专属配置）
   const channelStt = c?.channels?.napcat?.stt;
