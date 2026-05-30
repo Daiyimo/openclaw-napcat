@@ -181,6 +181,29 @@ export function detectMention(
 }
 
 /**
+ * 检测消息中是否 @ 了其他用户（非 bot 自身、非 @all）。
+ * 用于在 @其他人 时跳过所有触发逻辑（被动模式、关键词、回复引用）。
+ *
+ * @param event  OneBot 事件
+ * @param selfId 机器人自身 QQ 号
+ */
+export function hasMentionOtherUser(
+  event: OneBotEvent,
+  selfId: number | string,
+): boolean {
+  if (!Array.isArray(event.message)) return false;
+  for (const s of event.message) {
+    if (s.type === "at") {
+      const qq = (s as any).data?.qq;
+      if (qq !== "all" && String(qq) !== String(selfId)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
  * 检测文本是否包含任意触发关键词。
  */
 export function detectKeywordTrigger(

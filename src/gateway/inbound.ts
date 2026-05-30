@@ -25,6 +25,7 @@ import {
   resolveMessageText,
   detectMention,
   detectKeywordTrigger,
+  hasMentionOtherUser,
   buildFromId,
   buildBodyWithReply,
 } from "../message-processor.js";
@@ -297,6 +298,18 @@ export function installMessageHandler(
               .join("\n");
           }
         } catch {}
+      }
+
+      // ── @其他人检测：跳过所有触发逻辑 ────────────────────────
+      // 如果消息中 @了其他用户（非 bot 自身），直接跳过，不触发任何回复
+      if (isGroup || isGuild) {
+        const effectiveSelfId = client.getSelfId() ?? event.self_id;
+        if (effectiveSelfId && hasMentionOtherUser(event, effectiveSelfId)) {
+          if (config.debug) {
+            console.log(`[napcat-QQ][debug-mention-other] skipping message that @mentions other user, not bot`);
+          }
+          return;
+        }
       }
 
       // ── 触发检测 ──────────────────────────────────────
