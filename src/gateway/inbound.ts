@@ -391,7 +391,10 @@ export function installMessageHandler(
             else if (/睡|困|累|休息|晚安|倦/.test(t)) emojiId = "8";
           }
 
-          console.log(`[napcat-QQ][debug-reaction] msgId=${event.message_id} emojiId=${emojiId}`);
+          console.log(
+            `[napcat-QQ][debug-reaction] msgId=${event.message_id} emojiId=${emojiId} ` +
+              `sender=${userId} text="${text.slice(0, 50)}" matchedPattern=${emojiId !== "307" ? "keyword" : "default"}`,
+          );
           await client.setMsgEmojiLike(event.message_id, emojiId);
           console.log(`[napcat-QQ][debug-reaction] success msgId=${event.message_id}`);
         } catch (err) {
