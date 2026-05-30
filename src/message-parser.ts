@@ -6,13 +6,11 @@
 
 import { promises as fs } from "node:fs";
 import * as fsSync from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { OneBotMessage } from "./types.js";
 import type { OneBotClient } from "./client.js";
 import { convertSilkToWav } from "./utils/audio-convert.js";
-import { getQQBotDataDir } from "./utils/platform.js";
 
 // ============ CQ 码参数转义 ============
 
@@ -325,7 +323,12 @@ export interface DownloadedImage {
 
 export async function downloadImages(urls: string[]): Promise<DownloadedImage[]> {
   console.log(`[napcat-QQ][downloadImages] downloading ${urls.length} image(s):`, urls.map(u => u.slice(0, 100)));
-  const downloadDir = getQQBotDataDir("downloads");
+  // 下载到 workspace 目录（框架的 workspaceOnly 限制只能读取 workspace 下的文件）
+  const homeDir = process.env.HOME || "/home/node";
+  const downloadDir = path.join(homeDir, ".openclaw", "workspace");
+  if (!fsSync.existsSync(downloadDir)) {
+    fsSync.mkdirSync(downloadDir, { recursive: true });
+  }
   const results: DownloadedImage[] = [];
 
   for (const url of urls) {
