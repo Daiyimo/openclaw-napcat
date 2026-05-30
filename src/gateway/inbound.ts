@@ -153,10 +153,12 @@ export function installMessageHandler(
       if (isGroup) {
         const sigMatch = config.botSignature && text.includes(config.botSignature);
         const isBot = event.sender?.bot || sigMatch;
+        console.log(
+          `[napcat-QQ][debug-bot-filter] userId=${userId} sender=${JSON.stringify(event.sender)} ` +
+            `sender.bot=${event.sender?.bot} sigMatch=${sigMatch} isBot=${isBot} ` +
+            `text="${text.slice(0, 80)}"`,
+        );
         if (isBot) {
-          console.log(
-            `[napcat-QQ][debug-bot-filter] userId=${userId} sender.bot=${event.sender?.bot} sigMatch=${sigMatch} → dropping`,
-          );
           if (config.ignoreSenderBot !== false) passiveMode.markBotActive(`group:${groupId}`);
           return;
         }
@@ -366,7 +368,14 @@ export function installMessageHandler(
       };
 
       // ── 智能表情回应 ──────────────────────────────────
-      if (!isPassiveMode && (config.enableReactions || config.reactionEmoji) && event.message_id) {
+      // 仅对来自其他用户的消息贴表情，不对自己的消息或 bot 消息贴表情
+      if (
+        !isPassiveMode &&
+        (config.enableReactions || config.reactionEmoji) &&
+        event.message_id &&
+        String(event.user_id) !== String(selfId) &&
+        !event.sender?.bot
+      ) {
         try {
           let emojiId: string;
           if (config.reactionEmoji) {
@@ -393,13 +402,22 @@ export function installMessageHandler(
 
           console.log(
             `[napcat-QQ][debug-reaction] msgId=${event.message_id} emojiId=${emojiId} ` +
-              `sender=${userId} text="${text.slice(0, 50)}" matchedPattern=${emojiId !== "307" ? "keyword" : "default"}`,
+              `userId=${event.user_id} selfId=${selfId} isBot=${event.sender?.bot} text="${text.slice(0, 50)}"`,
           );
           await client.setMsgEmojiLike(event.message_id, emojiId);
           console.log(`[napcat-QQ][debug-reaction] success msgId=${event.message_id}`);
         } catch (err) {
           console.error(`[napcat-QQ][debug-reaction] FAILED msgId=${event.message_id} err=`, err);
         }
+      } else if (
+        !isPassiveMode &&
+        (config.enableReactions || config.reactionEmoji) &&
+        event.message_id &&
+        (String(event.user_id) === String(selfId) || event.sender?.bot)
+      ) {
+        console.log(
+          `[napcat-QQ][debug-reaction] SKIP self/bot msgId=${event.message_id} userId=${event.user_id} selfId=${selfId} isBot=${event.sender?.bot}`,
+        );
       }
 
       // ── 入站频控 & 静默关键词过滤 ────────────────────
