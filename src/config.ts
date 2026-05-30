@@ -17,8 +17,6 @@ export const QQConfigSchema = z.object({
   allowedGroups: z.array(z.number().int().positive()).optional().describe("Whitelist of group IDs allowed to interact with"),
   blockedUsers: z.array(z.number().int().positive()).optional().describe("Blacklist of user IDs to ignore"),
   ignoreSenderBot: z.boolean().optional().default(true).describe("Ignore messages from other bot accounts (sender.bot=true) to prevent bot-to-bot loops. When true, bot messages are dropped and passiveMode.botSuppressionMs takes effect; when false, bot messages pass through and botSuppressionMs has no effect"),
-  /** 不可见 bot 签名（追加到发出的消息末尾，用于友军识别）。默认零宽字符序列，用户不可见 */
-  botSignature: z.string().optional().default("​‌‍").describe("Invisible signature appended to outgoing messages for bot-to-bot recognition. Default: zero-width characters"),
   debug: z.boolean().optional().default(false).describe("Enable verbose debug logging for message processing pipeline (self-filter, bot-filter, mention, reaction). Recommended only for troubleshooting"),
   historyLimit: z.number().int().min(0).max(100).optional().default(5).describe("Number of history messages to include in context"),
   keywordTriggers: z.array(z.string()).optional().describe("List of keywords that trigger the bot (without @)"),
@@ -56,3 +54,8 @@ export const QQConfigSchema = z.object({
 });
 
 export type QQConfig = z.infer<typeof QQConfigSchema>;
+
+/** 从 schema 提取所有默认值。注意：safeParse 不填充 .default()，需手动合并。 */
+export function getQQConfigDefaults(): QQConfig {
+  return QQConfigSchema.parse({});
+}

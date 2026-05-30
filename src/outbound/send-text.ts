@@ -15,7 +15,7 @@ import {
   splitMessage,
   dispatchMessage,
 } from "../message-parser.js";
-import { OUTBOUND_MULTI_CHUNK_SLEEP_MS, DEFAULT_BOT_SIGNATURE } from "../constants.js";
+import { OUTBOUND_MULTI_CHUNK_SLEEP_MS } from "../constants.js";
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -26,8 +26,8 @@ export interface SendTextParams {
   accountId?: string | null;
   replyToId?: string | null;
   cfg?: any;
-  /** 不可见 bot 签名，追加到消息末尾用于友军识别。为空则不追加 */
-  botSignature?: string;
+  /** 本 bot 的 QQ 号，用于生成友军签名 [BOT:${selfId}] */
+  botSelfId?: number | string;
 }
 
 export interface SendTextDeps {
@@ -78,10 +78,12 @@ export async function sendText(
     `[napcat-QQ][outbound.sendText] called: to=${to}, accountId=${params.accountId}, text=${text?.slice(0, 100)}`,
   );
 
-  // ── 追加不可见 bot 签名（友军识别，仅群消息） ─────────────
-  // 私聊不会产生 bot 循环，无需追加签名
+  // ── 追加友军签名（仅群消息） ─────────────────────────────────
+  // 签名格式 [BOT:${selfId}]，带自身 QQ 号，接收方通过正则提取 bot ID。
+  // 相比零宽字符，此格式不会被传输层 stripping。
   const isGroup = /^\d+$/.test(to) || to.startsWith("group:");
-  const effectiveText = params.botSignature && isGroup ? text + params.botSignature : text;
+  const botSig = params.botSelfId ? `[BOT:${params.botSelfId}]` : "";
+  const effectiveText = botSig && isGroup ? text + botSig : text;
   const client = getClient(resolvedAccountId);
   if (!client) return { channel: "napcat", sent: false, error: "Client not connected" };
 

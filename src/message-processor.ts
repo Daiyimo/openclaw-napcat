@@ -240,8 +240,8 @@ export function buildBodyWithReply(opts: {
   historyContext: string;
   isPassiveMode: boolean;
   passivePrompt: string | undefined;
-  /** 不可见 bot 签名，发送给 AI 前剥离 */
-  botSignature?: string;
+  /** 本 bot 的 QQ 号，用于剥离发送给自己的友军签名 */
+  botSelfId?: string | number;
 }): string {
   const { text, repliedMsg, systemPrompt, historyContext, isPassiveMode, passivePrompt } = opts;
 
@@ -264,9 +264,10 @@ export function buildBodyWithReply(opts: {
     : "";
 
   const cleanText = cleanCQCodes(text);
-  // 剥离不可见 bot 签名，防止 AI 学到签名并复现
-  const strippedText = opts.botSignature
-    ? cleanText.replaceAll(opts.botSignature, "")
+  // 剥离友军签名 [BOT:${selfId}]，防止 AI 学到签名并复现
+  const botId = opts.botSelfId;
+  const strippedText = botId
+    ? cleanText.replace(new RegExp(`\\[BOT:${botId}\\]`, "g"), "")
     : cleanText;
   const bodyWithReply = strippedText + replySuffix;
 

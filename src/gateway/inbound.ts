@@ -29,6 +29,7 @@ import {
   buildBodyWithReply,
 } from "../message-processor.js";
 import { MessageSender } from "../message-sender.js";
+import { BOT_SIGNATURE_PATTERN } from "../constants.js";
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -161,23 +162,24 @@ export function installMessageHandler(
         return;
 
       // 友军识别：bot 消息记录活跃时间后跳过
-      // 三层检测：sender.bot 字段 → 自维护 bot ID 缓存 → 不可见签名
+      // 三层检测：sender.bot 字段 → 自维护 bot ID 缓存 → [BOT:ID] 签名
       if (isGroup) {
-        const sigMatch = config.botSignature && text.includes(config.botSignature);
+        const sigMatch = BOT_SIGNATURE_PATTERN.exec(text);
+        const matchedBotId = sigMatch?.[1] ?? null;
         const userIdStr = userId != null ? String(userId) : null;
         const knownBotMatch = userIdStr !== null && knownBotUserIds.has(userIdStr);
-        const isBot = event.sender?.bot || knownBotMatch || sigMatch;
+        const isBot = event.sender?.bot || knownBotMatch || matchedBotId !== null;
         if (config.debug) {
           console.log(
             `[napcat-QQ][debug-bot-filter] userId=${userId} sender.bot=${event.sender?.bot} ` +
-              `knownBot=${knownBotMatch} sig=${sigMatch} isBot=${isBot} ` +
+              `knownBot=${knownBotMatch} sigMatch=${matchedBotId} isBot=${isBot} ` +
               `text="${text.slice(0, 80)}"`,
           );
         }
         if (isBot) {
           // 通过签名检测到的 bot 自动加入缓存，后续无需签名也能识别
-          if (sigMatch || event.sender?.bot) {
-            if (userIdStr !== null) knownBotUserIds.add(userIdStr);
+          if (matchedBotId !== null) {
+            knownBotUserIds.add(matchedBotId);
           }
           if (config.ignoreSenderBot !== false) passiveMode.markBotActive(`group:${groupId}`);
           return;
@@ -509,7 +511,7 @@ export function installMessageHandler(
         historyContext,
         isPassiveMode,
         passivePrompt: config.passiveMode?.systemPrompt,
-        botSignature: config.botSignature,
+        botSelfId: client.getSelfId() ?? event.self_id,
       });
 
       const ctxPayload = channelRuntime.reply.finalizeInboundContext({

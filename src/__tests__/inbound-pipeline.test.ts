@@ -268,6 +268,57 @@ describe("installMessageHandler — inbound pipeline integration (12 cases)", ()
     expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
   });
 
+  // 3c. Message with [BOT:ID] signature is identified as bot message
+  it("3c. group message containing [BOT:99999] signature is dropped as bot message", async () => {
+    const { client, ctx, dispatchReplyFromConfig } = makeCtx({ requireMention: true });
+    installMessageHandler(client, ctx);
+
+    client.emit(
+      "message",
+      makeGroupEvent({
+        user_id: 99999,  // sender ID
+        message: [
+          { type: "text", data: { text: "hello from another bot [BOT:99999]" } },
+        ],
+        raw_message: "hello from another bot [BOT:99999]",
+      }),
+    );
+    await flush();
+
+    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+  });
+
+  // 3d. Message with [BOT:ID] signature adds sender to knownBot cache
+  it("3d. [BOT:ID] signature adds sender to knownBot cache", async () => {
+    const { client, ctx, dispatchReplyFromConfig } = makeCtx({ requireMention: true });
+    installMessageHandler(client, ctx);
+
+    // First message with signature → dropped, added to cache
+    client.emit(
+      "message",
+      makeGroupEvent({
+        user_id: 99999,
+        message: [{ type: "text", data: { text: "bot msg [BOT:99999]" } }],
+        raw_message: "bot msg [BOT:99999]",
+      }),
+    );
+    await flush();
+    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+
+    // Second message from same user WITHOUT signature → still identified via cache
+    (dispatchReplyFromConfig as any).mockClear();
+    client.emit(
+      "message",
+      makeGroupEvent({
+        user_id: 99999,
+        message: [{ type: "text", data: { text: "bot msg without sig" } }],
+        raw_message: "bot msg without sig",
+      }),
+    );
+    await flush();
+    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+  });
+
   // 4. Self-message filtered
   it("4. message from self (userId === selfId) is filtered out", async () => {
     const { client, ctx, dispatchReplyFromConfig } = makeCtx();
