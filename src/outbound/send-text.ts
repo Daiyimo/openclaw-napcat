@@ -49,10 +49,11 @@ export async function sendText(
 
   if (!to || to === "heartbeat") return { channel: "napcat", sent: true };
 
-  // ── 旁观模式 [SILENT] 拦截 ──────────────────────────────
+  // ── 旁观模式 [SILENT] / NO_REPLY 拦截 ──────────────────────
   const resolvedAccountId = params.accountId || DEFAULT_ACCOUNT_ID;
   const cooldownKey = `${resolvedAccountId}:${to}`;
-  if (/^\[SILENT\]$/i.test(text?.trim() ?? "")) {
+  const trimmed = text?.trim() ?? "";
+  if (/^\[SILENT\]$/i.test(trimmed) || /^NO_REPLY$/i.test(trimmed)) {
     console.log(`[napcat-QQ][passive] AI 选择静默 (to=${to})`);
     passiveMode.markSilent(cooldownKey);
     return { channel: "napcat", sent: true };
