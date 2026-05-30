@@ -2,6 +2,37 @@
 
 # 更新日志
 
+### v1.7.2 - 友军识别增强 + NO_REPLY 修复 (2026-05-31)
+
+#### 新增
+
+- **手动 bot 白名单（`knownBotIds`）**：支持手动指定已知 bot 的 QQ 号，适用于不支持签名的 bot 框架，最高优先级识别
+- **签名样式配置（`botSignatureStyle`）**：可选 `visible`（默认，`[BOT:selfId]`）或 `zero-width`（零宽字符，用户不可见）
+- **零宽字符签名检测**：同时支持可见 `[BOT:ID]` 和零宽字符 `​ID‌` 两种签名格式的检测
+- **@其他人跳过所有触发**：当消息中 @了其他用户（非 bot）时，跳过被动模式、关键词触发、回复引用，避免误触发
+- **NO_REPLY 变体支持**：支持 `NO_REPLY`、`NO_REPLY.`、`NO_REPLY!`、`NO REPLY`、`NO_REPLY` 等格式（不区分大小写）
+
+#### 修复
+
+- **NO_REPLY 检测增强**：修复 AI 返回带标点或空格的 NO_REPLY 变体时仍会发送消息的问题
+- **@其他人误触发**：修复 @其他用户时 bot 仍会通过被动模式或关键词触发回复的问题
+
+#### 配置项
+
+```json
+{
+  "knownBotIds": [123456789, 987654321],
+  "botSignatureStyle": "visible"
+}
+```
+
+```yaml
+QQ_KNOWN_BOT_IDS: "123456789,987654321"
+QQ_BOT_SIGNATURE_STYLE: visible
+```
+
+---
+
 ### v1.7.1 - 友军识别 + 旁观模式频率控制 (2026-05-30)
 
 #### 新增
