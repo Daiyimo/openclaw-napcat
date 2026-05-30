@@ -3,6 +3,7 @@ import EventEmitter from "events";
 import type { OneBotEvent, OneBotMessage } from "./types.js";
 import type { IncomingMessage } from "http";
 import { withRetry, HttpApiError, isRetryableError } from "./utils/retry.js";
+import { maskUrl } from "./utils/log-sanitize.js";
 import {
   WS_HEARTBEAT_INTERVAL_MS,
   WS_RESPONSE_TIMEOUT_MS,
@@ -33,6 +34,8 @@ export class OneBotClient extends EventEmitter {
     reject: (reason: any) => void;
     timer: ReturnType<typeof setTimeout>;
   }>();
+  /** echo ID 递增计数器，避免 Math.random() 碰撞风险 */
+  private echoCounter = 0;
 
   constructor(options: OneBotClientOptions) {
     super();
@@ -272,10 +275,10 @@ export class OneBotClient extends EventEmitter {
   }
 
   /** Try HTTP API first, fall back to WebSocket */
-  private async sendAction(action: string, params: any) {
+  async sendAction(action: string, params: any) {
     if (this.options.httpUrl) {
       try {
-        console.log(`[napcat-QQ][sendAction] trying HTTP: ${this.options.httpUrl}/${action}`);
+        console.log(`[napcat-QQ][sendAction] trying HTTP: ${maskUrl(this.options.httpUrl)}/${action}`);
         await this.sendViaHttp(action, params);
         console.log(`[napcat-QQ][sendAction] HTTP success: ${action}`);
         return;
@@ -404,7 +407,8 @@ export class OneBotClient extends EventEmitter {
     return null;
   }
 
-  private sendWithResponse(action: string, params: any): Promise<any> {
+  /** 发送请求并等待响应（HTTP 优先，回退 WS） */
+  async sendWithResponse(action: string, params: any): Promise<any> {
     // Prefer HTTP API for request-response calls if available
     if (this.options.httpUrl) {
       return this.sendViaHttp(action, params).catch((err) => {
@@ -423,7 +427,7 @@ export class OneBotClient extends EventEmitter {
         return;
       }
 
-      const echo = Math.random().toString(36).substring(2, 15);
+      const echo = `e${++this.echoCounter}`;
 
       const timer = setTimeout(() => {
         this.pendingRequests.delete(echo);
