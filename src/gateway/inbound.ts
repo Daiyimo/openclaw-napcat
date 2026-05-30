@@ -537,9 +537,9 @@ export function installMessageHandler(
 
       // ── 下载入站图片到本地 ──
       const imageUrls = extractImageUrls(event.message);
-      let mediaPaths: string[] = [];
+      let mediaResult: { localPaths: string[]; localTypes: string[]; remoteUrls: string[] } = { localPaths: [], localTypes: [], remoteUrls: [] };
       if (imageUrls.length > 0) {
-        mediaPaths = await downloadImages(imageUrls);
+        mediaResult = await downloadImages(imageUrls);
       }
 
       const ctxPayload = channelRuntime.reply.finalizeInboundContext({
@@ -559,9 +559,16 @@ export function installMessageHandler(
         OriginatingChannel: "qq",
         OriginatingTo: fromId,
         CommandAuthorized: isAdmin || (!isGroup && !isGuild),
-        ...(mediaPaths.length > 0 && {
-          MediaPaths: mediaPaths,
-        }),
+        ...(mediaResult.localPaths.length > 0 ? {
+          MediaPaths: mediaResult.localPaths,
+          MediaPath: mediaResult.localPaths[0],
+          MediaTypes: mediaResult.localTypes,
+          MediaType: mediaResult.localTypes[0],
+        } : {}),
+        ...(mediaResult.remoteUrls.length > 0 ? {
+          MediaUrls: mediaResult.remoteUrls,
+          MediaUrl: mediaResult.remoteUrls[0],
+        } : {}),
         ...(replyMsgId && {
           ReplyToId: replyMsgId,
           ReplyToBody: replyToBody,
