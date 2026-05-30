@@ -26,7 +26,6 @@ describe("QQConfigSchema", () => {
       expect(result.data.autoApproveRequests).toBe(false);
       expect(result.data.enableErrorNotify).toBe(true);
       expect(result.data.enableUpdateCheck).toBe(true);
-      expect(result.data.enableGuilds).toBe(true);
     });
 
     it("accepts complete valid config", () => {

@@ -97,7 +97,6 @@ function makeConfig(overrides: Partial<QQConfig> = {}): QQConfig {
     antiRiskMode: false,
     historyLimit: 0,        // skip getGroupMsgHistory calls
     enableTTS: false,
-    enableGuilds: true,
     rateLimitMs: 0,
     enableReactions: false, // skip setMsgEmojiLike calls
     autoMarkRead: false,
