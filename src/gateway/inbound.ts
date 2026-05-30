@@ -14,6 +14,7 @@ import { recordKnownUser } from "../known-users.js";
 import { populateGroupMemberCache } from "../member-cache.js";
 import {
   extractImageUrls,
+  downloadImages,
   cleanCQCodes,
   getReplyMessageId,
 } from "../message-parser.js";
@@ -534,6 +535,13 @@ export function installMessageHandler(
         botSelfId: client.getSelfId() ?? event.self_id,
       });
 
+      // ── 下载入站图片到本地 ──
+      const imageUrls = extractImageUrls(event.message);
+      let mediaPaths: string[] = [];
+      if (imageUrls.length > 0) {
+        mediaPaths = await downloadImages(imageUrls);
+      }
+
       const ctxPayload = channelRuntime.reply.finalizeInboundContext({
         Provider: "qq",
         Channel: "qq",
@@ -551,8 +559,8 @@ export function installMessageHandler(
         OriginatingChannel: "qq",
         OriginatingTo: fromId,
         CommandAuthorized: isAdmin || (!isGroup && !isGuild),
-        ...(extractImageUrls(event.message).length > 0 && {
-          MediaUrls: extractImageUrls(event.message),
+        ...(mediaPaths.length > 0 && {
+          MediaPaths: mediaPaths,
         }),
         ...(replyMsgId && {
           ReplyToId: replyMsgId,
