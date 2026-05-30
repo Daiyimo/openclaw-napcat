@@ -83,10 +83,6 @@
         "type": "boolean",
         "description": "Enable TTS"
       },
-      "enableGuilds": {
-        "type": "boolean",
-        "description": "Enable QQ Guild support"
-      },
       "rateLimitMs": {
         "type": "number",
         "description": "Rate limit in ms"
