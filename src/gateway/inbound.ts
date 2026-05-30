@@ -148,8 +148,12 @@ export function installMessageHandler(
       // 友军识别：bot 消息记录活跃时间后跳过
       // 检测 sender.bot 字段 + 不可见签名（零宽字符）
       if (isGroup) {
-        const isBot = event.sender?.bot || (config.botSignature && text.includes(config.botSignature));
+        const sigMatch = config.botSignature && text.includes(config.botSignature);
+        const isBot = event.sender?.bot || sigMatch;
         if (isBot) {
+          console.log(
+            `[napcat-QQ][debug-bot-filter] userId=${userId} sender.bot=${event.sender?.bot} sigMatch=${sigMatch} → dropping`,
+          );
           if (config.ignoreSenderBot !== false) passiveMode.markBotActive(`group:${groupId}`);
           return;
         }
@@ -384,8 +388,12 @@ export function installMessageHandler(
             else if (/睡|困|累|休息|晚安|倦/.test(t)) emojiId = "8";
           }
 
+          console.log(`[napcat-QQ][debug-reaction] msgId=${event.message_id} emojiId=${emojiId}`);
           await client.setMsgEmojiLike(event.message_id, emojiId);
-        } catch {}
+          console.log(`[napcat-QQ][debug-reaction] success msgId=${event.message_id}`);
+        } catch (err) {
+          console.error(`[napcat-QQ][debug-reaction] FAILED msgId=${event.message_id} err=`, err);
+        }
       }
 
       // ── 入站频控 & 静默关键词过滤 ────────────────────

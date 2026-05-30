@@ -146,20 +146,33 @@ export function detectMention(
   text: string,
   repliedMsg?: { sender?: { user_id?: any } } | null,
 ): boolean {
+  // ── 诊断日志 ──
+  const atSegments: any[] = [];
   if (Array.isArray(event.message)) {
     for (const s of event.message) {
-      if (
-        s.type === "at" &&
-        (String((s as any).data?.qq) === String(selfId) || (s as any).data?.qq === "all")
-      ) {
-        return true;
+      if (s.type === "at") {
+        atSegments.push({ qq: (s as any).data?.qq, raw: JSON.stringify(s) });
+        if (
+          String((s as any).data?.qq) === String(selfId) || (s as any).data?.qq === "all"
+        ) {
+          console.log(`[napcat-QQ][debug-mention] MATCH at segment qq=${(s as any).data?.qq} selfId=${selfId}`);
+          return true;
+        }
       }
     }
   } else if (text.includes(`[CQ:at,qq=${selfId}]`)) {
+    console.log(`[napcat-QQ][debug-mention] MATCH text fallback selfId=${selfId}`);
     return true;
   }
   if (repliedMsg?.sender?.user_id !== undefined) {
-    if (String(repliedMsg.sender.user_id) === String(selfId)) return true;
+    if (String(repliedMsg.sender.user_id) === String(selfId)) {
+      console.log(`[napcat-QQ][debug-mention] MATCH reply sender userId=${repliedMsg.sender.user_id} selfId=${selfId}`);
+      return true;
+    }
+  }
+  // 未匹配时打印诊断信息（仅群聊且有 at 段时）
+  if (atSegments.length > 0) {
+    console.log(`[napcat-QQ][debug-mention] NO MATCH atSegments=${JSON.stringify(atSegments)} selfId=${selfId} repliedMsgSender=${repliedMsg?.sender?.user_id}`);
   }
   return false;
 }
