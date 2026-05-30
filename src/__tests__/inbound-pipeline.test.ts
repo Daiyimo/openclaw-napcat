@@ -248,6 +248,26 @@ describe("installMessageHandler — inbound pipeline integration (12 cases)", ()
     });
   });
 
+  // 3b. @mention of OTHER user (not bot) does NOT trigger
+  it("3b. group message @mentioning other user (not bot) does not trigger", async () => {
+    const { client, ctx, dispatchReplyFromConfig } = makeCtx({ requireMention: true });
+    installMessageHandler(client, ctx);
+
+    client.emit(
+      "message",
+      makeGroupEvent({
+        message: [
+          { type: "at", data: { qq: "99999" } },  // @ someone else
+          { type: "text", data: { text: " hello" } },
+        ],
+        raw_message: "[CQ:at,qq=99999] hello",
+      }),
+    );
+    await flush();
+
+    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+  });
+
   // 4. Self-message filtered
   it("4. message from self (userId === selfId) is filtered out", async () => {
     const { client, ctx, dispatchReplyFromConfig } = makeCtx();
