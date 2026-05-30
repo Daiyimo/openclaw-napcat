@@ -42,10 +42,15 @@ while true; do
 done
 
 echo ""
+read -r -p "是否设置群组白名单？(留空=所有群，输入群号用逗号分隔): " INPUT_ALLOWED_GROUPS </dev/tty
+ALLOWED_GROUPS="${INPUT_ALLOWED_GROUPS:-}"
+
+echo ""
 echo "配置预览:"
 echo "  reverseWsPort : $REVERSE_WS_PORT"
 echo "  httpUrl        : $HTTP_URL"
 echo "  admins        : [$ADMIN_QQ]"
+echo "  allowedGroups : ${ALLOWED_GROUPS:-所有群}"
 echo ""
 
 # ────────────────────────────────────────────────────────────
@@ -57,10 +62,18 @@ echo "备份已保存至: $BACKUP_FILE"
 
 # 执行更新
 # 注意：这里使用了 *= 来安全合并 tools 配置，防止覆盖原有工具设置
+
+# 构造 allowedGroups JSON 数组
+ALLOWED_GROUPS_JSON="[]"
+if [ -n "$ALLOWED_GROUPS" ]; then
+  ALLOWED_GROUPS_JSON=$(echo "$ALLOWED_GROUPS" | tr ',' '\n' | jq -R . | jq -s .)
+fi
+
 jq \
   --arg httpUrl "$HTTP_URL" \
   --argjson reverseWsPort "$REVERSE_WS_PORT" \
   --argjson adminQq "$ADMIN_QQ" \
+  --argjson allowedGroups "$ALLOWED_GROUPS_JSON" \
 '
 # 1. 写入完整的 channels 配置
 .channels = {
@@ -69,7 +82,7 @@ jq \
     "httpUrl": $httpUrl,
     "accessToken": "123456",
     "admins": [$adminQq],
-    "allowedGroups": [],
+    "allowedGroups": $allowedGroups,
     "blockedUsers": [999999],
     "systemPrompt": "好好干，你不干，有的是其他AI干。",
     "historyLimit": 5,
