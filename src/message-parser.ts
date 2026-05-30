@@ -43,12 +43,20 @@ export function extractImageUrls(message: OneBotMessage | string | undefined, ma
   if (Array.isArray(message)) {
     for (const segment of message) {
       if (segment.type === "image") {
-        const url =
+        // 优先取 url 字段；为空时回退到 file 字段（NapCat 常把本地路径放 file 里）
+        const raw =
           segment.data?.url ||
-          (typeof segment.data?.file === "string" &&
-          (segment.data.file.startsWith("http") || segment.data.file.startsWith("base64://"))
-            ? segment.data.file
-            : undefined);
+          (typeof segment.data?.file === "string" ? segment.data.file : undefined);
+        if (!raw) continue;
+        // 接受 http(s)、base64、file: 协议，以及裸路径（由下游 resolveMediaUrl 处理）
+        const url =
+          raw.startsWith("http") ||
+          raw.startsWith("base64://") ||
+          raw.startsWith("file:") ||
+          raw.startsWith("/") ||
+          /^[a-zA-Z]:[/\\]/.test(raw)
+            ? raw
+            : undefined;
         if (url) {
           urls.push(url);
           if (urls.length >= maxImages) break;
@@ -60,7 +68,13 @@ export function extractImageUrls(message: OneBotMessage | string | undefined, ma
     let match;
     while ((match = re.exec(message)) !== null) {
       const val = match[1].replace(/&amp;/g, "&");
-      if (val.startsWith("http") || val.startsWith("base64://")) {
+      if (
+        val.startsWith("http") ||
+        val.startsWith("base64://") ||
+        val.startsWith("file:") ||
+        val.startsWith("/") ||
+        /^[a-zA-Z]:[/\\]/.test(val)
+      ) {
         urls.push(val);
         if (urls.length >= maxImages) break;
       }

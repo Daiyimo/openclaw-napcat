@@ -60,6 +60,18 @@ describe("extractImageUrls", () => {
   it("returns empty for empty array", () => {
     expect(extractImageUrls([])).toEqual([]);
   });
+  it("falls back to file field when url is empty", () => {
+    const msg = [{ type: "image", data: { url: "", file: "/path/to/img.jpg" } }] as any;
+    expect(extractImageUrls(msg)).toEqual(["/path/to/img.jpg"]);
+  });
+  it("accepts file:// URLs", () => {
+    const msg = [{ type: "image", data: { file: "file:///path/to/img.jpg" } }] as any;
+    expect(extractImageUrls(msg)).toEqual(["file:///path/to/img.jpg"]);
+  });
+  it("accepts base64 from file field when url is empty", () => {
+    const msg = [{ type: "image", data: { url: "", file: "base64://abc123" } }] as any;
+    expect(extractImageUrls(msg)).toEqual(["base64://abc123"]);
+  });
 });
 
 // ── cleanCQCodes ──────────────────────────────────────────────────────────
