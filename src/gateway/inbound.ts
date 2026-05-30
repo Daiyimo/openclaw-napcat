@@ -6,7 +6,7 @@
  * 从 channel.ts startAccount 中提取，行为不变。
  */
 
-import type { ReplyPayload } from "openclaw/plugin-sdk";
+import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { OneBotClient } from "../client.js";
 import type { OneBotMessage } from "../types.js";
 import type { InboundContext } from "../types/channel-types.js";
@@ -18,10 +18,11 @@ import {
   cleanCQCodes,
   getReplyMessageId,
 } from "../message-parser.js";
-import { createDeliverDebouncer, type DeliverPayload } from "../deliver-debounce.js";
+import { createDeliverDebouncer, type DeliverPayload, type DeliverInfo } from "../deliver-debounce.js";
 import { TypingKeepAlive } from "../typing-keepalive.js";
 import { recordRef, lookupRef } from "../ref-index-store.js";
 import { handleAdminCommand } from "../admin-commands.js";
+import { maskId } from "../utils/log-sanitize.js";
 import {
   resolveMessageText,
   detectMention,
@@ -35,6 +36,9 @@ import { BOT_SIGNATURE_PATTERN, BOT_SIGNATURE_ZW_PATTERN } from "../constants.js
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
+
+/** 友军抑制随机延迟上限（ms），提取为常量便于测试控制 */
+const BOT_SUPPRESSION_JITTER_MS = 2000;
 
 // ── 友军识别：自维护 bot ID 缓存 ──────────────────────────────
 // 通过签名检测自动发现 bot，无需手动配置。检测到签名后记录发送者，
@@ -130,7 +134,7 @@ export function installMessageHandler(
         return;
       }
       if (String(event.user_id) === String(selfId)) {
-        if (config.debug) console.log(`[napcat-QQ][debug-self-filter] dropping self message event.user_id=${event.user_id} selfId=${selfId}`);
+        if (config.debug) console.log(`[napcat-QQ][debug-self-filter] dropping self message event.user_id=${maskId(event.user_id)} selfId=${selfId}`);
         return;
       }
 
@@ -180,7 +184,7 @@ export function installMessageHandler(
         const isBot = whitelistMatch || senderBot || cachedBotMatch || matchedBotId !== null;
         if (config.debug) {
           console.log(
-            `[napcat-QQ][debug-bot-filter] userId=${userId} whitelist=${whitelistMatch} ` +
+            `[napcat-QQ][debug-bot-filter] userId=${maskId(userId)} whitelist=${whitelistMatch} ` +
               `sender.bot=${senderBot} cachedBot=${cachedBotMatch} sigMatch=${matchedBotId} ` +
               `isBot=${isBot} text="${text.slice(0, 80)}"`,
           );
@@ -230,7 +234,7 @@ export function installMessageHandler(
             refreshGroupRoutes: async () => {
               const groups = await client.getGroupList();
               const storePath = channelRuntime.session.resolveStorePath(
-                (cfg as any).session?.store,
+                (cfg as OpenClawConfig).session?.store,
                 { agentId: "default" },
               );
               await Promise.allSettled(groups.map(async (g) => {
@@ -286,7 +290,9 @@ export function installMessageHandler(
         } else {
           try {
             repliedMsg = await client.getMsg(replyMsgId);
-          } catch {}
+          } catch (e) {
+            console.debug(`[napcat-QQ] Failed to fetch replied message ${replyMsgId}:`, e);
+          }
         }
       }
 
@@ -353,7 +359,7 @@ export function installMessageHandler(
           // 友军抑制：其他 bot 近期活跃则跳过（含预占消息）
           if (botSuppressionMs > 0 && passiveMode.isBotSuppressed(`group:${groupId}`, botSuppressionMs)) {
             // 检测到友军活跃，随机延迟错开处理时机，减少竞态
-            await sleep(Math.random() * 2000);
+            await sleep(Math.random() * BOT_SUPPRESSION_JITTER_MS);
             return;
           }
           // 最小间隔（含 [SILENT] 响应）→ 冷却（仅实质回复）
@@ -392,21 +398,22 @@ export function installMessageHandler(
         guildId,
         channelId,
       });
-      const actualDeliver = (payload: ReplyPayload) => sender.deliver(payload as any);
+      const actualDeliver = (payload: DeliverPayload) => sender.deliver(payload);
 
       // ── Deliver Debouncer 包装 ─────────────────────────
       const debouncer = createDeliverDebouncer(
         config.deliverDebounce,
-        (p, _info) => actualDeliver(p as ReplyPayload),
+        (p, _info: DeliverInfo) => actualDeliver(p),
         log,
         `[napcat-QQ][debounce]`,
       );
 
       const deliver = async (payload: unknown) => {
+        const dp = payload as DeliverPayload;
         if (debouncer) {
-          await debouncer.deliver(payload as DeliverPayload, { kind: "reply" });
+          await debouncer.deliver(dp, { kind: "reply" });
         } else {
-          await actualDeliver(payload as ReplyPayload);
+          await actualDeliver(dp);
         }
       };
 
@@ -446,7 +453,7 @@ export function installMessageHandler(
           if (config.debug) {
             console.log(
               `[napcat-QQ][debug-reaction] msgId=${event.message_id} emojiId=${emojiId} ` +
-                `userId=${event.user_id} selfId=${selfId} isBot=${event.sender?.bot} text="${text.slice(0, 50)}"`,
+                `userId=${maskId(event.user_id)} selfId=${selfId} isBot=${event.sender?.bot} text="${text.slice(0, 50)}"`,
             );
           }
           await client.setMsgEmojiLike(event.message_id, emojiId);
@@ -462,7 +469,7 @@ export function installMessageHandler(
       ) {
         if (config.debug) {
           console.log(
-            `[napcat-QQ][debug-reaction] SKIP self/bot msgId=${event.message_id} userId=${event.user_id} selfId=${selfId} isBot=${event.sender?.bot}`,
+            `[napcat-QQ][debug-reaction] SKIP self/bot msgId=${event.message_id} userId=${maskId(event.user_id)} selfId=${selfId} isBot=${event.sender?.bot}`,
           );
         }
       }
@@ -577,7 +584,7 @@ export function installMessageHandler(
 
       await channelRuntime.session.recordInboundSession({
         storePath: channelRuntime.session.resolveStorePath(
-          (cfg as any).session?.store,
+          (cfg as OpenClawConfig).session?.store,
           { agentId: "default" },
         ),
         sessionKey: ctxPayload.SessionKey as string,
@@ -633,7 +640,7 @@ export function installMessageHandler(
       if (config.enableErrorNotify && config.admins?.length) {
         try {
           const errorMsg =
-            `⚠️ 消息处理异常\n用户: ${userId}\n群组: ${groupId ?? "私聊"}\n` +
+            `⚠️ 消息处理异常\n用户: ${maskId(userId)}\n群组: ${groupId ? maskId(groupId) : "私聊"}\n` +
             `错误: ${err instanceof Error ? err.message : String(err)}`;
           for (const adminId of config.admins) {
             await client.sendPrivateMsg(adminId, errorMsg);
