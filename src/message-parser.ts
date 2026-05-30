@@ -48,6 +48,7 @@ export function extractImageUrls(message: OneBotMessage | string | undefined, ma
         const raw =
           segment.data?.url ||
           (typeof segment.data?.file === "string" ? segment.data.file : undefined);
+        console.log(`[napcat-QQ][extractImageUrls] segment.data=`, JSON.stringify(segment.data), `raw=`, raw);
         if (!raw) continue;
         // 接受 http(s)、base64、file: 协议，以及裸路径（由下游 resolveMediaUrl 处理）
         const url =
@@ -320,6 +321,7 @@ function guessImageExtension(url: string, contentType: string | null): string {
  * 失败的 URL 静默跳过，不阻塞流程。
  */
 export async function downloadImages(urls: string[]): Promise<string[]> {
+  console.log(`[napcat-QQ][downloadImages] downloading ${urls.length} image(s):`, urls.map(u => u.slice(0, 100)));
   const downloadDir = getQQBotDataDir("downloads");
   const results: string[] = [];
 
@@ -338,6 +340,7 @@ export async function downloadImages(urls: string[]): Promise<string[]> {
       const filePath = path.join(downloadDir, filename);
       const buf = Buffer.from(await resp.arrayBuffer());
       fsSync.writeFileSync(filePath, buf);
+      console.log(`[napcat-QQ][downloadImages] saved: ${filePath} (${buf.length} bytes)`);
       results.push(filePath);
     } catch (err) {
       console.warn(`[napcat-QQ] Image download error: ${err instanceof Error ? err.message : String(err)}`);
