@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import type { OneBotMessage } from "./types.js";
 import type { OneBotClient } from "./client.js";
 import { convertSilkToWav } from "./utils/audio-convert.js";
+import { getQQBotDataDir } from "./utils/platform.js";
 
 // ============ CQ 码参数转义 ============
 
@@ -279,6 +280,71 @@ export async function resolveMediaUrl(url: string): Promise<string> {
     }
   }
   return url;
+}
+
+// ============ 入站图片下载 ============
+
+/** 常见图片扩展名映射 */
+const MIME_TO_EXT: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/gif": "gif",
+  "image/webp": "webp",
+  "image/bmp": "bmp",
+  "image/svg+xml": "svg",
+};
+
+/** 从 URL 或 Content-Type 猜测图片扩展名 */
+function guessImageExtension(url: string, contentType: string | null): string {
+  if (contentType) {
+    const mime = contentType.split(";")[0].trim().toLowerCase();
+    if (MIME_TO_EXT[mime]) return MIME_TO_EXT[mime];
+  }
+  // 从 URL pathname 猜
+  try {
+    const pathname = new URL(url).pathname;
+    const ext = pathname.split(".").pop()?.toLowerCase();
+    if (ext && ["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg"].includes(ext)) {
+      return ext === "jpeg" ? "jpg" : ext;
+    }
+  } catch { /* ignore */ }
+  return "jpg"; // 默认
+}
+
+/**
+ * 下载图片到本地目录，返回本地文件路径。
+ *
+ * 用于入站管线：将 QQ 图片 CDN URL 下载到本地，
+ * 以 MediaPaths 传递给 OpenClaw 框架供 AI 读取。
+ *
+ * 失败的 URL 静默跳过，不阻塞流程。
+ */
+export async function downloadImages(urls: string[]): Promise<string[]> {
+  const downloadDir = getQQBotDataDir("downloads");
+  const results: string[] = [];
+
+  for (const url of urls) {
+    try {
+      const resp = await fetch(url, {
+        signal: AbortSignal.timeout(30_000),
+        headers: { "User-Agent": "Mozilla/5.0" },
+      });
+      if (!resp.ok) {
+        console.warn(`[napcat-QQ] Image download failed (${resp.status}): ${url}`);
+        continue;
+      }
+      const ext = guessImageExtension(url, resp.headers.get("content-type"));
+      const filename = `img-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      const filePath = path.join(downloadDir, filename);
+      const buf = Buffer.from(await resp.arrayBuffer());
+      fsSync.writeFileSync(filePath, buf);
+      results.push(filePath);
+    } catch (err) {
+      console.warn(`[napcat-QQ] Image download error: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  return results;
 }
 
 // ============ 文件类型检测 ============
