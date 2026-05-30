@@ -118,6 +118,42 @@ if (fs.existsSync(CONFIG_PATH)) {
   }
 }
 
+// ── 补全 stepfun-plan/step-3.7-flash 模型定义（多模态支持） ──────────────────
+// 该模型在 onboard 后可能缺失 provider models 定义，导致框架无法识别其 vision 能力
+let modelConfigPatched = false;
+(function ensureStepfunModelConfig() {
+  const providers = config.models?.providers;
+  if (!providers?.["stepfun-plan"]) return;
+
+  const models = providers["stepfun-plan"].models;
+  if (!Array.isArray(models)) {
+    providers["stepfun-plan"].models = [];
+  }
+  const modelList = providers["stepfun-plan"].models;
+
+  const has37 = modelList.some(function(m) { return m.id === "step-3.7-flash"; });
+  if (!has37) {
+    modelList.push({
+      id: "step-3.7-flash",
+      name: "Step 3.7 Flash",
+      reasoning: true,
+      input: ["text", "image"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 262144,
+      maxTokens: 65536
+    });
+    modelConfigPatched = true;
+    console.log("[openclaw-napcat] 已补全 stepfun-plan/step-3.7-flash 模型定义（含 image 支持）");
+  }
+})();
+
+// 模型配置有变更，立即写入文件（不依赖后续的 channel 配置写入流程）
+if (modelConfigPatched && fs.existsSync(CONFIG_PATH)) {
+  const tmp = CONFIG_PATH + ".tmp";
+  fs.writeFileSync(tmp, JSON.stringify(config, null, 2) + "\n", "utf8");
+  fs.renameSync(tmp, CONFIG_PATH);
+}
+
 const forceReconfigure = parseBool(env.QQ_FORCE_RECONFIGURE, false);
 const qqExists = !!(
   config.channels?.napcat?.wsUrl ||
