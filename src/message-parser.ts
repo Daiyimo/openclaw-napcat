@@ -193,7 +193,9 @@ export function parseTarget(to: string): ParsedTarget {
       `Cannot determine target type from "${to}". Use "private:<QQ号>", "group:<群号>", or "guild:<频道ID>:<子频道ID>".`,
     );
   }
-  return { type: "private", userId: id };
+  // 裸数字默认为群聊，与 resolveOutboundSessionRoute 语义一致
+  // 如需发私聊，请使用 private: 前缀
+  return { type: "group", groupId: id };
 }
 
 /** 根据解析后的目标分发消息到正确的 API */

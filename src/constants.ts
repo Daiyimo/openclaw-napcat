@@ -35,8 +35,8 @@ export const PASSIVE_COOLDOWN_MAX_AGE_MS = 3_600_000;
 
 // === 群路由 ===
 
-/** 群路由定时刷新间隔（ms）。每 6 小时同步新加入/退出的群 */
-export const GROUP_ROUTE_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1_000;
+/** 群路由定时刷新间隔（ms）。每 1 小时同步新加入/退出的群 */
+export const GROUP_ROUTE_REFRESH_INTERVAL_MS = 1 * 60 * 60 * 1_000;
 
 // === 友军识别 ===
 

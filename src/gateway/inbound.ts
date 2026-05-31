@@ -591,11 +591,14 @@ export function installMessageHandler(
           });
           resolvedSessionKey = route?.sessionKey;
         } catch {
-          // routing 不可用时降级到手写格式（向后兼容）
-          resolvedSessionKey = `qq:${fromId}`;
+          // routing 不可用时降级，格式与 resolveOutboundSessionRoute 保持一致
+          resolvedSessionKey = `agent:default:napcat:group:${groupId}`;
         }
+      } else if (isGuild && guildId && channelId) {
+        resolvedSessionKey = `agent:default:napcat:channel:${guildId}:${channelId}`;
       } else {
-        resolvedSessionKey = `qq:${fromId}`;
+        // 私聊
+        resolvedSessionKey = `agent:default:napcat:direct:${fromId}`;
       }
 
       // ── 下载入站图片到本地 ──
