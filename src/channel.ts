@@ -269,7 +269,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
           log: ctx.log ?? console,
           getStatus: ctx.getStatus,
           setStatus: ctx.setStatus,
-          channelRuntime: ctx.channelRuntime as any,
+          channelRuntime: ctx.channelRuntime,
           runtime: ctx.runtime,
         },
         { clients, knownGroupIds: getKnownGroupIds(ctx.accountId), inboundStores, passiveMode },

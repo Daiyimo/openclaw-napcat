@@ -17,7 +17,7 @@ const plugin = {
   configSchema: emptyPluginConfigSchema(),
   register(api: OpenClawPluginApi) {
     // 仅在完整注册模式下初始化 runtime 单例
-    if ((api as any).registrationMode !== "setup-only" && (api as any).registrationMode !== "cli-metadata") {
+    if (api.registrationMode !== "setup-only" && api.registrationMode !== "cli-metadata") {
       setQQRuntime(api.runtime);
     }
     api.registerChannel({ plugin: qqChannel });

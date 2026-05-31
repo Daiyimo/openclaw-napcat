@@ -44,7 +44,7 @@ export interface SharedState {
 
 export interface PluginRuntimeChannel {
   activity: {
-    record: (params: { channel: string; accountId: string; direction: string }) => void;
+    record: (params: { channel: string; accountId: string; direction: "inbound" | "outbound" }) => void;
   };
   session: {
     resolveStorePath: (store: unknown, opts: { agentId: string }) => string;
