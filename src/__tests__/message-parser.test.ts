@@ -154,8 +154,9 @@ describe("normalizeTarget", () => {
 // ── parseTarget ───────────────────────────────────────────────────────────
 
 describe("parseTarget", () => {
-  it("parses plain number as private", () => {
-    expect(parseTarget("12345678")).toEqual({ type: "private", userId: 12345678 });
+  // ⚠️ P0：裸数字默认为 group（与 resolveOutboundSessionRoute 语义一致）
+  it("parses plain number as group", () => {
+    expect(parseTarget("12345678")).toEqual({ type: "group", groupId: 12345678 });
   });
   it("parses private:N", () => {
     expect(parseTarget("private:12345678")).toEqual({ type: "private", userId: 12345678 });
