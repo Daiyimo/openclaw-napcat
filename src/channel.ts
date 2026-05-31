@@ -57,6 +57,23 @@ function getClientForAccount(accountId: string): OneBotClient | undefined {
   return clients.get(accountId);
 }
 
+/**
+ * Bot 自身 QQ 号缓存（按账号隔离）。
+ * 由 connect handler 写入，outbound.sendText 读取用于生成友军签名。
+ * 避免依赖框架传入的 config 对象（可能为副本，不含运行时注入的 _selfId）。
+ */
+const botSelfIds = new Map<string, number>();
+
+/** 获取指定账号的 bot QQ 号 */
+function getBotSelfId(accountId: string): number | undefined {
+  return botSelfIds.get(accountId);
+}
+
+/** 设置指定账号的 bot QQ 号 */
+function setBotSelfId(accountId: string, selfId: number): void {
+  botSelfIds.set(accountId, selfId);
+}
+
 // ============================================================
 // 插件定义
 // ============================================================
@@ -272,7 +289,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
           channelRuntime: ctx.channelRuntime,
           runtime: ctx.runtime,
         },
-        { clients, knownGroupIds: getKnownGroupIds(ctx.accountId), inboundStores, passiveMode },
+        { clients, knownGroupIds: getKnownGroupIds(ctx.accountId), inboundStores, passiveMode, setBotSelfId },
       );
     },
     logoutAccount: async ({ accountId, cfg: _cfg }: { accountId: string; cfg: OpenClawConfig; account?: any; runtime?: any; log?: any }) => {
@@ -284,9 +301,9 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
     sendText: async ({ to, text, accountId, replyToId, cfg }: { to: string; text: string; accountId?: string | null; replyToId?: string | null; cfg?: any }) => {
       const resolvedAid = accountId || DEFAULT_ACCOUNT_ID;
       // 提取本 bot 的 QQ 号用于生成友军签名 [BOT:${selfId}]
-      const qq = cfg?.channels?.napcat;
-      const accountCfg = resolvedAid === DEFAULT_ACCOUNT_ID ? qq : qq?.accounts?.[resolvedAid];
-      const selfId = accountCfg?._selfId;
+      // 优先从模块级缓存读取（connect handler 写入），回退到 config（兼容旧路径）
+      const selfId = getBotSelfId(resolvedAid) ?? cfg?.channels?.napcat?._selfId;
+      const accountCfg = (resolvedAid === DEFAULT_ACCOUNT_ID ? cfg?.channels?.napcat : cfg?.channels?.napcat?.accounts?.[resolvedAid]) as QQConfig | undefined;
       return sendText(
         { to, text, accountId, botSelfId: selfId, cfg: accountCfg },
         { getClient: getClientForAccount, knownGroupIds: getKnownGroupIds(resolvedAid), passiveMode },

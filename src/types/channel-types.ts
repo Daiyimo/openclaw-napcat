@@ -40,6 +40,7 @@ export interface SharedState {
   knownGroupIds: Set<string>;
   inboundStores: Map<string, InboundRateLimitStore>;
   passiveMode: PassiveModeManager;
+  setBotSelfId: (accountId: string, selfId: number) => void;
 }
 
 export interface PluginRuntimeChannel {
@@ -96,6 +97,7 @@ export interface ConnectionContext {
     getStatus?: () => AccountStatus | undefined;
     setStatus?: (next: AccountStatus) => void;
   };
+  shared: SharedState;
 }
 
 export interface StartAccountContext {
