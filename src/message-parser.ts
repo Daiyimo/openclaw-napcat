@@ -173,6 +173,13 @@ export function parseTarget(to: string): ParsedTarget {
     if (isNaN(id)) throw new Error(`Invalid group target: "${to}" — expected "group:<number>"`);
     return { type: "group", groupId: id };
   }
+  // ⚠️ P0：channel: 前缀在 cron 投递场景中等同于 group
+  // 框架 resolveOutboundSessionRoute 返回 to="channel:{peerId}" 用于群聊
+  if (to.startsWith("channel:")) {
+    const id = parseInt(to.slice(8), 10);
+    if (isNaN(id)) throw new Error(`Invalid channel target: "${to}" — expected "channel:<number>"`);
+    return { type: "group", groupId: id };
+  }
   if (to.startsWith("guild:")) {
     const parts = to.split(":");
     if (parts.length < 3 || !parts[1] || !parts[2]) {

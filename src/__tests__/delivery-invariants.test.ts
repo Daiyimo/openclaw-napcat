@@ -74,6 +74,12 @@ describe("不变量 3：带前缀目标的正确解析", () => {
     expect(parsed.type).toBe("group");
   });
 
+  it("channel: 前缀识别为群聊（框架 cron 投递场景）", () => {
+    const parsed = parseTarget("channel:1081646667");
+    expect(parsed.type).toBe("group");
+    expect(parsed.groupId).toBe(1081646667);
+  });
+
   it("private: 前缀识别为私聊", () => {
     const route = resolveOutboundSessionRoute(AGENT_ID, "private:12345");
     expect(route!.peer.kind).toBe("direct");
