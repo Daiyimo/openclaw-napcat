@@ -61,6 +61,8 @@ export function installConnectHandler(
       });
 
       // 预注册群路由的局部函数
+      // 使用框架 resolveAgentRoute 生成正确的 session key 格式，
+      // 避免手写格式（如 "qq:group:xxx"）与框架内部格式不匹配导致系统无法发现
       const registerGroupRoute = async (groupId: string | number) => {
         const storePath = ctx.channelRuntime.session.resolveStorePath(
           ctx.cfg.session?.store,
@@ -68,10 +70,10 @@ export function installConnectHandler(
         );
         const groupFromId = `group:${groupId}`;
         const routeCtx = {
-          Provider: "qq",
-          Channel: "qq",
+          Provider: "napcat",
+          Channel: "napcat",
           From: groupFromId,
-          To: "qq:bot",
+          To: "napcat:bot",
           Body: "",
           RawBody: "",
           AccountId: ctx.account.accountId,
@@ -83,16 +85,34 @@ export function installConnectHandler(
           SenderId: "",
           ConversationLabel: `QQ Group ${groupId}`,
         };
-        const lastRoute = { channel: "napcat", to: groupFromId, accountId: ctx.account.accountId };
-        for (const sessionKey of [`qq:${groupFromId}`, `qq:${groupId}`]) {
-          await ctx.channelRuntime.session.recordInboundSession({
-            storePath,
-            sessionKey,
-            ctx: { ...routeCtx, SessionKey: sessionKey },
-            updateLastRoute: { sessionKey, ...lastRoute },
-            onRecordError: () => {},
+
+        // 通过框架路由解析获取正确的 session key
+        let sessionKey: string | undefined;
+        try {
+          const route = (ctx.channelRuntime as any)?.routing?.resolveAgentRoute?.({
+            cfg: ctx.cfg,
+            channel: "napcat",
+            accountId: ctx.account.accountId,
+            peer: { kind: "group", id: String(groupId) },
           });
+          sessionKey = route?.sessionKey;
+        } catch {
+          // resolveAgentRoute 不可用时静默降级（不影响其他群）
         }
+
+        if (!sessionKey) {
+          console.warn(`[napcat-QQ] Cannot resolve session key for group ${groupId}, skipping route registration`);
+          ctx.knownGroupIds.add(String(groupId));
+          return;
+        }
+
+        await ctx.channelRuntime.session.recordInboundSession({
+          storePath,
+          sessionKey,
+          ctx: { ...routeCtx, SessionKey: sessionKey },
+          updateLastRoute: { sessionKey, channel: "napcat", to: groupFromId, accountId: ctx.account.accountId },
+          onRecordError: () => {},
+        });
         ctx.knownGroupIds.add(String(groupId));
       };
 
