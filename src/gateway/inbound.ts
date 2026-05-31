@@ -242,10 +242,10 @@ export function installMessageHandler(
                 const gid = String(g.group_id);
                 const groupFromId = `group:${gid}`;
                 const routeCtx = {
-                  Provider: "qq",
-                  Channel: "qq",
+                  Provider: "napcat",
+                  Channel: "napcat",
                   From: groupFromId,
-                  To: "qq:bot",
+                  To: "napcat:bot",
                   Body: "",
                   RawBody: "",
                   AccountId: account.accountId,
@@ -257,16 +257,33 @@ export function installMessageHandler(
                   SenderId: "",
                   ConversationLabel: `QQ Group ${gid}`,
                 };
-                const lastRoute = { channel: "napcat", to: groupFromId, accountId: account.accountId };
-                for (const sessionKey of [`qq:${groupFromId}`, `qq:${gid}`]) {
-                  await channelRuntime.session.recordInboundSession({
-                    storePath,
-                    sessionKey,
-                    ctx: { ...routeCtx, SessionKey: sessionKey },
-                    updateLastRoute: { sessionKey, ...lastRoute },
-                    onRecordError: () => {},
+
+                let sessionKey: string | undefined;
+                try {
+                  const route = (channelRuntime as any)?.routing?.resolveAgentRoute?.({
+                    cfg: cfg as OpenClawConfig,
+                    channel: "napcat",
+                    accountId: account.accountId,
+                    peer: { kind: "group", id: gid },
                   });
+                  sessionKey = route?.sessionKey;
+                } catch {
+                  // routing unavailable, skip this group
                 }
+
+                if (!sessionKey) {
+                  console.warn(`[napcat-QQ] Cannot resolve session key for group ${gid}, skipping`);
+                  knownGroupIds.add(gid);
+                  return;
+                }
+
+                await channelRuntime.session.recordInboundSession({
+                  storePath,
+                  sessionKey,
+                  ctx: { ...routeCtx, SessionKey: sessionKey },
+                  updateLastRoute: { sessionKey, channel: "napcat", to: groupFromId, accountId: account.accountId },
+                  onRecordError: () => {},
+                });
                 knownGroupIds.add(gid);
               }));
               log.info(`[napcat-QQ] /groups: refreshed ${groups.length} group routes`);
@@ -560,6 +577,27 @@ export function installMessageHandler(
         botName: config._selfName,
       });
 
+      // ── 解析正确的 session key（框架格式）────────────────────
+      // 使用框架 resolveAgentRoute 生成标准格式 key，
+      // 避免手写 "qq:group:xxx" 与框架内部格式不匹配
+      let resolvedSessionKey: string | undefined;
+      if (isGroup && groupId) {
+        try {
+          const route = (channelRuntime as any)?.routing?.resolveAgentRoute?.({
+            cfg: cfg as OpenClawConfig,
+            channel: "napcat",
+            accountId: account.accountId,
+            peer: { kind: "group", id: String(groupId) },
+          });
+          resolvedSessionKey = route?.sessionKey;
+        } catch {
+          // routing 不可用时降级到手写格式（向后兼容）
+          resolvedSessionKey = `qq:${fromId}`;
+        }
+      } else {
+        resolvedSessionKey = `qq:${fromId}`;
+      }
+
       // ── 下载入站图片到本地 ──
       // 框架要求 MediaUrls 和 MediaPaths 长度一致，同时传两个字段
       const imageUrls = extractImageUrls(event.message);
@@ -569,20 +607,20 @@ export function installMessageHandler(
       }
 
       const ctxPayload = channelRuntime.reply.finalizeInboundContext({
-        Provider: "qq",
-        Channel: "qq",
+        Provider: "napcat",
+        Channel: "napcat",
         From: fromId,
-        To: "qq:bot",
+        To: "napcat:bot",
         Body: bodyWithReply,
         RawBody: text,
         SenderId: String(userId),
         SenderName: event.sender?.nickname || "Unknown",
         ConversationLabel: conversationLabel,
-        SessionKey: `qq:${fromId}`,
+        SessionKey: resolvedSessionKey || `qq:${fromId}`,
         AccountId: account.accountId,
         ChatType: isGroup ? "group" : isGuild ? "channel" : "direct",
         Timestamp: (event.time ?? Math.floor(Date.now() / 1000)) * 1000,
-        OriginatingChannel: "qq",
+        OriginatingChannel: "napcat",
         OriginatingTo: fromId,
         CommandAuthorized: isAdmin || (!isGroup && !isGuild),
         ...(downloaded.length > 0 ? {
