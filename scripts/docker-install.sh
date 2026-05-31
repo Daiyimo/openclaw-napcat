@@ -1,12 +1,13 @@
 #!/bin/bash
 # openclaw-napcat QQ 插件安装脚本
 #
-# 在宿主机执行：
-#   curl -fsSL https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/scripts/docker-install.sh | bash
+# 在 openclaw 容器终端内执行：
+#   curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/scripts/docker-install.sh | bash
 #
 # 特性：
 #   - 插件安装到持久化数据卷 ~/.openclaw/extensions/napcat/，容器镜像更新后不丢失
 #   - 自动编译 TypeScript，无需宿主机任何工具链
+#   - 读取容器内 QQ_* 环境变量写入 openclaw.json
 #   - 多镜像加速下载，自动静默重启容器
 #   - 自动刷新群路由（重启后 connect handler 自动注册）
 
@@ -99,7 +100,7 @@ echo "✓ 插件文件已复制"
 
 # ── 4. 写入 NapCat 渠道配置 ────────────────────────────────────────────────────
 echo ""
-echo "[4/5] 写入 NapCat 渠道配置..."
+echo "[4/4] 写入 NapCat 渠道配置..."
 
 QQ_FORCE_RECONFIGURE=true node "$EXT_DIR/docker/setup-config.cjs"
 
@@ -133,6 +134,11 @@ echo "=== 安装完成 ==="
 echo "✓ 插件路径: $EXT_DIR"
 echo ""
 echo "→ 下一步："
-echo "   等待约 10 秒让容器启动完成，群路由会自动注册（无需手动 /groups）"
-echo "   观察日志确认连接成功："
-echo "     docker logs -f $CONTAINER_NAME 2>/dev/null | grep 'napcat-QQ'"
+echo "   1. 执行 openclaw onboard 进行初始化配置（AI 模型、账号等）"
+echo "   2. 配置完成后执行 openclaw gateway 拉起服务"
+echo "      观察日志中是否出现以下内容："
+echo "        [napcat-QQ] Reverse WebSocket server listening on port 3002"
+echo "        [napcat-QQ] Reverse WS: NapCat connected"
+echo "      若 NapCat 尚未启动，请先启动 NapCat，等待约 1 分钟自动连上"
+echo ""
+echo "提示：如需更新插件，重新运行此脚本即可。"
