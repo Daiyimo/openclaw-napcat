@@ -3,6 +3,11 @@
  *
  * 复刻框架 resolveFallbackSession 逻辑，确保 session key 格式一致：
  *   agent:{agentId}:napcat:{peerKind}:{peerId}
+ *
+ * ⚠️ P0 核心功能 — 投递路由的基石，修改前必须确认：
+ * 1. 入站 session 记录格式（inbound.ts 降级路径）与出站解析一致
+ * 2. 裸数字默认语义与 parseTarget 一致（都为 group）
+ * 3. 所有变更必须通过 npm test 全量测试
  */
 
 export interface ResolvedSessionRoute {

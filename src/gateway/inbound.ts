@@ -580,6 +580,9 @@ export function installMessageHandler(
       // ── 解析正确的 session key（框架格式）────────────────────
       // 使用框架 resolveAgentRoute 生成标准格式 key，
       // 避免手写 "qq:group:xxx" 与框架内部格式不匹配
+      //
+      // ⚠️ P0：降级格式必须与 resolveOutboundSessionRoute 一致
+      // 否则 cron 投递和 sessions_send 将找不到群会话
       let resolvedSessionKey: string | undefined;
       if (isGroup && groupId) {
         try {
@@ -591,7 +594,8 @@ export function installMessageHandler(
           });
           resolvedSessionKey = route?.sessionKey;
         } catch {
-          // routing 不可用时降级，格式与 resolveOutboundSessionRoute 保持一致
+          // ⚠️ P0：格式必须为 agent:default:napcat:group:{groupId}
+          // 旧格式 "qq:{fromId}" 会导致出站路由找不到会话
           resolvedSessionKey = `agent:default:napcat:group:${groupId}`;
         }
       } else if (isGuild && guildId && channelId) {
