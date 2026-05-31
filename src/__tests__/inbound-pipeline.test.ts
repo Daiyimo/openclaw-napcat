@@ -290,6 +290,28 @@ describe("installMessageHandler — inbound pipeline integration (12 cases)", ()
     expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
   });
 
+  // 3c. @bot @other — bot is also mentioned, should trigger
+  it("3c. group message @mentioning both bot and other user triggers (bot is @-mentioned)", async () => {
+    const { client, ctx, dispatchReplyFromConfig } = makeCtx({ requireMention: true });
+    installMessageHandler(client, ctx);
+
+    client.emit(
+      "message",
+      makeGroupEvent({
+        message: [
+          { type: "at", data: { qq: String(SELF_ID) } },  // @ bot
+          { type: "at", data: { qq: "99999" } },           // @ someone else
+          { type: "text", data: { text: " help me" } },
+        ],
+        raw_message: `[CQ:at,qq=${SELF_ID}] [CQ:at,qq=99999] help me`,
+      }),
+    );
+
+    await vi.waitFor(() => expect(dispatchReplyFromConfig).toHaveBeenCalledOnce(), {
+      timeout: 2000,
+    });
+  });
+
   // 3b-3. @mention of OTHER user does NOT trigger even with passive mode enabled
   it("3b-3. group message @mentioning other user does not trigger even with passive mode enabled", async () => {
     const { client, ctx, dispatchReplyFromConfig } = makeCtx({

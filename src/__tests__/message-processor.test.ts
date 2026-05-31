@@ -273,4 +273,22 @@ describe("resolveMessageText", () => {
     const result = await resolveMessageText(event, makeClient(), makeConfig());
     expect(result).toBe("看这个 [图片]怎么样");
   });
+
+  it("file 段解析不修改原始 event.message 入参", async () => {
+    const fileSeg = { type: "file", data: { file_id: "f1", busid: 123 } };
+    const event = {
+      raw_message: "",
+      message: [fileSeg],
+    } as any;
+    const client = makeClient();
+    // sendWithResponse 返回 URL，触发 file 段的 URL 填充逻辑
+    client.sendWithResponse.mockResolvedValue({ url: "http://example.com/file.pdf" });
+
+    await resolveMessageText(event, client, makeConfig());
+
+    // 原始 event.message 中的 seg 不应被修改
+    expect(event.message[0]).toBe(fileSeg);
+    expect(event.message[0].data).toBe(fileSeg.data);
+    expect(event.message[0].data.url).toBeUndefined();
+  });
 });
