@@ -25,11 +25,25 @@ describe("resolveOutboundSessionRoute", () => {
     expect(result!.peer.id).toBe("abc123");
   });
 
-  it("裸数字群号 fallback 为 direct（不应发生，但要有兜底）", () => {
-    const result = resolveOutboundSessionRoute(AGENT_ID, "88888");
+  // ── 裸数字 ──
+  // QQ 场景下裸数字默认识别为群聊（cron 投递等主要用例）
+  // 如需发私聊，请使用 private:QQ号 格式
+
+  it("裸数字群号默认识别为 group", () => {
+    const result = resolveOutboundSessionRoute(AGENT_ID, "815833475");
     expect(result).not.toBeNull();
-    expect(result!.peer.kind).toBe("direct");
-    expect(result!.sessionKey).toBe("agent:default:napcat:direct:88888");
+    expect(result!.peer.kind).toBe("group");
+    expect(result!.peer.id).toBe("815833475");
+    expect(result!.sessionKey).toBe("agent:default:napcat:group:815833475");
+    expect(result!.from).toBe("napcat:group:815833475");
+    expect(result!.to).toBe("channel:815833475");
+  });
+
+  it("裸数字群号 1081646667 正确识别为 group", () => {
+    const result = resolveOutboundSessionRoute(AGENT_ID, "1081646667");
+    expect(result).not.toBeNull();
+    expect(result!.peer.kind).toBe("group");
+    expect(result!.sessionKey).toBe("agent:default:napcat:group:1081646667");
   });
 
   // ── private 目标 ──
@@ -44,11 +58,12 @@ describe("resolveOutboundSessionRoute", () => {
     expect(result!.to).toBe("user:12345");
   });
 
-  it("裸 QQ 号 fallback 为 direct", () => {
+  it("裸数字默认识别为 group", () => {
     const result = resolveOutboundSessionRoute(AGENT_ID, "12345");
     expect(result).not.toBeNull();
-    expect(result!.sessionKey).toBe("agent:default:napcat:direct:12345");
-    expect(result!.to).toBe("user:12345");
+    expect(result!.peer.kind).toBe("group");
+    expect(result!.sessionKey).toBe("agent:default:napcat:group:12345");
+    expect(result!.to).toBe("channel:12345");
   });
 
   // ── guild 目标 ──

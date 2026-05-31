@@ -18,8 +18,13 @@ export interface ResolvedSessionRoute {
  * 根据目标字符串解析 session 路由信息。
  *
  * @param agentId 代理 ID（如 "default"）
- * @param target  目标字符串（如 "group:88888"、"private:12345"、"napcat:group:88888"）
+ * @param target  目标字符串（如 "group:88888"、"private:12345"、"napcat:group:88888"、"815833475"）
  * @returns 路由信息，无法解析时返回 null
+ *
+ * @remarks
+ * - 带前缀的目标（group:/private:/channel:/guild:）按前缀解析
+ * - 裸数字默认识别为群聊（QQ 场景下 cron 投递的主要用例）
+ * - 如需发私聊，请使用 private:QQ号 格式
  */
 export function resolveOutboundSessionRoute(
   agentId: string,
@@ -30,19 +35,29 @@ export function resolveOutboundSessionRoute(
 
   let peerKind: "direct" | "group" | "channel" = "direct";
   let peerId = trimmed;
+  let hadPrefix = false;
 
   if (trimmed.startsWith("group:")) {
+    hadPrefix = true;
     peerKind = "group";
     peerId = trimmed.slice(6);
   } else if (trimmed.startsWith("channel:")) {
+    hadPrefix = true;
     peerKind = "channel";
     peerId = trimmed.slice(8);
   } else if (trimmed.startsWith("guild:")) {
+    hadPrefix = true;
     peerKind = "channel";
     peerId = trimmed.slice(6);
   } else if (trimmed.startsWith("private:")) {
+    hadPrefix = true;
     peerKind = "direct";
     peerId = trimmed.slice(8);
+  }
+
+  // 完全无前缀的裸数字：QQ 场景下默认视为群聊
+  if (!hadPrefix && /^\d+$/.test(peerId)) {
+    peerKind = "group";
   }
 
   if (!peerId) return null;
