@@ -300,6 +300,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
   outbound: {
     deliveryMode: "direct" as const,
     sendText: async ({ to, text, accountId, replyToId, cfg }: { to: string; text: string; accountId?: string | null; replyToId?: string | null; cfg?: any }) => {
+      console.log(`[napcat-QQ][outbound.sendText] called with to=${to}, accountId=${accountId}`);
       const resolvedAid = accountId || DEFAULT_ACCOUNT_ID;
       // 提取本 bot 的 QQ 号用于生成友军签名 [BOT:${selfId}]
       // 优先从模块级缓存读取（connect handler 写入），回退到 config（兼容旧路径）
