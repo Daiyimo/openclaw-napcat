@@ -140,6 +140,15 @@ describe("normalizeTarget", () => {
   it("leaves strings without prefix unchanged", () => {
     expect(normalizeTarget("12345")).toBe("12345");
   });
+  it("converts user:QQ号 to private:QQ号 (cron framework format)", () => {
+    expect(normalizeTarget("user:1081646667")).toBe("private:1081646667");
+  });
+  it("converts channel:群号 to group:群号 (cron framework format)", () => {
+    expect(normalizeTarget("channel:88888")).toBe("group:88888");
+  });
+  it("removes napcat: prefix first, then converts user: prefix", () => {
+    expect(normalizeTarget("napcat:user:1081646667")).toBe("private:1081646667");
+  });
 });
 
 // ── parseTarget ───────────────────────────────────────────────────────────
