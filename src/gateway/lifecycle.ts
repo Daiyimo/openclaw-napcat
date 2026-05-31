@@ -107,8 +107,8 @@ export async function startAccount(
     channelRuntime,
     knownGroupIds: shared.knownGroupIds,
     startAccountCtx: {
-      getStatus: ctx.getStatus as any,
-      setStatus: ctx.setStatus as any,
+      getStatus: ctx.getStatus,
+      setStatus: ctx.setStatus,
     },
   });
   // connResult.groupRouteRefreshTimer 由 connect handler 内部设置

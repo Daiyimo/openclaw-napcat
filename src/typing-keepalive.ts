@@ -46,7 +46,7 @@ export class TypingKeepAlive {
   private send(): void {
     if (!this.userId) return;
     // NapCat 扩展 API：set_input_status，user_id 需为 string 类型
-    (this.client as any)
+    (this.client)
       .sendAction?.("set_input_status", {
         user_id: String(this.userId),
         event_type: 1,
