@@ -7,7 +7,7 @@
  */
 
 import type { OneBotClient } from "../client.js";
-import type { ConnectionContext } from "../types/channel-types.js";
+import type { ConnectionContext, SharedState } from "../types/channel-types.js";
 import {
   LOGIN_INFO_TIMEOUT_MS,
   GROUP_ROUTE_REFRESH_INTERVAL_MS,
@@ -38,8 +38,10 @@ export function installConnectHandler(
       ]);
       if (info?.user_id) {
         client.setSelfId(info.user_id);
-        // 存入 account config，供 outbound.sendText 生成友军签名使用
+        // 存入 account config（兼容旧路径）
         ctx.account.config._selfId = info.user_id;
+        // 存入模块级缓存，确保 outbound.sendText 在重连后仍能获取到 selfId
+        ctx.shared.setBotSelfId(ctx.account.accountId, info.user_id);
       }
       if (info?.nickname) {
         console.log(`[napcat-QQ] Logged in as: ${info.nickname} (${info.user_id})`);

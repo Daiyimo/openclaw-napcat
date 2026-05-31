@@ -113,17 +113,18 @@ export async function resolveMessageText(
         }
       } catch {}
     } else if (seg.type === "file") {
-      if (!seg.data?.url && isGroup && groupId) {
+      let fileSeg = seg;
+      if (!fileSeg.data?.url && isGroup && groupId) {
         try {
           const info = await client.sendWithResponse("get_group_file_url", {
             group_id: groupId,
-            file_id: seg.data?.file_id,
-            busid: seg.data?.busid,
+            file_id: fileSeg.data?.file_id,
+            busid: fileSeg.data?.busid,
           });
-          if (info?.url) seg.data.url = info.url;
+          if (info?.url) fileSeg = { ...fileSeg, data: { ...fileSeg.data, url: info.url } };
         } catch {}
       }
-      resolvedText += ` [文件: ${seg.data?.file || "未命名"}]`;
+      resolvedText += ` [文件: ${fileSeg.data?.file || "未命名"}]`;
     }
   }
 

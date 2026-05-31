@@ -110,6 +110,7 @@ export async function startAccount(
       getStatus: ctx.getStatus,
       setStatus: ctx.setStatus,
     },
+    shared,
   });
   // connResult.groupRouteRefreshTimer 由 connect handler 内部设置
   // 通过闭包引用 connResult 对象，cleanup 阶段读取最新值
