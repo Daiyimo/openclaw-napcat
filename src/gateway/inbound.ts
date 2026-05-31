@@ -27,6 +27,7 @@ import {
   resolveMessageText,
   detectMention,
   detectKeywordTrigger,
+  detectNameTrigger,
   hasMentionOtherUser,
   buildFromId,
   buildBodyWithReply,
@@ -339,6 +340,18 @@ export function installMessageHandler(
         isMentioned = detectMention(event, effectiveSelfId, text, repliedMsg, config.debug);
       }
 
+      // 名字触发检测（自我认知）：消息中包含 bot 名字时触发
+      // 优先级：@提及 > 名字触发 > 关键词触发
+      if (!isTriggered && !isMentioned && checkMention) {
+        const botName = config._selfName;
+        if (botName && detectNameTrigger(text, botName, config.debug)) {
+          isTriggered = true;
+          if (config.debug) {
+            console.log(`[napcat-QQ][debug-trigger] name trigger activated: botName="${botName}"`);
+          }
+        }
+      }
+
       if (!isTriggered) {
         isTriggered = detectKeywordTrigger(text, config.keywordTriggers);
       }
@@ -542,6 +555,7 @@ export function installMessageHandler(
         isPassiveMode,
         passivePrompt: config.passiveMode?.systemPrompt,
         botSelfId: client.getSelfId() ?? event.self_id,
+        botName: config._selfName,
       });
 
       // ── 下载入站图片到本地 ──
