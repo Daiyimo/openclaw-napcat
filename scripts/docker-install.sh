@@ -1,36 +1,65 @@
 #!/bin/bash
 # openclaw-napcat QQ 插件安装脚本
 #
-# 在 openclaw 容器终端内执行：
-#   curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/scripts/docker-install.sh | bash
+# 在宿主机执行：
+#   curl -fsSL https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/scripts/docker-install.sh | bash
 #
 # 特性：
 #   - 插件安装到持久化数据卷 ~/.openclaw/extensions/napcat/，容器镜像更新后不丢失
 #   - 自动编译 TypeScript，无需宿主机任何工具链
-#   - 读取容器内 QQ_* 环境变量写入 openclaw.json
+#   - 多镜像加速下载，自动静默重启容器
+#   - 自动刷新群路由（重启后 connect handler 自动注册）
 
 set -e
 
 BRANCH="${OPENCLAW_NAPCAT_BRANCH:-main}"
 EXT_DIR="${HOME:-/home/node}/.openclaw/extensions/napcat"
 TEMP_DIR="/tmp/openclaw-napcat-install-$$"
+# 检测运行方式：docker-compose 还是 docker run
+COMPOSE_FILE=""
+if [ -f "docker-compose.yml" ] || [ -f "compose.yml" ]; then
+  COMPOSE_CMD="docker compose"
+elif [ -n "$(docker ps --filter "name=openclaw" --format "{{.Names}}" 2>/dev/null)" ]; then
+  COMPOSE_CMD="docker compose"
+else
+  COMPOSE_CMD=""
+fi
 
 echo "=== OpenClaw NapCat 插件安装 ==="
 echo "分支: $BRANCH"
 echo "安装目录: $EXT_DIR"
 echo ""
 
-# ── 1. 下载源码 ──────────────────────────────────────────────────────────────
+# ── 1. 下载源码（多镜像加速）─────────────────────────────────────────────
 echo "[1/4] 正在下载源码..."
 rm -rf "$TEMP_DIR"
 
-git clone --branch "$BRANCH" --depth 1 \
-  "https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat.git" "$TEMP_DIR" 2>/dev/null \
-  || git clone --branch "$BRANCH" --depth 1 \
-  "https://github.com/Daiyimo/openclaw-napcat.git" "$TEMP_DIR"
+# 镜像列表：按优先级尝试
+MIRRORS=(
+  "https://ghfast.top/https://github.com"
+  "https://gh-proxy.com/https://github.com"
+  "https://github.com"
+)
+
+REPO="Daiyimo/openclaw-napcat"
+CLONE_URL=""
+
+for mirror in "${MIRRORS[@]}"; do
+  echo "  尝试镜像: $mirror"
+  if git clone --branch "$BRANCH" --depth 1 "$mirror/$REPO.git" "$TEMP_DIR" 2>/dev/null; then
+    CLONE_URL="$mirror/$REPO.git"
+    echo "  ✓ 下载成功"
+    break
+  fi
+  rm -rf "$TEMP_DIR"
+done
+
+if [ -z "$CLONE_URL" ]; then
+  echo "✗ 所有镜像均失败，请检查网络连接"
+  exit 1
+fi
 
 cd "$TEMP_DIR"
-echo "✓ 源码下载完成"
 
 # ── 2. 安装依赖并编译 TypeScript ──────────────────────────────────────────────
 echo ""
@@ -70,13 +99,33 @@ echo "✓ 插件文件已复制"
 
 # ── 4. 写入 NapCat 渠道配置 ────────────────────────────────────────────────────
 echo ""
-echo "[4/4] 写入 NapCat 渠道配置..."
+echo "[4/5] 写入 NapCat 渠道配置..."
 
 QQ_FORCE_RECONFIGURE=true node "$EXT_DIR/docker/setup-config.cjs"
 
 echo "✓ 配置写入完成"
 
-# ── 清理临时文件 ─────────────────────────────────────────────────────────────
+# ── 5. 静默重启容器并刷新群路由 ───────────────────────────────────────────────
+echo ""
+echo "[5/5] 重启 OpenClaw 容器..."
+
+# 查找容器名称
+CONTAINER_NAME=$(docker ps --filter "name=openclaw" --format "{{.Names}}" 2>/dev/null | head -n 1)
+
+if [ -n "$CONTAINER_NAME" ] && [ -n "$COMPOSE_CMD" ]; then
+  # docker-compose 方式：静默重启
+  $COMPOSE_CMD restart openclaw 2>/dev/null || true
+  echo "✓ 容器已重启，群路由将在 connect handler 中自动注册"
+elif [ -n "$CONTAINER_NAME" ]; then
+  # docker run 方式：直接 restart
+  docker restart "$CONTAINER_NAME" 2>/dev/null || true
+  echo "✓ 容器已重启，群路由将在 connect handler 中自动注册"
+else
+  echo "⚠ 未检测到运行中的 openclaw 容器，请手动启动："
+  echo "   docker compose up -d"
+fi
+
+# ── 清理 ─────────────────────────────────────────────────────────────────────
 rm -rf "$TEMP_DIR"
 
 echo ""
@@ -84,11 +133,6 @@ echo "=== 安装完成 ==="
 echo "✓ 插件路径: $EXT_DIR"
 echo ""
 echo "→ 下一步："
-echo "   1. 执行 openclaw onboard 进行初始化配置（AI 模型、账号等）"
-echo "   2. 配置完成后执行 openclaw gateway 拉起服务"
-echo "      观察日志中是否出现以下内容："
-echo "        [napcat-QQ] Reverse WebSocket server listening on port 3002"
-echo "        [napcat-QQ] Reverse WS: NapCat connected"
-echo "      若 NapCat 尚未启动，请先启动 NapCat，等待约 1 分钟自动连上"
-echo ""
-echo "提示：如需更新插件，重新运行此脚本即可。"
+echo "   等待约 10 秒让容器启动完成，群路由会自动注册（无需手动 /groups）"
+echo "   观察日志确认连接成功："
+echo "     docker logs -f $CONTAINER_NAME 2>/dev/null | grep 'napcat-QQ'"
