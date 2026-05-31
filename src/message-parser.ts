@@ -141,8 +141,12 @@ export function getReplyMessageId(
 // ============ 目标解析 ============
 
 export function normalizeTarget(raw: string): string {
-  // 去掉 OpenClaw 可能附加的频道前缀（插件历史上曾叫 qq，现叫 napcat）
-  return raw.replace(/^(qq:|napcat:)/i, "");
+  // 去掉 OpenClaw 可能附加的前缀（插件历史上曾叫 qq，现叫 napcat）
+  let result = raw.replace(/^(qq:|napcat:)/i, "");
+  // 框架内部用 user:/channel: 表示私聊/群聊，转换为 napcat 接受的 private:/group:
+  if (/^user:/i.test(result)) result = "private:" + result.slice(5);
+  else if (/^channel:/i.test(result)) result = "group:" + result.slice(8);
+  return result;
 }
 
 export type TargetType = "private" | "group" | "guild";
