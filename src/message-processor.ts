@@ -10,11 +10,13 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { OneBotEvent } from "./types.js";
 import type { OneBotClient } from "./client.js";
+import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { QQConfig } from "./config.js";
 import { getCachedMemberName } from "./member-cache.js";
 import { cleanCQCodes } from "./message-parser.js";
 import { convertSilkToWav } from "./utils/audio-convert.js";
 import { transcribeAudioForNapcat } from "./message-parser.js";
+import { maskId } from "./utils/log-sanitize.js";
 
 // ============ 文本提取 ============
 
@@ -31,7 +33,7 @@ export async function resolveMessageText(
   event: OneBotEvent,
   client: OneBotClient,
   config: Pick<QQConfig, "enableSTT" | "aiVoiceId">,
-  openClawCfg?: Record<string, unknown>,
+  openClawCfg?: OpenClawConfig,
 ): Promise<string> {
   let text = event.raw_message || "";
 
@@ -47,19 +49,19 @@ export async function resolveMessageText(
     if (seg.type === "text") {
       resolvedText += seg.data?.text || "";
     } else if (seg.type === "at") {
-      let name = (seg as any).data?.qq;
+      let name = seg.data?.qq;
       if (name !== "all" && isGroup && groupId) {
         const cached = getCachedMemberName(String(groupId), String(name));
         if (cached) name = cached;
       }
       resolvedText += ` @${name} `;
     } else if (seg.type === "record") {
-      if (config.enableSTT && (seg as any).data?.url) {
+      if (config.enableSTT && seg.data?.url) {
         const tmpDir = os.tmpdir();
         const tmpFile = path.join(tmpDir, `voice-${Date.now()}.amr`);
         let wavPath: string | null = null;
         try {
-          const voiceUrl = (seg as any).data.url;
+          const voiceUrl = seg.data.url;
           const voiceResp = await fetch(voiceUrl);
           if (voiceResp.ok) {
             const buf = await voiceResp.arrayBuffer();
@@ -69,7 +71,7 @@ export async function resolveMessageText(
               wavPath = wavResult.wavPath;
               const transcript = await transcribeAudioForNapcat(
                 wavPath,
-                openClawCfg ?? ({} as Record<string, unknown>),
+                openClawCfg ?? ({} as OpenClawConfig),
               );
               resolvedText += transcript
                 ? ` [语音转文字: ${transcript}]`
@@ -88,7 +90,7 @@ export async function resolveMessageText(
           if (wavPath) { try { fsSync.unlinkSync(wavPath); } catch {} }
         }
       } else {
-        const textData = (seg as any).data?.text;
+        const textData = seg.data?.text;
         resolvedText += ` [语音消息]${textData ? `(${textData})` : ""}`;
       }
     } else if (seg.type === "image") {
@@ -97,9 +99,9 @@ export async function resolveMessageText(
       resolvedText += " [视频消息]";
     } else if (seg.type === "json") {
       resolvedText += " [卡片消息]";
-    } else if (seg.type === "forward" && (seg as any).data?.id) {
+    } else if (seg.type === "forward" && seg.data?.id) {
       try {
-        const forwardData = await client.getForwardMsg((seg as any).data.id);
+        const forwardData = await client.getForwardMsg(seg.data.id);
         if (forwardData?.messages && Array.isArray(forwardData.messages)) {
           resolvedText += "\n[转发聊天记录]:";
           for (const m of forwardData.messages.slice(0, 10)) {
@@ -111,17 +113,17 @@ export async function resolveMessageText(
         }
       } catch {}
     } else if (seg.type === "file") {
-      if (!(seg as any).data?.url && isGroup && groupId) {
+      if (!seg.data?.url && isGroup && groupId) {
         try {
-          const info = await (client as any).sendWithResponse("get_group_file_url", {
+          const info = await client.sendWithResponse("get_group_file_url", {
             group_id: groupId,
-            file_id: (seg as any).data?.file_id,
-            busid: (seg as any).data?.busid,
+            file_id: seg.data?.file_id,
+            busid: seg.data?.busid,
           });
-          if (info?.url) ((seg as any).data as any).url = info.url;
+          if (info?.url) seg.data.url = info.url;
         } catch {}
       }
-      resolvedText += ` [文件: ${(seg as any).data?.file || "未命名"}]`;
+      resolvedText += ` [文件: ${seg.data?.file || "未命名"}]`;
     }
   }
 
@@ -152,17 +154,15 @@ export function detectMention(
     const atSegs = event.message.filter((s) => s.type === "at");
     if (atSegs.length > 0) {
       console.log(
-        `[napcat-QQ][debug-mention] allAtSegments=${JSON.stringify(atSegs.map((s) => (s as any).data?.qq))} selfId=${selfId} repliedMsgSender=${repliedMsg?.sender?.user_id}`,
+        `[napcat-QQ][debug-mention] allAtSegments=${JSON.stringify(atSegs.map((s) => s.data?.qq))} selfId=${selfId} repliedMsgSender=${repliedMsg?.sender?.user_id}`,
       );
     }
   }
   if (Array.isArray(event.message)) {
     for (const s of event.message) {
       if (s.type === "at") {
-        if (
-          String((s as any).data?.qq) === String(selfId) || (s as any).data?.qq === "all"
-        ) {
-          if (debug) console.log(`[napcat-QQ][debug-mention] MATCH at segment qq=${(s as any).data?.qq} selfId=${selfId}`);
+        if (String(s.data?.qq) === String(selfId) || s.data?.qq === "all") {
+          if (debug) console.log(`[napcat-QQ][debug-mention] MATCH at segment qq=${s.data?.qq} selfId=${selfId}`);
           return true;
         }
       }
@@ -173,7 +173,7 @@ export function detectMention(
   }
   if (repliedMsg?.sender?.user_id !== undefined) {
     if (String(repliedMsg.sender.user_id) === String(selfId)) {
-      if (debug) console.log(`[napcat-QQ][debug-mention] MATCH reply sender userId=${repliedMsg.sender.user_id} selfId=${selfId}`);
+      if (debug) console.log(`[napcat-QQ][debug-mention] MATCH reply sender userId=${maskId(repliedMsg.sender.user_id)} selfId=${selfId}`);
       return true;
     }
   }
@@ -194,7 +194,7 @@ export function hasMentionOtherUser(
   if (!Array.isArray(event.message)) return false;
   for (const s of event.message) {
     if (s.type === "at") {
-      const qq = (s as any).data?.qq;
+      const qq = s.data?.qq;
       if (qq !== "all" && String(qq) !== String(selfId)) {
         return true;
       }
@@ -215,6 +215,36 @@ export function detectKeywordTrigger(
     if (text.includes(kw)) return true;
   }
   return false;
+}
+
+/**
+ * 检测消息中是否包含 bot 的名字（自我认知触发）。
+ * 用于在群聊中区分不同的 bot，只有被叫到名字的 bot 才响应。
+ *
+ * @param text     消息文本
+ * @param botName  bot 的名字（来自 QQ 昵称或群名片）
+ * @param debug    是否输出调试日志
+ */
+export function detectNameTrigger(
+  text: string,
+  botName: string | undefined,
+  debug = false,
+): boolean {
+  if (!botName || botName.trim().length === 0) return false;
+
+  // 清理 botName：去除前后空格，转为小写进行匹配
+  const cleanName = botName.trim();
+  const textLower = text.toLowerCase();
+  const nameLower = cleanName.toLowerCase();
+
+  // 检测消息中是否包含 bot 名字
+  const matched = textLower.includes(nameLower);
+
+  if (debug && matched) {
+    console.log(`[napcat-QQ][debug-name-trigger] MATCH botName="${cleanName}" in text="${text.slice(0, 50)}"`);
+  }
+
+  return matched;
 }
 
 // ============ 上下文构建 ============
@@ -265,6 +295,8 @@ export function buildBodyWithReply(opts: {
   passivePrompt: string | undefined;
   /** 本 bot 的 QQ 号，用于剥离发送给自己的友军签名 */
   botSelfId?: string | number;
+  /** 本 bot 的昵称，用于自我认知 */
+  botName?: string;
 }): string {
   const { text, repliedMsg, systemPrompt, historyContext, isPassiveMode, passivePrompt } = opts;
 
@@ -300,6 +332,16 @@ export function buildBodyWithReply(opts: {
   if (isPassiveMode) {
     const prompt = passivePrompt ?? DEFAULT_PASSIVE_PROMPT;
     systemBlock += `<passive_mode>${prompt}</passive_mode>\n\n`;
+  }
+
+  // 注入 bot 身份信息（自我认知）
+  const botName = opts.botName;
+  if (botId || botName) {
+    let identity = "<identity>";
+    if (botName) identity += `你的名字是${botName}，`;
+    if (botId) identity += `你的QQ号是${botId}`;
+    identity += "</identity>\n\n";
+    systemBlock += identity;
   }
 
   return systemBlock + bodyWithReply;

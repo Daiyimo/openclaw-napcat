@@ -1,6 +1,10 @@
 import { z } from "zod";
 
 export const QQConfigSchema = z.object({
+  /** @internal 运行时注入：机器人自身 QQ 号，不持久化到配置 */
+  _selfId: z.number().int().optional(),
+  /** @internal 运行时注入：机器人昵称（来自QQ昵称或群名片），不持久化到配置 */
+  _selfName: z.string().optional(),
   wsUrl: z.string().url().optional().describe("The WebSocket URL of the OneBot v11 server (e.g. ws://localhost:3001). Optional if reverseWsPort is set"),
   httpUrl: z.string().url().optional().describe("The HTTP API URL of the OneBot v11 server (e.g. http://localhost:3000) for outbound message sending"),
   reverseWsPort: z.number().int().min(1).max(65535).optional().describe("Port to start a reverse WebSocket server on, for NapCat to connect to (e.g. 3002)"),

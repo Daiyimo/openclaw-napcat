@@ -41,8 +41,11 @@ export function installConnectHandler(
         // 存入 account config，供 outbound.sendText 生成友军签名使用
         ctx.account.config._selfId = info.user_id;
       }
-      if (info?.nickname)
+      if (info?.nickname) {
         console.log(`[napcat-QQ] Logged in as: ${info.nickname} (${info.user_id})`);
+        // 存入 account config，供自我认知和名字触发使用
+        ctx.account.config._selfName = info.nickname;
+      }
       ctx.channelRuntime.activity.record({
         channel: "napcat",
         accountId: ctx.account.accountId,
