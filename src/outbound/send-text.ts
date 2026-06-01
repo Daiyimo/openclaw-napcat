@@ -56,8 +56,8 @@ export async function sendText(
   const cooldownKey = `${resolvedAccountId}:${to}`;
   const trimmed = text?.trim() ?? "";
   // 支持多种静默标记格式：[SILENT]、NO_REPLY、no reply、No Reply 等
-  // 允许前后有标点或空白（如 "NO_REPLY."、"NO_REPLY!"）
-  if (/^\[SILENT\]$/i.test(trimmed) || /^NO[_\s]?REPLY[.!?]*$/i.test(trimmed)) {
+  // 允许前后有标点（英文 + 中文）: "NO_REPLY.", "NO_REPLY!", "NO_REPLY。", "NO_REPLY，", "NO_REPLY；"
+  if (/^\[SILENT\]$/i.test(trimmed) || /^NO[_\s]?REPLY[.!?。!！,，;；…]*$/i.test(trimmed)) {
     console.log(`[napcat-QQ][passive] AI 选择静默 (to=${to})`);
     passiveMode.markSilent(cooldownKey);
     return { channel: "napcat", sent: true };
