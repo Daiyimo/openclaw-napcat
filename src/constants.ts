@@ -76,3 +76,23 @@ export const HTTP_MAX_RETRIES = 3;
 
 /** HTTP 重试首次延迟（ms），后续按 2x 指数增长：200 → 400 → 800 */
 export const HTTP_RETRY_BASE_DELAY_MS = 200;
+
+// === 多 bot 对话控制（v1.8+） ===
+
+/** 用户停止指令后，bot 静默窗口（ms）。60 秒内不再响应新消息 */
+export const BOT_STOPPED_SUPPRESS_MS = 60_000;
+
+/** 用户停止意图默认关键词（v1.8+ 旁观模式检测用户停止指令用） */
+export const DEFAULT_STOP_KEYWORDS = [
+  "别聊了",
+  "stop",
+  "Stop",
+  "STOP",
+  "闭嘴",
+  "安静",
+  "别说了",
+  "别吵了",
+];
+
+/** 默认 bot 签名样式（visible: [BOT:selfId]；zero-width: 零宽字符） */
+export const DEFAULT_BOT_SIGNATURE_STYLE: "visible" | "zero-width" = "visible";

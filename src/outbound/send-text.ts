@@ -16,7 +16,7 @@ import {
   splitMessage,
   dispatchMessage,
 } from "../message-parser.js";
-import { OUTBOUND_MULTI_CHUNK_SLEEP_MS } from "../constants.js";
+import { OUTBOUND_MULTI_CHUNK_SLEEP_MS, DEFAULT_BOT_SIGNATURE_STYLE } from "../constants.js";
 import { maskIdsInText } from "../utils/log-sanitize.js";
 import { appendBotSignature } from "../utils/bot-signature.js";
 
@@ -88,7 +88,7 @@ export async function sendText(
   // - visible: [BOT:selfId] 格式，可靠但用户可见
   // - zero-width: 零宽字符格式，用户不可见，但可能被平台剥离
   const isGroup = /^\d+$/.test(to) || to.startsWith("group:");
-  const style = params.cfg?.botSignatureStyle ?? "visible";
+  const style = params.cfg?.botSignatureStyle ?? DEFAULT_BOT_SIGNATURE_STYLE;
   const finalText = isGroup && params.botSelfId
     ? appendBotSignature(text, params.botSelfId, style)
     : text;

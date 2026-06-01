@@ -129,7 +129,7 @@ export function getBotInfo(accountId: string, botId: string | number): BotInfo |
  * - 已存在：更新 lastSeenAt + nickname/card（如果提供）
  * - 不存在：新建
  */
-export function recordBotInfo(accountId: string, info: Partial<BotInfo> & { selfId: string | number }): BotInfo {
+export function recordBotInfo(accountId: string, info: Partial<Omit<BotInfo, "selfId">> & { selfId: string | number }): BotInfo {
   const cache = loadCache(accountId);
   const idStr = String(info.selfId);
   const now = Date.now();
@@ -144,7 +144,8 @@ export function recordBotInfo(accountId: string, info: Partial<BotInfo> & { self
   if (cache.size >= MAX_BOT_IDS) {
     console.warn(`[known-bots-store] Max size ${MAX_BOT_IDS} reached, dropping ${idStr}`);
     // 返回一个不存于 cache 的临时对象（不持久化）
-    return { selfId: idStr, firstSeenAt: now, lastSeenAt: now, ...info } as BotInfo;
+    const { selfId: _drop, ...rest } = info;
+    return { selfId: idStr, firstSeenAt: now, lastSeenAt: now, ...rest };
   }
   const bot: BotInfo = {
     selfId: idStr,
