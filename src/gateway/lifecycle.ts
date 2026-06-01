@@ -94,10 +94,7 @@ export async function startAccount(
   const processedMsgIds = new Set<string>();
   let groupRouteRefreshTimer: ReturnType<typeof setInterval> | null = null;
   const cleanupInterval = setInterval(() => {
-    if (processedMsgIds.size > DEDUP_MAX_SIZE) {
-      const entries = [...processedMsgIds];
-      processedMsgIds.clear();
-      for (const id of entries.slice(-DEDUP_KEEP_SIZE)) processedMsgIds.add(id);
+    if (trimDedupSet(processedMsgIds)) {
       console.log(`[napcat-QQ] Dedup set trimmed: kept ${processedMsgIds.size} recent IDs`);
     }
     shared.passiveMode.cleanup(PASSIVE_COOLDOWN_MAX_AGE_MS);
@@ -166,4 +163,24 @@ export async function startAccount(
   if (currentStore?.lastTrigger === lastTrigger) {
     shared.inboundStores.delete(account.accountId);
   }
+}
+
+// ============ 辅助函数（导出供测试）============
+
+/**
+ * dedup 集合超过 DEDUP_MAX_SIZE 时修剪到 DEDUP_KEEP_SIZE，保留最新的 N 条。
+ * 返回是否实际发生了修剪。
+ *
+ * 抽出来为顶层函数便于单元测试（interval 内部逻辑单测困难）。
+ */
+export function trimDedupSet(
+  set: Set<string>,
+  maxSize: number = DEDUP_MAX_SIZE,
+  keepSize: number = DEDUP_KEEP_SIZE,
+): boolean {
+  if (set.size <= maxSize) return false;
+  const entries = [...set];
+  set.clear();
+  for (const id of entries.slice(-keepSize)) set.add(id);
+  return true;
 }
