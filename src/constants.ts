@@ -61,6 +61,17 @@ export function makeZeroWidthSignature(botId: string | number): string {
   return `​${botId}‌`;
 }
 
+// === 协议层握手（Plan A，v1.8+ 默认方案） ===
+
+/** 握手元数据中 app 字段的固定值，用于跨实现识别 */
+export const BOT_HANDSHAKE_APP = "openclaw-napcat";
+
+/** 握手元数据中 kind 字段的固定值（"bot"=bot 身份声明） */
+export const BOT_HANDSHAKE_KIND = "bot" as const;
+
+/** 握手消息最小 raw_message 长度（json 段载荷通常 >= 100 字节，过滤掉误判） */
+export const BOT_HANDSHAKE_MIN_LENGTH = 60;
+
 // === 投递 ===
 
 /** 向多个管理员发错误通知时的发送间隔（ms），避免触发 QQ 发送频率限制 */
@@ -94,5 +105,8 @@ export const DEFAULT_STOP_KEYWORDS = [
   "别吵了",
 ];
 
-/** 默认 bot 签名样式（visible: [BOT:selfId]；zero-width: 零宽字符） */
-export const DEFAULT_BOT_SIGNATURE_STYLE: "visible" | "zero-width" = "visible";
+/** 默认 bot 签名样式
+ *  v1.8 起改为 "metadata"：用 OneBot json 段在协议层声明 bot 身份，
+ *  用户文本 100% 干净。仅当对方不是 v1.8+ openclaw-napcat 时,回退到 "visible"。
+ */
+export const DEFAULT_BOT_SIGNATURE_STYLE: "none" | "visible" | "zero-width" | "metadata" = "metadata";

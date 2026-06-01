@@ -192,11 +192,11 @@ describe("MessageSender.sendText — 分片", () => {
 // ============ sendText — TTS ============
 
 describe("MessageSender.sendText — TTS", () => {
-  it("enableTTS=true 且 aiVoiceId 配置时调 sendGroupAiRecord（带签名）", async () => {
+  it("enableTTS=true 且 aiVoiceId 配置时调 sendGroupAiRecord（visible 模式下带签名）", async () => {
     const client = makeClient();
     const sender = makeSender({
       client,
-      config: makeConfig({ enableTTS: true, aiVoiceId: "voice1" }),
+      config: makeConfig({ enableTTS: true, aiVoiceId: "voice1", botSignatureStyle: "visible" }),
     });
     await sender.deliver({ text: "短文本" });
     expect(client.sendGroupAiRecord).toHaveBeenCalledWith(88888, "短文本[BOT:12345]", "voice1");
@@ -248,14 +248,58 @@ describe("MessageSender.sendMediaUrl", () => {
 // ============ sendText — bot 签名追加（修复多 bot 循环对话）============
 
 describe("MessageSender.sendText — bot signature", () => {
-  it("群消息默认追加 visible 签名 [BOT:12345]", async () => {
+  it("群消息默认 metadata 模式不污染用户文本（v1.8+ 默认行为）", async () => {
     const client = makeClient();
-    const sender = makeSender({ client });
+    const sender = makeSender({ client }); // 默认 metadata
+    await sender.deliver({ text: "hello" });
+    const call = client.sendGroupMsg.mock.calls[0];
+    const segments: any[] = call[1];
+    const textSeg = segments.find((s: any) => s.type === "text");
+    // metadata 模式：用户文本不含 [BOT:],握手段独立发
+    expect(textSeg?.data?.text).toBe(" hello");
+    expect(textSeg?.data?.text).not.toContain("[BOT:");
+  });
+
+  it("metadata 模式会在冷启动时发握手段（节流后不再发）", async () => {
+    const { _resetHandshakeThrottle, shouldSendHandshake, markHandshakeSent } = await import(
+      "../utils/bot-handshake.js"
+    );
+    _resetHandshakeThrottle();
+    const client = makeClient();
+    const sender = makeSender({ client, accountId: "fresh-acct-handshake" }); // 默认 metadata
+    expect(shouldSendHandshake("fresh-acct-handshake", "88888")).toBe(true);
+    await sender.deliver({ text: "hello" });
+    // 节流窗口已被本次发送占用
+    expect(shouldSendHandshake("fresh-acct-handshake", "88888")).toBe(false);
+    markHandshakeSent("fresh-acct-handshake", "88888");
+  });
+
+  it("显式 visible 模式追加 [BOT:12345] 文本签名", async () => {
+    const client = makeClient();
+    const sender = makeSender({ client, config: makeConfig({ botSignatureStyle: "visible" }) });
     await sender.deliver({ text: "hello" });
     const call = client.sendGroupMsg.mock.calls[0];
     const segments: any[] = call[1];
     const textSeg = segments.find((s: any) => s.type === "text");
     expect(textSeg?.data?.text).toContain("[BOT:12345]");
+  });
+
+  it("none 模式既不追加文本签名也不发握手", async () => {
+    const client = makeClient();
+    const sender = makeSender({ client, config: makeConfig({ botSignatureStyle: "none" }) });
+    await sender.deliver({ text: "hello" });
+    const calls = client.sendGroupMsg.mock.calls;
+    // 没有 json 段
+    const hasJson = calls.some((c: any[]) =>
+      Array.isArray(c[1]) && c[1].some((s: any) => s.type === "json"),
+    );
+    expect(hasJson).toBe(false);
+    // 文本无 [BOT:
+    const textCall = calls.find((c: any[]) =>
+      Array.isArray(c[1]) && c[1].some((s: any) => s.type === "text"),
+    );
+    const textSeg = textCall?.[1].find((s: any) => s.type === "text");
+    expect(textSeg?.data?.text).not.toContain("[BOT:");
   });
 
   it("群消息 zero-width 模式追加零宽字符签名（用户不可见）", async () => {
@@ -290,12 +334,12 @@ describe("MessageSender.sendText — bot signature", () => {
     expect(textSeg?.data?.text).not.toContain("[BOT:");
   });
 
-  it("分片时签名只在最后一个 chunk 追加（不重复）", async () => {
+  it("分片时 visible 模式签名只在最后一个 chunk 追加（不重复）", async () => {
     const client = makeClient();
     // 原文 15 chars / maxMessageLength=5 → 3 chunks；签名追加到第 3 个
     const sender = makeSender({
       client,
-      config: makeConfig({ maxMessageLength: 5, rateLimitMs: 0 }),
+      config: makeConfig({ maxMessageLength: 5, rateLimitMs: 0, botSignatureStyle: "visible" }),
     });
     await sender.deliver({ text: "123456789012345" });
     expect(client.sendGroupMsg).toHaveBeenCalledTimes(3);
