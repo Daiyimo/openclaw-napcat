@@ -2,13 +2,19 @@
 # openclaw-napcat QQ 插件安装脚本
 #
 # 在 openclaw 容器终端内执行：
+#   # 国内推荐:走 gh-proxy.com 拉脚本本身(避免 raw.githubusercontent.com 超时)
 #   curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/scripts/docker-install.sh | bash
+#
+#   # 如果上面也不稳定,可指定单一镜像(跳过列表):
+#   export OPENCLAW_NAPCAT_MIRROR=https://kkgithub.com/Daiyimo/openclaw-napcat/archive
+#   curl -fsSL https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/scripts/docker-install.sh | bash
 #
 # 特性：
 #   - 插件安装到持久化数据卷 ~/.openclaw/extensions/napcat/，容器镜像更新后不丢失
 #   - 自动编译 TypeScript，无需宿主机任何工具链
 #   - 读取容器内 QQ_* 环境变量写入 openclaw.json
-#   - 多镜像加速下载，自动静默重启容器
+#   - 多镜像加速下载（5 个镜像按稳定性优先级,单镜像 30s 超时）
+#   - 自动静默重启容器
 #   - 自动刷新群路由（重启后 connect handler 自动注册）
 
 set -e
@@ -45,19 +51,27 @@ rm -rf "$TEMP_DIR" "$EXTRACT_DIR" "$ARCHIVE"
 mkdir -p "$EXTRACT_DIR"
 
 # 镜像列表：按优先级尝试（GitHub archive 直链）
+# 顺序按"国内可用度 + 稳定性"排。ghfast/gh-proxy 经常挂,加 kkgithub 等兜底。
+# 用户可通过 OPENCLAW_NAPCAT_MIRROR 环境变量强制指定单个镜像（跳过列表）。
 MIRRORS=(
+  "https://kkgithub.com/Daiyimo/openclaw-napcat/archive"
   "https://ghfast.top/https://github.com/Daiyimo/openclaw-napcat/archive"
   "https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat/archive"
+  "https://mirror.ghproxy.com/https://github.com/Daiyimo/openclaw-napcat/archive"
   "https://github.com/Daiyimo/openclaw-napcat/archive"
 )
 
 DOWNLOAD_OK=0
+# 如果用户指定了单一镜像,优先用它
+if [ -n "$OPENCLAW_NAPCAT_MIRROR" ]; then
+  MIRRORS=("$OPENCLAW_NAPCAT_MIRROR")
+fi
 for mirror in "${MIRRORS[@]}"; do
   url="${mirror}/refs/heads/${BRANCH}.tar.gz"
   echo "  尝试: $url"
-  # -f 失败时返回非零；-L 跟随重定向；--connect-timeout 5 防止代理卡死；
-  # --max-time 120 兜底；-# 显示进度条
-  if curl -fL --connect-timeout 5 --max-time 120 -# -o "$ARCHIVE" "$url"; then
+  # -f 失败时返回非零；-L 跟随重定向；--connect-timeout 3 快速放弃坏代理；
+  # --max-time 30 单镜像 30s 兜底(避免一个挂掉拖 2 分钟);-# 显示进度条
+  if curl -fL --connect-timeout 3 --max-time 30 -# -o "$ARCHIVE" "$url"; then
     # 验证 tarball 完整（避免下载到 HTML 错误页）
     if tar -tzf "$ARCHIVE" &>/dev/null; then
       size=$(du -h "$ARCHIVE" | cut -f1)
@@ -75,6 +89,8 @@ done
 
 if [ "$DOWNLOAD_OK" -ne 1 ]; then
   echo "✗ 所有镜像均失败，请检查网络连接"
+  echo "  提示:可设置 OPENCLAW_NAPCAT_MIRROR 指定单一镜像，例如:"
+  echo "    export OPENCLAW_NAPCAT_MIRROR=https://kkgithub.com/Daiyimo/openclaw-napcat/archive"
   exit 1
 fi
 
