@@ -118,6 +118,25 @@ QQ_BOT_SIGNATURE_STYLE: metadata          # 默认：协议层握手，用户文
 
 私聊不追加签名也不发握手。账号断开重连时握手节流 24h 内不重发(避免重启风暴);持久化 cache 跨重启保留。
 
+### 回复格式硬约束（v1.9.1+）
+
+防止 reasoning 类模型(Claude with extended thinking / o1 / o3 等)把 CoT 混到回复里。
+
+```yaml
+# Docker 环境变量
+QQ_RESPONSE_GUIDELINES: ""  # 留空 = 用默认硬约束;设 "" = 关闭
+```
+
+**默认约束摘要:**
+- 不输出内部推理 / 用户行为分析 / 英文 meta 注释
+- 群聊 50 字以内,信息密度优先
+- 不"八股"结构(不用首先/其次/最后)
+- 语言跟用户
+- 多 bot 共存不复读其他 bot
+- 旁听没想法的回复 [SILENT]
+
+完整内容见 `src/constants.ts` 的 `DEFAULT_RESPONSE_GUIDELINES`。
+
 ### 旁观模式（Passive Mode）
 
 AI 监听群聊所有消息，自主判断是否参与对话，无需 @：

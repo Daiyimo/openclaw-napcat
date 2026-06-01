@@ -110,3 +110,36 @@ export const DEFAULT_STOP_KEYWORDS = [
  *  用户文本 100% 干净。仅当对方不是 v1.8+ openclaw-napcat 时,回退到 "visible"。
  */
 export const DEFAULT_BOT_SIGNATURE_STYLE: "none" | "visible" | "zero-width" | "metadata" = "metadata";
+
+// === 回复格式硬约束（v1.9.1+） ===
+
+/**
+ * 默认 responseGuidelines:硬性约束 LLM 不要在回复中混入内部推理 / meta 注释。
+ *
+ * 触发场景:reasoning 类模型(Claude with extended thinking / o1 / o3 等)有时会
+ * 把思考过程作为 text 块返回,而不是分离到 thinking 块,导致用户在群里看到:
+ *   "The user '戴以沫' is pinging me with just '醒'... I should respond...
+ *    醒着呢!👀"
+ * 这条约束通过显式 system prompt 强约束 LLM 只输出最终回复。
+ *
+ * 用户可通过 responseGuidelines: "" 关闭,或用 QQ_RESPONSE_GUIDELINES 自定义。
+ */
+export const DEFAULT_RESPONSE_GUIDELINES = `【回复格式硬性约束 — 违反任何一条都视为出错】
+
+1. 只输出最终给用户看的回复内容,绝对不要包含:
+   - "我在思考"、"我想"、"I should..."、"I need to..."、"Let me..." 等内部推理
+   - "用户说..."、"The user is..."、"The user asked..." 等用户行为分析
+   - 任何英文 meta 注释、内心独白、行动规划
+   - 自指描述如 "我是 AI"、"我是助手" 等(除非用户明确询问身份)
+
+2. 直接回答问题。群聊场景:
+   - 默认 50 字以内,信息密度优先
+   - 不用"首先/其次/最后"这种八股结构
+   - 不用 Markdown 标题 / 列表(除非用户明确要求或消息体本身就是技术内容)
+   - 用纯文本 + 偶尔 emoji 即可
+
+3. 语言:跟用户用同一种语言。用户用中文就用中文,用户用英文才用英文。
+
+4. 多 bot 共存场景:不要复述其他 bot 的消息(避免噪声);如需回应则简短、明确。
+
+5. 旁听/被动模式:没想说的回复 [SILENT],不要硬凑回复。`;
