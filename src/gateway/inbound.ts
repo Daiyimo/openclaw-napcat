@@ -12,6 +12,7 @@ import type { OneBotMessage } from "../types.js";
 import type { InboundContext } from "../types/channel-types.js";
 import { recordKnownUser } from "../known-users.js";
 import { populateGroupMemberCache } from "../member-cache.js";
+import { isKnownBot, recordKnownBot } from "../known-bots-store.js";
 import {
   extractImageUrls,
   downloadImages,
@@ -41,17 +42,9 @@ const sleep = (ms: number): Promise<void> =>
 /** 友军抑制随机延迟上限（ms），提取为常量便于测试控制 */
 const BOT_SUPPRESSION_JITTER_MS = 2000;
 
-// ── 友军识别：自维护 bot ID 缓存 ──────────────────────────────
-// 通过签名检测自动发现 bot，无需手动配置。检测到签名后记录发送者，
-// 后续即使没有签名也能识别。
-const knownBotUserIds = new Set<string>();
-
-/**
- * 重置 bot 识别缓存（测试用）。
- */
-export function resetKnownBotUserIds(): void {
-  knownBotUserIds.clear();
-}
+// ── 友军识别：bot ID 持久化缓存 ──────────────────────────────
+// 通过签名检测自动发现 bot，缓存到磁盘（按账号隔离）。
+// 跨重启/跨进程保留，避免冷启动第一个周期漏识别导致的循环对话。
 
 /**
  * 安装 message 事件处理器。
@@ -176,8 +169,8 @@ export function installMessageHandler(
         const whitelistMatch = config.knownBotIds?.some(id => String(id) === userIdStr) ?? false;
         // Layer 1: sender.bot 字段
         const senderBot = event.sender?.bot === true;
-        // Layer 2: 自维护缓存
-        const cachedBotMatch = userIdStr !== null && knownBotUserIds.has(userIdStr);
+        // Layer 2: 自维护缓存（持久化到磁盘，按账号隔离）
+        const cachedBotMatch = userIdStr !== null && isKnownBot(account.accountId, userIdStr);
         // Layer 3: 签名检测（可见 [BOT:ID] + 零宽字符）
         const sigMatch = BOT_SIGNATURE_PATTERN.exec(text);
         const zwSigMatch = BOT_SIGNATURE_ZW_PATTERN.exec(text);
@@ -191,9 +184,9 @@ export function installMessageHandler(
           );
         }
         if (isBot) {
-          // 通过签名检测到的 bot 自动加入缓存，后续无需签名也能识别
+          // 通过签名检测到的 bot 自动加入持久化缓存，后续无需签名也能识别
           if (matchedBotId !== null) {
-            knownBotUserIds.add(matchedBotId);
+            recordKnownBot(account.accountId, matchedBotId);
           }
           if (config.ignoreSenderBot !== false) passiveMode.markBotActive(`group:${groupId}`);
           return;

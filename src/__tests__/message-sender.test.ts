@@ -27,6 +27,7 @@ function makeClient() {
     uploadGroupFile: vi.fn().mockResolvedValue(undefined),
     uploadPrivateFile: vi.fn().mockResolvedValue(undefined),
     sendGroupAiRecord: vi.fn().mockResolvedValue(undefined),
+    getSelfId: vi.fn().mockReturnValue(12345),
   } as any;
 }
 
@@ -175,8 +176,10 @@ describe("MessageSender.sendText — antiRisk", () => {
 // ============ sendText — 分片 ============
 
 describe("MessageSender.sendText — 分片", () => {
-  it("超过 maxMessageLength 时分两次发送", async () => {
+  it("超过 maxMessageLength 时分多次发送", async () => {
     const client = makeClient();
+    // 自 id 返回 null，隔离签名追加对分片测试的干扰
+    client.getSelfId.mockReturnValue(null);
     const sender = makeSender({
       client,
       config: makeConfig({ maxMessageLength: 10, rateLimitMs: 0 }),
@@ -189,14 +192,14 @@ describe("MessageSender.sendText — 分片", () => {
 // ============ sendText — TTS ============
 
 describe("MessageSender.sendText — TTS", () => {
-  it("enableTTS=true 且 aiVoiceId 配置时调 sendGroupAiRecord", async () => {
+  it("enableTTS=true 且 aiVoiceId 配置时调 sendGroupAiRecord（带签名）", async () => {
     const client = makeClient();
     const sender = makeSender({
       client,
       config: makeConfig({ enableTTS: true, aiVoiceId: "voice1" }),
     });
     await sender.deliver({ text: "短文本" });
-    expect(client.sendGroupAiRecord).toHaveBeenCalledWith(88888, "短文本", "voice1");
+    expect(client.sendGroupAiRecord).toHaveBeenCalledWith(88888, "短文本[BOT:12345]", "voice1");
   });
 });
 
@@ -239,5 +242,69 @@ describe("MessageSender.sendMediaUrl", () => {
       88888,
       expect.arrayContaining([expect.objectContaining({ type: "file" })]),
     );
+  });
+});
+
+// ============ sendText — bot 签名追加（修复多 bot 循环对话）============
+
+describe("MessageSender.sendText — bot signature", () => {
+  it("群消息默认追加 visible 签名 [BOT:12345]", async () => {
+    const client = makeClient();
+    const sender = makeSender({ client });
+    await sender.deliver({ text: "hello" });
+    const call = client.sendGroupMsg.mock.calls[0];
+    const segments: any[] = call[1];
+    const textSeg = segments.find((s: any) => s.type === "text");
+    expect(textSeg?.data?.text).toContain("[BOT:12345]");
+  });
+
+  it("群消息 zero-width 模式追加零宽字符签名（用户不可见）", async () => {
+    const client = makeClient();
+    const sender = makeSender({ client, config: makeConfig({ botSignatureStyle: "zero-width" }) });
+    await sender.deliver({ text: "hello" });
+    const call = client.sendGroupMsg.mock.calls[0];
+    const segments: any[] = call[1];
+    const textSeg = segments.find((s: any) => s.type === "text");
+    // 零宽字符签名：U+200B + "12345" + U+200C
+    expect(textSeg?.data?.text).toContain("​12345‌");
+  });
+
+  it("私聊不追加签名", async () => {
+    const client = makeClient();
+    const sender = makeSender({ client, isGroup: false });
+    await sender.deliver({ text: "hi" });
+    const call = client.sendPrivateMsg.mock.calls[0];
+    // sendPrivateMsg(userId, message) — message 在 call[1]
+    expect(call[1]).toBe("hi");
+    expect(call[1]).not.toContain("[BOT:");
+  });
+
+  it("selfId 未设置时不追加签名", async () => {
+    const client = makeClient();
+    client.getSelfId.mockReturnValue(null);
+    const sender = makeSender({ client });
+    await sender.deliver({ text: "hello" });
+    const call = client.sendGroupMsg.mock.calls[0];
+    const segments: any[] = call[1];
+    const textSeg = segments.find((s: any) => s.type === "text");
+    expect(textSeg?.data?.text).not.toContain("[BOT:");
+  });
+
+  it("分片时签名只在最后一个 chunk 追加（不重复）", async () => {
+    const client = makeClient();
+    // 原文 15 chars / maxMessageLength=5 → 3 chunks；签名追加到第 3 个
+    const sender = makeSender({
+      client,
+      config: makeConfig({ maxMessageLength: 5, rateLimitMs: 0 }),
+    });
+    await sender.deliver({ text: "123456789012345" });
+    expect(client.sendGroupMsg).toHaveBeenCalledTimes(3);
+    const calls = client.sendGroupMsg.mock.calls.map((c: any[]) => {
+      const segs: any[] = c[1];
+      return segs.find((s: any) => s.type === "text")?.data?.text ?? "";
+    });
+    expect(calls[0]).not.toContain("[BOT:");
+    expect(calls[1]).not.toContain("[BOT:");
+    expect(calls[2]).toContain("[BOT:12345]");
   });
 });

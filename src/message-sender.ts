@@ -19,6 +19,7 @@ import {
   resolveMediaUrl,
 } from "./message-parser.js";
 import { parseMediaTagsToSendQueue } from "./media-send.js";
+import { appendBotSignature } from "./utils/bot-signature.js";
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -80,13 +81,27 @@ export class MessageSender {
     if (effectiveMarkdownMode === "strip") processed = stripMarkdown(processed);
     if (config.antiRiskMode) processed = processAntiRisk(processed);
 
+    // 群消息所需参数：签名追加到最后一个 chunk（避免被 splitMessage 切开）
+    const botSelfId = isGroup ? client.getSelfId() : null;
+    const style = config.botSignatureStyle ?? "visible";
+
     // ── 媒体标签优先路径 ──
     const { hasMediaTags, sendQueue } = parseMediaTagsToSendQueue(processed);
     if (hasMediaTags) {
+      // 找最后一个 text 项，签名追加到那里
+      let lastTextIdx = -1;
+      for (let i = sendQueue.length - 1; i >= 0; i--) {
+        if (sendQueue[i].type === "text") { lastTextIdx = i; break; }
+      }
       let isFirstChunk = true;
-      for (const item of sendQueue) {
+      for (let idx = 0; idx < sendQueue.length; idx++) {
+        const item = sendQueue[idx];
         if (item.type === "text") {
-          const chunks = splitMessage(item.content, config.maxMessageLength || 4000);
+          let content = item.content;
+          if (botSelfId && idx === lastTextIdx) {
+            content = appendBotSignature(content, botSelfId, style);
+          }
+          const chunks = splitMessage(content, config.maxMessageLength || 4000);
           for (const chunk of chunks) {
             await this.sendTextChunk(chunk, effectiveMarkdownMode, isFirstChunk);
             isFirstChunk = false;
@@ -108,8 +123,12 @@ export class MessageSender {
       return;
     }
 
-    // ── 回退路径：现有逻辑 ──
-    const chunks = splitMessage(processed, config.maxMessageLength || 4000);
+    // ── 回退路径 ──
+    // 签名追加到最后一个 chunk（避免被 splitMessage 切开）
+    const chunks = [...splitMessage(processed, config.maxMessageLength || 4000)];
+    if (botSelfId && chunks.length > 0) {
+      chunks[chunks.length - 1] = appendBotSignature(chunks[chunks.length - 1], botSelfId, style);
+    }
     for (let i = 0; i < chunks.length; i++) {
       await this.sendTextChunk(chunks[i], effectiveMarkdownMode, i === 0);
       if (chunks.length > 1 && config.rateLimitMs > 0) await sleep(config.rateLimitMs);
