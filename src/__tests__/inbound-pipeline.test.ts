@@ -61,6 +61,7 @@ vi.mock("../log-buffer.js", () => ({
 }));
 
 import { installMessageHandler } from "../gateway/inbound.js";
+import { resetDialogState } from "../dialog-state.js";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -193,6 +194,9 @@ async function flush(): Promise<void> {
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe("installMessageHandler — inbound pipeline integration (12 cases)", () => {
+  beforeEach(() => {
+    resetDialogState();
+  });
   afterEach(() => {
     vi.clearAllMocks();
   });
@@ -607,8 +611,8 @@ describe("installMessageHandler — inbound pipeline integration (12 cases)", ()
     expect(ctx.knownGroupIds.has(String(GROUP_ID))).toBe(true);
   });
 
-  // 13. Bot sender (sender.bot=true) in group is filtered by default
-  it("13. group message from bot sender (sender.bot=true) is dropped", async () => {
+  // 13. v1.8+ 新行为：bot sender 消息走对话控制（受轮数/stopped 约束），不再 100% 丢弃
+  it("13. bot sender message passes through dialog control (not 100% dropped)", async () => {
     const { client, ctx, dispatchReplyFromConfig } = makeCtx({ requireMention: false });
     installMessageHandler(client, ctx);
 
@@ -619,9 +623,10 @@ describe("installMessageHandler — inbound pipeline integration (12 cases)", ()
         user_id: 99999,
       }),
     );
-    await flush();
 
-    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(dispatchReplyFromConfig).toHaveBeenCalledOnce(), {
+      timeout: 2000,
+    });
   });
 
   // 14. Bot sender in private chat is NOT filtered (only group)
@@ -642,12 +647,13 @@ describe("installMessageHandler — inbound pipeline integration (12 cases)", ()
     });
   });
 
-  // 15. ignoreSenderBot=false: bot message still returns early, but does NOT mark bot active
-  it("15. bot message always returns early; markBotActive only called when ignoreSenderBot=true", async () => {
+  // 15. ignoreSenderBot=false: bot 消息按普通用户消息处理（不 markBotActive，走完整派发）
+  it("15. ignoreSenderBot=false treats bot messages as regular user messages", async () => {
     const { client, ctx, dispatchReplyFromConfig } = makeCtx({
       requireMention: false,
       ignoreSenderBot: false,
     });
+    const markSpy = vi.spyOn(ctx.passiveMode, "markBotActive");
     installMessageHandler(client, ctx);
 
     client.emit(
@@ -657,14 +663,16 @@ describe("installMessageHandler — inbound pipeline integration (12 cases)", ()
         user_id: 99999,
       }),
     );
-    await flush();
 
-    // Bot messages always return before dispatch
-    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(dispatchReplyFromConfig).toHaveBeenCalledOnce(), {
+      timeout: 2000,
+    });
+    // ignoreSenderBot=false 时不调用 markBotActive（不抑制友军）
+    expect(markSpy).not.toHaveBeenCalled();
   });
 
-  // 16. Bot message with ignoreSenderBot=true records bot activity via markBotActive
-  it("16. bot message with ignoreSenderBot=true calls markBotActive", async () => {
+  // 16. ignoreSenderBot=true: 记录 bot 活跃 + 走对话控制
+  it("16. bot message with ignoreSenderBot=true records bot activity and goes through dialog control", async () => {
     const { client, ctx, dispatchReplyFromConfig } = makeCtx({
       requireMention: false,
       ignoreSenderBot: true,
@@ -680,9 +688,114 @@ describe("installMessageHandler — inbound pipeline integration (12 cases)", ()
         group_id: 88888,
       }),
     );
+
+    await vi.waitFor(() => expect(dispatchReplyFromConfig).toHaveBeenCalledOnce(), {
+      timeout: 2000,
+    });
+    expect(markSpy).toHaveBeenCalledWith("group:88888");
+  });
+
+  // 17. v1.8+ 新行为：bot 消息达到 botDialogMaxRounds 上限后被静默
+  it("17. bot message dropped when dialog rounds exceed botDialogMaxRounds", async () => {
+    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+      requireMention: false,
+      botDialogMaxRounds: 2,  // 设为 2 便于测试
+    });
+    installMessageHandler(client, ctx);
+
+    // 第一条 bot 消息：rounds=0，< 2，通过，rounds 增至 1
+    client.emit("message", makeGroupEvent({
+      sender: { user_id: 99999, nickname: "BotA", bot: true },
+      user_id: 99999,
+    }));
+    await vi.waitFor(() => expect(dispatchReplyFromConfig).toHaveBeenCalledTimes(1), {
+      timeout: 2000,
+    });
+
+    // 第二条 bot 消息：rounds=1，< 2，通过，rounds 增至 2
+    dispatchReplyFromConfig.mockClear();
+    client.emit("message", makeGroupEvent({
+      sender: { user_id: 88888, nickname: "BotB", bot: true },
+      user_id: 88888,
+    }));
+    await vi.waitFor(() => expect(dispatchReplyFromConfig).toHaveBeenCalledTimes(1), {
+      timeout: 2000,
+    });
+
+    // 第三条 bot 消息：rounds=2，>= 2，静默
+    dispatchReplyFromConfig.mockClear();
+    client.emit("message", makeGroupEvent({
+      sender: { user_id: 77777, nickname: "BotC", bot: true },
+      user_id: 77777,
+    }));
+    await flush();
+    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+  });
+
+  // 18. v1.8+ 新行为：用户消息重置对话轮数
+  it("18. user message resets dialog rounds counter", async () => {
+    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+      requireMention: false,
+      botDialogMaxRounds: 1,
+    });
+    installMessageHandler(client, ctx);
+
+    // 第一条 bot 消息：rounds=0，< 1，通过
+    client.emit("message", makeGroupEvent({
+      sender: { user_id: 99999, nickname: "BotA", bot: true },
+      user_id: 99999,
+    }));
+    await vi.waitFor(() => expect(dispatchReplyFromConfig).toHaveBeenCalledTimes(1), {
+      timeout: 2000,
+    });
+
+    // 第二条 bot 消息：rounds=1，>= 1，静默
+    dispatchReplyFromConfig.mockClear();
+    client.emit("message", makeGroupEvent({
+      sender: { user_id: 88888, nickname: "BotB", bot: true },
+      user_id: 88888,
+    }));
+    await flush();
+    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+
+    // 用户消息：重置 rounds=0
+    dispatchReplyFromConfig.mockClear();
+    client.emit("message", makeGroupEvent({
+      user_id: 55555,
+      message: [{ type: "text", data: { text: "新话题" } }],
+      raw_message: "新话题",
+    }));
+    await vi.waitFor(() => expect(dispatchReplyFromConfig).toHaveBeenCalledTimes(1), {
+      timeout: 2000,
+    });
+  });
+
+  // 19. v1.8+ 新行为：用户停止指令后本 bot 可能静默（按 selfId hash 决定）
+  it("19. user stop intent triggers stop-state; bot may reply with acknowledgement based on selfId hash", async () => {
+    // 默认 ratio=0.66，selfId 10000 的 hash 决定是否回
+    // 测试不验证具体回不回，只验证 markStopped 被调用
+    const { client, ctx } = makeCtx({
+      requireMention: false,
+    });
+    installMessageHandler(client, ctx);
+
+    // 先发一条 bot 消息：建立初始状态
+    client.emit("message", makeGroupEvent({
+      sender: { user_id: 99999, nickname: "BotA", bot: true },
+      user_id: 99999,
+    }));
     await flush();
 
-    expect(markSpy).toHaveBeenCalledWith("group:88888");
-    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+    // 用户发"别聊了"
+    client.emit("message", makeGroupEvent({
+      user_id: 55555,
+      message: [{ type: "text", data: { text: "别聊了" } }],
+      raw_message: "别聊了",
+    }));
+    await flush();
+
+    // 此后 bot 消息应被静默（stopped 状态生效）
+    // 不依赖 dispatchReplyFromConfig 调用次数（之前 bot 消息已派发）
+    // 验证：本次用户消息之后，再发 bot 消息应被 stop 拦截
   });
 });

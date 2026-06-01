@@ -20,6 +20,7 @@ import {
 } from "./message-parser.js";
 import { parseMediaTagsToSendQueue } from "./media-send.js";
 import { appendBotSignature } from "./utils/bot-signature.js";
+import { markStopped } from "./dialog-state.js";
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -51,6 +52,14 @@ export class MessageSender {
     files?: Array<{ url?: string; name?: string }>;
     [key: string]: unknown;
   }): Promise<void> {
+    // 拦截 [END_DIALOG] token：AI 在多 bot 对话中觉得话题聊不下去时返回此 token
+    // 行为：不实际发送，标记该群对话已结束（其他 bot 静默 60s）
+    if (payload.text?.trim() === "[END_DIALOG]") {
+      if (this.ctx.isGroup && this.ctx.groupId !== undefined) {
+        markStopped(this.ctx.accountId, `group:${this.ctx.groupId}`);
+      }
+      return;
+    }
     if (payload.text) await this.sendText(payload.text);
 
     const urls: string[] = [];
