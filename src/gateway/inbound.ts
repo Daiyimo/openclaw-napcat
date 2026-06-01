@@ -13,6 +13,11 @@ import type { InboundContext } from "../types/channel-types.js";
 import { recordKnownUser } from "../known-users.js";
 import { populateGroupMemberCache } from "../member-cache.js";
 import { isKnownBot, recordKnownBot } from "../known-bots-store.js";
+import { getDialogState, recordBotTurn, markStopped, recordUserMessage } from "../dialog-state.js";
+import { shouldBotReplyToStop, getBotStopDelay, detectStopIntent } from "../utils/bot-decision.js";
+
+/** 多 bot 对话默认停止意图关键词 */
+const DEFAULT_STOP_KEYWORDS = ["别聊了", "stop", "Stop", "STOP", "闭嘴", "安静", "别说了", "别吵了"];
 import {
   extractImageUrls,
   downloadImages,
@@ -163,6 +168,7 @@ export function installMessageHandler(
 
       // 友军识别：bot 消息记录活跃时间后跳过
       // 四层检测：白名单 → sender.bot 字段 → 自维护 bot ID 缓存 → 签名（可见/零宽）
+      let isBot = false;
       if (isGroup) {
         const userIdStr = userId != null ? String(userId) : null;
         // Layer 0: 手动白名单（最高优先级）
@@ -175,7 +181,7 @@ export function installMessageHandler(
         const sigMatch = BOT_SIGNATURE_PATTERN.exec(text);
         const zwSigMatch = BOT_SIGNATURE_ZW_PATTERN.exec(text);
         const matchedBotId = sigMatch?.[1] ?? zwSigMatch?.[1] ?? null;
-        const isBot = whitelistMatch || senderBot || cachedBotMatch || matchedBotId !== null;
+        isBot = whitelistMatch || senderBot || cachedBotMatch || matchedBotId !== null;
         if (config.debug) {
           console.log(
             `[napcat-QQ][debug-bot-filter] userId=${maskId(userId)} whitelist=${whitelistMatch} ` +
@@ -189,7 +195,37 @@ export function installMessageHandler(
             recordKnownBot(account.accountId, matchedBotId);
           }
           if (config.ignoreSenderBot !== false) passiveMode.markBotActive(`group:${groupId}`);
-          return;
+
+          // ── 多 bot 对话控制（v1.8+）──────────────────
+          // 友军识别后不再 100% 静默；改为受轮数上限 + 停止状态约束
+          if (config.ignoreSenderBot !== false) {
+            const dialogKey = `group:${groupId}`;
+            const dialog = getDialogState(account.accountId, dialogKey);
+            const maxRounds = config.botDialogMaxRounds ?? 5;
+
+            // 已被用户停止 → 静默
+            if (dialog.stoppedAt !== null && Date.now() - dialog.stoppedAt < 60_000) {
+              if (config.debug) {
+                console.log(`[napcat-QQ][debug-dialog] bot msg dropped: dialog stopped at ${dialog.stoppedAt}`);
+              }
+              return;
+            }
+
+            // 达到轮数上限 → 静默
+            if (dialog.rounds >= maxRounds) {
+              if (config.debug) {
+                console.log(`[napcat-QQ][debug-dialog] bot msg dropped: rounds=${dialog.rounds} >= ${maxRounds}`);
+              }
+              return;
+            }
+
+            // 通过对话控制：记录本轮，AI 派发继续
+            recordBotTurn(account.accountId, dialogKey, String(userId));
+            if (config.debug) {
+              console.log(`[napcat-QQ][debug-dialog] bot msg allowed: rounds=${dialog.rounds + 1}/${maxRounds}`);
+            }
+          }
+          // 不 return，继续走 AI 派发（让 bot 之间能对话聊天，受轮数限制）
         }
       }
 
@@ -397,6 +433,28 @@ export function installMessageHandler(
           passiveMode.markCheck(cooldownKey);
         } else {
           return;
+        }
+      }
+
+      // ── 多 bot 对话：用户消息重置 + 停止意图检测（v1.8+）─────
+      let isUserStopIntent = false;
+      if (isGroup && groupId && !isBot) {
+        // 任何用户消息都重置对话轮数（仅当消息会走 AI 派发）
+        if (isTriggered || isMentioned || isPassiveMode || !config.requireMention) {
+          recordUserMessage(account.accountId, `group:${groupId}`);
+        }
+        // 检测用户停止对话意图
+        if (config.botStopReplyEnabled !== false) {
+          const stopKeywords = (config.botStopKeywords && config.botStopKeywords.length > 0)
+            ? config.botStopKeywords
+            : DEFAULT_STOP_KEYWORDS;
+          if (detectStopIntent(text, stopKeywords)) {
+            isUserStopIntent = true;
+            markStopped(account.accountId, `group:${groupId}`);
+            if (config.debug) {
+              console.log(`[napcat-QQ][debug-dialog] user stop intent detected`);
+            }
+          }
         }
       }
 
@@ -660,6 +718,26 @@ export function installMessageHandler(
 
       // 旁观模式冷却 key（在 finally 中释放哨兵）
       const passiveCooldownKey = isPassiveMode ? `${account.accountId}:${fromId}` : null;
+
+      // ── 多 bot 对话：用户停止指令时按 selfId hash 决策响应（v1.8+）──────
+      if (isUserStopIntent && config.botStopReplyEnabled !== false) {
+        const selfId = String(client.getSelfId() ?? "");
+        const ratio = config.botStopReplyRatio ?? 0.66;
+        if (!shouldBotReplyToStop(selfId, ratio)) {
+          if (config.debug) {
+            console.log(`[napcat-QQ][debug-dialog] stop reply declined by hash: selfId=${maskId(selfId)} ratio=${ratio}`);
+          }
+          typing.stop();
+          return;
+        }
+        const delay = getBotStopDelay(selfId, config.botStopReplyDelayMaxMs ?? 300);
+        if (delay > 0) {
+          if (config.debug) {
+            console.log(`[napcat-QQ][debug-dialog] stop reply delay: ${delay}ms`);
+          }
+          await sleep(delay);
+        }
+      }
 
       try {
         await channelRuntime.reply.dispatchReplyFromConfig({

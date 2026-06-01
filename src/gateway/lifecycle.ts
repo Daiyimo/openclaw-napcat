@@ -30,6 +30,7 @@ import {
 import { installConnectHandler } from "./connection.js";
 import { installMessageHandler } from "./inbound.js";
 import { initKnownBotsStore, flushKnownBotsStore } from "../known-bots-store.js";
+import { cleanupDialogState } from "../dialog-state.js";
 
 /**
  * 启动单个 QQ 账号的完整生命周期。
@@ -100,6 +101,7 @@ export async function startAccount(
       console.log(`[napcat-QQ] Dedup set trimmed: kept ${processedMsgIds.size} recent IDs`);
     }
     shared.passiveMode.cleanup(PASSIVE_COOLDOWN_MAX_AGE_MS);
+    cleanupDialogState(60 * 60 * 1000);  // 1 小时未活跃的群状态清理
   }, CLEANUP_INTERVAL_MS);
 
   // ── 安装 connect handler ────────────────────────────
