@@ -2,6 +2,28 @@
 
 # 更新日志
 
+### v1.8.0 - 多 bot 协同 + 安装脚本改造 (2026-06-01)
+
+#### 安装脚本改造（scripts/）
+
+**改 `git clone` 为 tarball 下载**，解决以下问题：
+- openclaw 容器基础镜像（node:alpine/slim）通常**没装 git**，导致 `git clone` 静默失败
+- tarball 只含源码（~1-2 MB），比 `git clone --depth 1`（拉 git objects）**快 5-10 倍**
+- curl 显示 HTTP 状态码和进度条，失败时用户能立即看到原因
+- `tar + curl` 是所有 Linux 基础镜像的标配
+
+改造范围：
+- `scripts/docker-install.sh`：容器内热安装
+- `scripts/install.sh`：宿主机安装
+- `scripts/update.sh`：插件更新
+
+新下载特性：
+- 3 镜像回退（ghfast.top → gh-proxy.com → github.com）
+- 每个镜像显示 HTTP 状态码和文件大小
+- 验证 tarball 完整性（避免下载到 HTML 错误页）
+- `-fL --connect-timeout 5 --max-time 120 -#` curl 参数组合
+- 进度条 `-#` 让用户知道下载中
+
 ### v1.7.2 - 友军识别增强 + NO_REPLY 修复 (2026-05-31)
 
 #### 新增
