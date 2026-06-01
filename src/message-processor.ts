@@ -270,7 +270,8 @@ export function buildFromId(
 }
 
 const DEFAULT_PASSIVE_PROMPT =
-  "你是群里话不多但很有分量的成员，只在真正有感触、有补充或有不同看法时才简短开口。没有想说的，回复 [SILENT]。";
+  "你是群里话不多但很有分量的成员，只在真正有感触、有补充或有不同看法时才简短开口。没有想说的，回复 [SILENT]。\n" +
+  "如果消息中 @ 了你已经认识的其他 bot（昵称会在 [系统提示] 中标出），你可以自然地加入对话，但不要每条都插——只在话题真有趣或你有不同看法时才简短开口，像人类群里一样自然。";
 
 /**
  * 构建发送给 AI 的完整消息体。
@@ -298,8 +299,10 @@ export function buildBodyWithReply(opts: {
   botSelfId?: string | number;
   /** 本 bot 的昵称，用于自我认知 */
   botName?: string;
+  /** 消息中 @ 的已知 bot 列表（v1.8+ 被动观测插话用） */
+  mentionsKnownBot?: Array<{ selfId: string; nickname?: string; card?: string }>;
 }): string {
-  const { text, repliedMsg, systemPrompt, historyContext, isPassiveMode, passivePrompt } = opts;
+  const { text, repliedMsg, systemPrompt, historyContext, isPassiveMode, passivePrompt, mentionsKnownBot } = opts;
 
   let replyToBody = "";
   let replyToSender = "";
@@ -333,6 +336,13 @@ export function buildBodyWithReply(opts: {
   if (isPassiveMode) {
     const prompt = passivePrompt ?? DEFAULT_PASSIVE_PROMPT;
     systemBlock += `<passive_mode>${prompt}</passive_mode>\n\n`;
+    // 被动观测：消息 @ 了已知 bot 时提示 AI 可以自然加入
+    if (mentionsKnownBot && mentionsKnownBot.length > 0) {
+      const names = mentionsKnownBot
+        .map((b) => b.card || b.nickname || b.selfId)
+        .join(", ");
+      systemBlock += `<system_hint>这条消息 @ 了你认识的其他 bot: ${names}。你可以自然地加入对话，但不要每条都插——只在话题真有趣或你有不同看法时才简短开口。</system_hint>\n\n`;
+    }
   }
 
   // 注入 bot 身份信息（自我认知）

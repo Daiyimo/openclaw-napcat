@@ -15,6 +15,9 @@ const {
   initKnownBotsStore,
   isKnownBot,
   recordKnownBot,
+  recordBotInfo,
+  getBotInfo,
+  listKnownBots,
   flushKnownBotsStore,
   resetKnownBotsStore,
   _getCacheForTest,
@@ -69,13 +72,15 @@ describe("known-bots-store", () => {
     vi.useFakeTimers();
     try {
       initKnownBotsStore("acct1");
-      recordKnownBot("acct1", "12345");
+      recordBotInfo("acct1", { selfId: "12345", nickname: "TestBot" });
       // 立即 flush（不等节流 timer）
       flushKnownBotsStore();
       const file = path.join(tmpDir, "data", "known-bots-acct1.json");
       expect(fs.existsSync(file)).toBe(true);
       const data = JSON.parse(fs.readFileSync(file, "utf-8"));
-      expect(data.botIds).toContain("12345");
+      expect(data.bots).toBeInstanceOf(Array);
+      expect(data.bots[0].selfId).toBe("12345");
+      expect(data.bots[0].nickname).toBe("TestBot");
     } finally {
       vi.useRealTimers();
     }
@@ -83,12 +88,42 @@ describe("known-bots-store", () => {
 
   it("flush 5s 后再读能恢复", () => {
     initKnownBotsStore("acct1");
-    recordKnownBot("acct1", "12345");
-    recordKnownBot("acct1", "67890");
+    recordBotInfo("acct1", { selfId: "12345", nickname: "Bot1" });
+    recordBotInfo("acct1", { selfId: "67890", nickname: "Bot2" });
     flushKnownBotsStore();
 
     // 模拟重启
     resetKnownBotsStore();
+    initKnownBotsStore("acct1");
+    expect(isKnownBot("acct1", "12345")).toBe(true);
+    expect(isKnownBot("acct1", "67890")).toBe(true);
+    expect(getBotInfo("acct1", "12345")?.nickname).toBe("Bot1");
+  });
+
+  it("recordBotInfo 合并 nickname/card 更新", () => {
+    initKnownBotsStore("acct1");
+    recordBotInfo("acct1", { selfId: "12345", nickname: "OldName" });
+    recordBotInfo("acct1", { selfId: "12345", card: "NewCard" });
+    const info = getBotInfo("acct1", "12345")!;
+    expect(info.nickname).toBe("OldName");  // 保留
+    expect(info.card).toBe("NewCard");      // 新增
+  });
+
+  it("listKnownBots 返回所有 bot", () => {
+    initKnownBotsStore("acct1");
+    recordBotInfo("acct1", { selfId: "1", nickname: "A" });
+    recordBotInfo("acct1", { selfId: "2", nickname: "B" });
+    const bots = listKnownBots("acct1");
+    expect(bots.length).toBe(2);
+  });
+
+  it("兼容旧格式 { botIds: [...] }", () => {
+    const dir = path.join(tmpDir, "data");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "known-bots-acct1.json"),
+      JSON.stringify({ botIds: ["12345", "67890"] }),
+    );
     initKnownBotsStore("acct1");
     expect(isKnownBot("acct1", "12345")).toBe(true);
     expect(isKnownBot("acct1", "67890")).toBe(true);

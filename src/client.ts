@@ -250,6 +250,33 @@ export class OneBotClient extends EventEmitter {
     return this.sendWithResponse("get_group_member_list", { group_id: String(groupId) });
   }
 
+  /**
+   * 获取群成员信息（含群名片 card）。
+   * 用于识别新 bot 后拉取昵称/群名片，存到 known-bots-store。
+   */
+  async getGroupMemberInfo(
+    groupId: number | string,
+    userId: number | string,
+    noCache = false,
+  ): Promise<any> {
+    return this.sendWithResponse("get_group_member_info", {
+      group_id: String(groupId),
+      user_id: String(userId),
+      no_cache: noCache,
+    });
+  }
+
+  /**
+   * 获取陌生人信息（昵称、性别等）。
+   * 当目标 bot 不在同一群时使用。
+   */
+  async getStrangerInfo(userId: number | string, noCache = false): Promise<any> {
+    return this.sendWithResponse("get_stranger_info", {
+      user_id: String(userId),
+      no_cache: noCache,
+    });
+  }
+
   async getAiCharacters(): Promise<any> {
     return this.sendWithResponse("get_ai_characters", {});
   }

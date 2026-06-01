@@ -12,7 +12,7 @@ import type { OneBotMessage } from "../types.js";
 import type { InboundContext } from "../types/channel-types.js";
 import { recordKnownUser } from "../known-users.js";
 import { populateGroupMemberCache } from "../member-cache.js";
-import { isKnownBot, recordKnownBot } from "../known-bots-store.js";
+import { isKnownBot, recordKnownBot, recordBotInfo, getBotInfo } from "../known-bots-store.js";
 import { getDialogState, recordBotTurn, markStopped, recordUserMessage } from "../dialog-state.js";
 import { shouldBotReplyToStop, getBotStopDelay, detectStopIntent } from "../utils/bot-decision.js";
 
@@ -193,6 +193,10 @@ export function installMessageHandler(
           // 通过签名检测到的 bot 自动加入持久化缓存，后续无需签名也能识别
           if (matchedBotId !== null) {
             recordKnownBot(account.accountId, matchedBotId);
+            // 异步拉取 bot 详细信息（昵称/群名片），不阻塞主流程
+            fetchBotInfoAsync(client, account.accountId, matchedBotId, isGroup ? groupId : undefined, log).catch((err) => {
+              log.warn?.(`[napcat-QQ] Failed to fetch bot info for ${matchedBotId}: ${err.message}`);
+            });
           }
           if (config.ignoreSenderBot !== false) passiveMode.markBotActive(`group:${groupId}`);
 
@@ -415,6 +419,14 @@ export function installMessageHandler(
 
       if (checkMention && config.requireMention && !isTriggered && !isMentioned) {
         if (config.passiveMode?.enabled && isGroup) {
+          // 旁观模式：消息 @ 了其他用户时也不进入（避免 "你是叫我吗" 误回复）
+          const passiveSelfId = client.getSelfId() ?? event.self_id;
+          if (passiveSelfId && hasMentionOtherUser(event, passiveSelfId)) {
+            if (config.debug) {
+              console.log(`[napcat-QQ][debug-mention-other] passive mode skipped: msg @ other user, not bot`);
+            }
+            return;
+          }
           const cooldownKey = `${account.accountId}:${fromId}`;
           const cooldownMs = config.passiveMode.cooldownMs ?? 10_000;
           const minIntervalMs = config.passiveMode.minIntervalMs ?? 30_000;
@@ -617,6 +629,24 @@ export function installMessageHandler(
           String(repliedMsg.sender?.user_id || "");
       }
 
+      // ── 收集消息中 @ 的已知 bot（被动观测插话用）────
+      const mentionsKnownBot: Array<{ selfId: string; nickname?: string; card?: string }> = [];
+      if (Array.isArray(event.message)) {
+        for (const seg of event.message) {
+          if (seg.type === "at" && seg.data?.qq) {
+            const atUserId = String(seg.data.qq);
+            if (atUserId !== "all" && isKnownBot(account.accountId, atUserId)) {
+              const info = getBotInfo(account.accountId, atUserId);
+              mentionsKnownBot.push({
+                selfId: atUserId,
+                nickname: info?.nickname,
+                card: info?.card,
+              });
+            }
+          }
+        }
+      }
+
       const bodyWithReply = buildBodyWithReply({
         text,
         repliedMsg,
@@ -626,6 +656,7 @@ export function installMessageHandler(
         passivePrompt: config.passiveMode?.systemPrompt,
         botSelfId: client.getSelfId() ?? event.self_id,
         botName: config._selfName,
+        mentionsKnownBot: mentionsKnownBot.length > 0 ? mentionsKnownBot : undefined,
       });
 
       // ── 解析正确的 session key（框架格式）────────────────────
@@ -786,4 +817,60 @@ export function installMessageHandler(
       }
     }
   });
+}
+
+// ============ 辅助函数：异步拉取 bot 详细信息 ============
+
+const BOT_INFO_FETCH_TIMEOUT_MS = 5_000;
+
+/**
+ * 异步拉取 bot 昵称/群名片并持久化。
+ * 不阻塞主流程；失败仅 warn 不影响消息处理。
+ */
+async function fetchBotInfoAsync(
+  client: OneBotClient,
+  accountId: string,
+  botId: string,
+  groupId: number | undefined,
+  log?: { warn?: (msg: string) => void; info?: (msg: string) => void; error?: (msg: string) => void },
+): Promise<void> {
+  try {
+    let info: any = null;
+    if (groupId !== undefined) {
+      // 优先拉群成员信息（含群名片 card，比陌生人信息更丰富）
+      try {
+        info = await Promise.race([
+          client.getGroupMemberInfo(groupId, botId),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("timeout")), BOT_INFO_FETCH_TIMEOUT_MS),
+          ),
+        ]);
+      } catch {
+        // 群内查不到（非本群成员）回退到陌生人信息
+        info = await Promise.race([
+          client.getStrangerInfo(botId),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("timeout")), BOT_INFO_FETCH_TIMEOUT_MS),
+          ),
+        ]);
+      }
+    } else {
+      info = await Promise.race([
+        client.getStrangerInfo(botId),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("timeout")), BOT_INFO_FETCH_TIMEOUT_MS),
+        ),
+      ]);
+    }
+    if (info && (info.nickname || info.card)) {
+      recordBotInfo(accountId, {
+        selfId: botId,
+        nickname: info.nickname,
+        card: info.card,
+      });
+      log?.info?.(`[napcat-QQ] Updated bot info: ${botId} → ${info.card || info.nickname}`);
+    }
+  } catch (err: any) {
+    log?.warn?.(`[napcat-QQ] fetchBotInfoAsync failed for ${botId}: ${err.message}`);
+  }
 }
