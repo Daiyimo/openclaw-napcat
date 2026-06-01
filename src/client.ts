@@ -353,6 +353,9 @@ export class OneBotClient extends EventEmitter {
     // 幂等保护：已启动则不重复创建
     if (this.reverseWss) return;
 
+    // 注：反向 WS Server 启动需要真实 TCP 端口绑定，不做端到端测试。
+    //     原因：(1) 测试环境会冲突端口；(2) 实际部署由 NapCat 客户端连入；
+    //     (3) 单元测试已覆盖正向上游连接和 sendWithResponseWs 的 echo 关联逻辑。
     this.reverseWss = new WebSocketServer({ port });
     console.log(`[napcat-QQ] Reverse WebSocket server listening on port ${port}`);
 

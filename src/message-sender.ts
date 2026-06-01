@@ -26,6 +26,24 @@ import { DEFAULT_BOT_SIGNATURE_STYLE } from "./constants.js";
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * 按 isGroup/isGuild 分发消息段到正确的 OneBot API。
+ * 消除 message-sender.ts 中 6+ 处重复的 if/else 分支。
+ */
+async function sendByTarget(
+  client: OneBotClient,
+  segments: OneBotMessage | string,
+  ctx: MessageSenderContext,
+): Promise<void> {
+  if (ctx.isGroup) {
+    await client.sendGroupMsg(ctx.groupId!, segments);
+  } else if (ctx.isGuild) {
+    await client.sendGuildChannelMsg(ctx.guildId!, ctx.channelId!, segments);
+  } else {
+    await client.sendPrivateMsg(ctx.userId!, segments);
+  }
+}
+
 export interface MessageSenderContext {
   client: OneBotClient;
   config: QQConfig;
@@ -121,9 +139,7 @@ export class MessageSender {
           try {
             const resolvedUrl = await resolveMediaUrl(item.content);
             const imgSeg: OneBotMessage = [{ type: "image", data: { file: resolvedUrl } }];
-            if (isGroup) await client.sendGroupMsg(groupId!, imgSeg);
-            else if (isGuild) await client.sendGuildChannelMsg(guildId!, channelId!, imgSeg);
-            else await client.sendPrivateMsg(userId!, imgSeg);
+            await sendByTarget(client, imgSeg, this.ctx);
           } catch (err) {
             console.warn(`[message-sender] Failed to send media tag image ${item.content}:`, err);
           }
@@ -161,9 +177,7 @@ export class MessageSender {
       if (isGroup && isFirst)
         mdSegments.push({ type: "at", data: { qq: String(userId) } });
       mdSegments.push({ type: "markdown", data: { content: chunk } });
-      if (isGroup) await client.sendGroupMsg(groupId!, mdSegments);
-      else if (isGuild) await client.sendGuildChannelMsg(guildId!, channelId!, mdSegments);
-      else await client.sendPrivateMsg(userId!, mdSegments);
+      await sendByTarget(client, mdSegments, this.ctx);
     } else {
       if (isGroup) {
         const segments: OneBotMessage = [];
@@ -206,14 +220,10 @@ export class MessageSender {
         const resolvedUrl = await resolveMediaUrl(media.url);
         if (media.type === "image") {
           const imgSeg: OneBotMessage = [{ type: "image", data: { file: resolvedUrl } }];
-          if (isGroup) await client.sendGroupMsg(groupId!, imgSeg);
-          else if (isGuild) await client.sendGuildChannelMsg(guildId!, channelId!, imgSeg);
-          else await client.sendPrivateMsg(userId!, imgSeg);
+          await sendByTarget(client, imgSeg, this.ctx);
         } else if (media.type === "video") {
           const vidSeg: OneBotMessage = [{ type: "video", data: { file: resolvedUrl } }];
-          if (isGroup) await client.sendGroupMsg(groupId!, vidSeg);
-          else if (isGuild) await client.sendGuildChannelMsg(guildId!, channelId!, vidSeg);
-          else await client.sendPrivateMsg(userId!, vidSeg);
+          await sendByTarget(client, vidSeg, this.ctx);
         } else {
           const fileName = media.name || "file";
           try {
@@ -222,9 +232,11 @@ export class MessageSender {
             else await client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${resolvedUrl}`);
           } catch {
             const fileSeg: OneBotMessage = [{ type: "file", data: { file: resolvedUrl, name: fileName } }];
-            if (isGroup) await client.sendGroupMsg(groupId!, fileSeg);
-            else if (isGuild) await client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${resolvedUrl}`);
-            else await client.sendPrivateMsg(userId!, fileSeg);
+            if (isGuild) {
+              await client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${resolvedUrl}`);
+            } else {
+              await sendByTarget(client, fileSeg, this.ctx);
+            }
           }
         }
         if (config.rateLimitMs > 0) await sleep(config.rateLimitMs);
@@ -248,14 +260,10 @@ export class MessageSender {
 
     if (isImageFile(rawUrl) || isImageFile(url)) {
       const imgSeg: OneBotMessage = [{ type: "image", data: { file: url } }];
-      if (isGroup) await client.sendGroupMsg(groupId!, imgSeg);
-      else if (isGuild) await client.sendGuildChannelMsg(guildId!, channelId!, imgSeg);
-      else await client.sendPrivateMsg(userId!, imgSeg);
+      await sendByTarget(client, imgSeg, this.ctx);
     } else if (isVideoFile(rawUrl) || isVideoFile(url)) {
       const vidSeg: OneBotMessage = [{ type: "video", data: { file: url } }];
-      if (isGroup) await client.sendGroupMsg(groupId!, vidSeg);
-      else if (isGuild) await client.sendGuildChannelMsg(guildId!, channelId!, vidSeg);
-      else await client.sendPrivateMsg(userId!, vidSeg);
+      await sendByTarget(client, vidSeg, this.ctx);
     } else {
       try {
         if (isGroup) await client.uploadGroupFile(groupId!, url, name);
@@ -263,9 +271,11 @@ export class MessageSender {
         else await client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${url}`);
       } catch {
         const fileSeg: OneBotMessage = [{ type: "file", data: { file: url, name } }];
-        if (isGroup) await client.sendGroupMsg(groupId!, fileSeg);
-        else if (isGuild) await client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${url}`);
-        else await client.sendPrivateMsg(userId!, fileSeg);
+        if (isGuild) {
+          await client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${url}`);
+        } else {
+          await sendByTarget(client, fileSeg, this.ctx);
+        }
       }
     }
     if (config.rateLimitMs > 0) await sleep(config.rateLimitMs);
@@ -283,16 +293,16 @@ export class MessageSender {
     if (cachedFileId) {
       console.log(`[message-sender] Upload cache hit for ${rawUrl}`);
       const fileSegment: OneBotMessage = [{ type: "file", data: { file: cachedFileId, name: name || "file" } }];
-      if (isGroup) await client.sendGroupMsg(groupId!, fileSegment);
-      else if (isGuild) await client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${rawUrl}`);
-      else await client.sendPrivateMsg(userId!, fileSegment);
+      if (isGuild) {
+        await client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${rawUrl}`);
+      } else {
+        await sendByTarget(client, fileSegment, this.ctx);
+      }
     } else {
       const url = await resolveMediaUrl(rawUrl);
       if (isImageFile(url) || isImageFile(rawUrl)) {
         const imgSegment: OneBotMessage = [{ type: "image", data: { file: url } }];
-        if (isGroup) await client.sendGroupMsg(groupId!, imgSegment);
-        else if (isGuild) await client.sendGuildChannelMsg(guildId!, channelId!, imgSegment);
-        else await client.sendPrivateMsg(userId!, imgSegment);
+        await sendByTarget(client, imgSegment, this.ctx);
       } else {
         const fileName = name || "file";
         try {
@@ -307,9 +317,11 @@ export class MessageSender {
           }
         } catch {
           const fileSegment: OneBotMessage = [{ type: "file", data: { file: url, name: fileName } }];
-          if (isGroup) await client.sendGroupMsg(groupId!, fileSegment);
-          else if (isGuild) await client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${url}`);
-          else await client.sendPrivateMsg(userId!, fileSegment);
+          if (isGuild) {
+            await client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${url}`);
+          } else {
+            await sendByTarget(client, fileSegment, this.ctx);
+          }
         }
       }
     }
