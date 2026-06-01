@@ -1,11 +1,12 @@
 /**
- * bot-handshake.ts 单元测试
+ * bot-handshake.ts 单元测试（v1.9.2 精简版 — 仅测读侧）
  *
  * 覆盖:
- *  - makeBotHandshakeMessage: 构造合法 json 段载荷
  *  - parseBotHandshake: 解析字符串 / 对象两种 data.data 形态
- *  - 节流: shouldSendHandshake / markHandshakeSent
  *  - runHandshakeBackfill: 从历史中提取握手 + 文本签名
+ *
+ * v1.9.2 删除:makeBotHandshakeMessage / 节流 / 心跳 相关测试
+ *   原因:OneBot json 段在 QQ 客户端渲染为可见卡片,握手 = 启动广播 spam。
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -19,54 +20,18 @@ vi.mock("../utils/platform.js", () => ({
   getQQBotDataDir: (sub: string) => path.join(tmpDir, sub),
 }));
 
-const {
-  makeBotHandshakeMessage,
-  parseBotHandshake,
-  shouldSendHandshake,
-  markHandshakeSent,
-  clearHandshakeThrottle,
-  runHandshakeBackfill,
-  _resetHandshakeThrottle,
-} = await import("../utils/bot-handshake.js");
-const { resetKnownBotsStore, isKnownBot, _getCacheForTest } = await import(
-  "../known-bots-store.js"
+const { parseBotHandshake, runHandshakeBackfill } = await import(
+  "../utils/bot-handshake.js"
 );
+const { resetKnownBotsStore, isKnownBot } = await import("../known-bots-store.js");
 
 beforeEach(() => {
-  _resetHandshakeThrottle();
   resetKnownBotsStore();
   if (fs.existsSync(tmpDir)) {
     for (const f of fs.readdirSync(tmpDir)) {
       fs.rmSync(path.join(tmpDir, f), { recursive: true, force: true });
     }
   }
-});
-
-describe("makeBotHandshakeMessage", () => {
-  it("返回仅一个 json 段", () => {
-    const segs = makeBotHandshakeMessage("12345");
-    expect(segs).toHaveLength(1);
-    expect(segs[0].type).toBe("json");
-  });
-
-  it("data.data 是合法 JSON 字符串", () => {
-    const segs = makeBotHandshakeMessage("12345");
-    const seg = segs[0] as { type: "json"; data: { data: string } };
-    expect(typeof seg.data.data).toBe("string");
-    const parsed = JSON.parse(seg.data.data);
-    expect(parsed.app).toBe("openclaw-napcat");
-    expect(parsed.kind).toBe("bot");
-    expect(parsed.selfId).toBe("12345");
-    expect(parsed.v).toBe(1);
-    expect(typeof parsed.signedAt).toBe("number");
-  });
-
-  it("数字型 selfId 序列化为字符串", () => {
-    const segs = makeBotHandshakeMessage(99999);
-    const seg = segs[0] as { type: "json"; data: { data: string } };
-    const parsed = JSON.parse(seg.data.data);
-    expect(parsed.selfId).toBe("99999");
-  });
 });
 
 describe("parseBotHandshake", () => {
@@ -130,39 +95,6 @@ describe("parseBotHandshake", () => {
   });
 });
 
-describe("握手节流", () => {
-  it("首次返回 true,标记后立即返回 false", () => {
-    expect(shouldSendHandshake("acct1", "111")).toBe(true);
-    markHandshakeSent("acct1", "111");
-    expect(shouldSendHandshake("acct1", "111")).toBe(false);
-  });
-
-  it("按 accountId 隔离", () => {
-    markHandshakeSent("acct1", "111");
-    expect(shouldSendHandshake("acct2", "111")).toBe(true);
-  });
-
-  it("按 groupId 隔离", () => {
-    markHandshakeSent("acct1", "111");
-    expect(shouldSendHandshake("acct1", "222")).toBe(true);
-  });
-
-  it("clearHandshakeThrottle 后立即放行", () => {
-    markHandshakeSent("acct1", "111");
-    expect(shouldSendHandshake("acct1", "111")).toBe(false);
-    clearHandshakeThrottle("acct1", "111");
-    expect(shouldSendHandshake("acct1", "111")).toBe(true);
-  });
-
-  it("clearHandshakeThrottle 不影响其他群", () => {
-    markHandshakeSent("acct1", "111");
-    markHandshakeSent("acct1", "222");
-    clearHandshakeThrottle("acct1", "111");
-    expect(shouldSendHandshake("acct1", "111")).toBe(true);
-    expect(shouldSendHandshake("acct1", "222")).toBe(false);
-  });
-});
-
 describe("runHandshakeBackfill", () => {
   it("从历史 json 段握手中发现 bot", async () => {
     const payload = { app: "openclaw-napcat", kind: "bot", selfId: "99999", v: 1, version: "1.7", signedAt: 0 };
@@ -202,7 +134,6 @@ describe("runHandshakeBackfill", () => {
   });
 
   it("已知 bot 不重复计数", async () => {
-    // 先手动记录
     const { recordKnownBot } = await import("../known-bots-store.js");
     recordKnownBot("acct1", "77777");
     const fakeClient = {

@@ -248,35 +248,9 @@ describe("MessageSender.sendMediaUrl", () => {
 // ============ sendText — bot 签名追加（修复多 bot 循环对话）============
 
 describe("MessageSender.sendText — bot signature", () => {
-  it("群消息默认 metadata 模式不污染用户文本（v1.8+ 默认行为）", async () => {
+  it("群消息默认 visible 模式追加 [BOT:12345] 文本签名（v1.9.2+ 默认行为,无启动 spam）", async () => {
     const client = makeClient();
-    const sender = makeSender({ client }); // 默认 metadata
-    await sender.deliver({ text: "hello" });
-    const call = client.sendGroupMsg.mock.calls[0];
-    const segments: any[] = call[1];
-    const textSeg = segments.find((s: any) => s.type === "text");
-    // metadata 模式：用户文本不含 [BOT:],握手段独立发
-    expect(textSeg?.data?.text).toBe(" hello");
-    expect(textSeg?.data?.text).not.toContain("[BOT:");
-  });
-
-  it("metadata 模式会在冷启动时发握手段（节流后不再发）", async () => {
-    const { _resetHandshakeThrottle, shouldSendHandshake, markHandshakeSent } = await import(
-      "../utils/bot-handshake.js"
-    );
-    _resetHandshakeThrottle();
-    const client = makeClient();
-    const sender = makeSender({ client, accountId: "fresh-acct-handshake" }); // 默认 metadata
-    expect(shouldSendHandshake("fresh-acct-handshake", "88888")).toBe(true);
-    await sender.deliver({ text: "hello" });
-    // 节流窗口已被本次发送占用
-    expect(shouldSendHandshake("fresh-acct-handshake", "88888")).toBe(false);
-    markHandshakeSent("fresh-acct-handshake", "88888");
-  });
-
-  it("显式 visible 模式追加 [BOT:12345] 文本签名", async () => {
-    const client = makeClient();
-    const sender = makeSender({ client, config: makeConfig({ botSignatureStyle: "visible" }) });
+    const sender = makeSender({ client }); // 默认 visible
     await sender.deliver({ text: "hello" });
     const call = client.sendGroupMsg.mock.calls[0];
     const segments: any[] = call[1];
@@ -284,17 +258,37 @@ describe("MessageSender.sendText — bot signature", () => {
     expect(textSeg?.data?.text).toContain("[BOT:12345]");
   });
 
-  it("none 模式既不追加文本签名也不发握手", async () => {
+  it("默认 visible 模式不发送任何 json 段握手(无启动 spam)", async () => {
     const client = makeClient();
-    const sender = makeSender({ client, config: makeConfig({ botSignatureStyle: "none" }) });
+    const sender = makeSender({ client }); // 默认 visible
     await sender.deliver({ text: "hello" });
     const calls = client.sendGroupMsg.mock.calls;
-    // 没有 json 段
+    // 不应有 json 段(v1.9.2 删除 metadata 模式)
     const hasJson = calls.some((c: any[]) =>
       Array.isArray(c[1]) && c[1].some((s: any) => s.type === "json"),
     );
     expect(hasJson).toBe(false);
-    // 文本无 [BOT:
+  });
+
+  it("显式 zero-width 模式追加零宽字符签名(用户不可见)", async () => {
+    const client = makeClient();
+    const sender = makeSender({ client, config: makeConfig({ botSignatureStyle: "zero-width" }) });
+    await sender.deliver({ text: "hello" });
+    const call = client.sendGroupMsg.mock.calls[0];
+    const segments: any[] = call[1];
+    const textSeg = segments.find((s: any) => s.type === "text");
+    expect(textSeg?.data?.text).toContain("​12345‌");
+  });
+
+  it("none 模式不追加文本签名,也无 json 段握手", async () => {
+    const client = makeClient();
+    const sender = makeSender({ client, config: makeConfig({ botSignatureStyle: "none" }) });
+    await sender.deliver({ text: "hello" });
+    const calls = client.sendGroupMsg.mock.calls;
+    const hasJson = calls.some((c: any[]) =>
+      Array.isArray(c[1]) && c[1].some((s: any) => s.type === "json"),
+    );
+    expect(hasJson).toBe(false);
     const textCall = calls.find((c: any[]) =>
       Array.isArray(c[1]) && c[1].some((s: any) => s.type === "text"),
     );

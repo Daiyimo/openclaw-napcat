@@ -61,16 +61,11 @@ export function makeZeroWidthSignature(botId: string | number): string {
   return `​${botId}‌`;
 }
 
-// === 协议层握手（Plan A，v1.8+ 默认方案） ===
+// === 协议层握手（v1.9.2 已删除） ===
 
-/** 握手元数据中 app 字段的固定值，用于跨实现识别 */
-export const BOT_HANDSHAKE_APP = "openclaw-napcat";
-
-/** 握手元数据中 kind 字段的固定值（"bot"=bot 身份声明） */
-export const BOT_HANDSHAKE_KIND = "bot" as const;
-
-/** 握手消息最小 raw_message 长度（json 段载荷通常 >= 100 字节，过滤掉误判） */
-export const BOT_HANDSHAKE_MIN_LENGTH = 60;
+// v1.9.0/1.9.1 引入的握手常量已删除,原因:
+// OneBot json 段在 QQ 客户端渲染成可见卡片消息,启动握手相当于向所有群广播 spam。
+// 友军识别仅依赖: sender.bot / knownBotIds / 持久化 known-bots cache / 文本签名([BOT:xxx])。
 
 // === 投递 ===
 
@@ -106,10 +101,11 @@ export const DEFAULT_STOP_KEYWORDS = [
 ];
 
 /** 默认 bot 签名样式
- *  v1.8 起改为 "metadata"：用 OneBot json 段在协议层声明 bot 身份，
- *  用户文本 100% 干净。仅当对方不是 v1.8+ openclaw-napcat 时,回退到 "visible"。
+ *  v1.9.2 起彻底移除 "metadata" 选项（v1.9.0/1.9.1 试过用 OneBot json 段做协议层握手），
+ *  但 json 段在 QQ 客户端会渲染成可见的卡片消息，启动时向所有群广播 spam 卡片。
+ *  现仅保留 visible / zero-width / none 三种纯文本策略。
  */
-export const DEFAULT_BOT_SIGNATURE_STYLE: "none" | "visible" | "zero-width" | "metadata" = "metadata";
+export const DEFAULT_BOT_SIGNATURE_STYLE: "none" | "visible" | "zero-width" = "visible";
 
 // === 回复格式硬约束（v1.9.1+） ===
 

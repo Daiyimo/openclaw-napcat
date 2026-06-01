@@ -19,7 +19,6 @@ import {
 import { OUTBOUND_MULTI_CHUNK_SLEEP_MS, DEFAULT_BOT_SIGNATURE_STYLE } from "../constants.js";
 import { maskIdsInText } from "../utils/log-sanitize.js";
 import { appendBotSignature } from "../utils/bot-signature.js";
-import { makeBotHandshakeMessage, shouldSendHandshake, markHandshakeSent } from "../utils/bot-handshake.js";
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -99,21 +98,7 @@ export async function sendText(
   const client = getClient(resolvedAccountId);
   if (!client) return { channel: "napcat", sent: false, error: "Client not connected" };
 
-  // ── metadata 模式：先发一次握手（若节流允许），让其他 bot 发现本 bot ──
-  // 握手失败不阻塞主消息,容错处理
-  if (isGroup && style === "metadata" && params.botSelfId) {
-    const gidMatch = to.match(/^(?:group:)?(\d+)$/);
-    const gid = gidMatch?.[1];
-    if (gid && shouldSendHandshake(resolvedAccountId, gid)) {
-      try {
-        const target = parseTarget(`group:${gid}`);
-        await dispatchMessage(client, target, makeBotHandshakeMessage(params.botSelfId));
-        markHandshakeSent(resolvedAccountId, gid);
-      } catch (hsErr) {
-        console.warn(`[napcat-QQ][handshake] send failed (non-fatal): ${hsErr}`);
-      }
-    }
-  }
+  // v1.9.2 移除 metadata 模式:发文本前补握手 json 段会变成可见卡片消息 = spam
 
   try {
     // 裸数字 to 处理

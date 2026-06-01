@@ -2,6 +2,35 @@
 
 # 更新日志
 
+### v1.9.2 - 撤销 metadata 协议层握手 (2026-06-01)
+
+#### Removed
+
+- **完全删除 `botSignatureStyle: "metadata"` 模式**:v1.9.0/1.9.1 试过的"协议层握手"是错的——OneBot `json` 段在 QQ 客户端**会渲染成可见的卡片消息**,导致启动时向所有群广播 spam 卡片(用户报告的真实问题)。移除范围:
+  - `metadata` 枚举值从 `botSignatureStyle` 删除
+  - 启动握手(connection.ts onConnect 块)
+  - 24h 心跳定时器
+  - 出站握手补发(message-sender.ts / send-text.ts)
+  - `group_increase` 触发握手节流清除
+  - `makeBotHandshakeMessage` / `shouldSendHandshake` / `markHandshakeSent` / `clearHandshakeThrottle` 函数
+  - `BOT_HANDSHAKE_APP` / `BOT_HANDSHAKE_KIND` / `BOT_HANDSHAKE_MIN_LENGTH` 常量
+- 默认 `DEFAULT_BOT_SIGNATURE_STYLE` 改为 `"visible"`(v1.8 行为)
+
+#### Kept (读侧,无 spam 风险)
+
+- `parseBotHandshake()`:入站消息中如含 json 段握手(对方 bot 仍可能发),仍能识别
+- `runHandshakeBackfill()`:冷启动时拉最近 30 条群历史,扫描握手 + 文本签名入 cache(只读不发)
+- Layer 4 协议层握手检测(inbound.ts 5 层检测的一部分,作防御性兜底)
+
+#### Why
+
+| 模式 | 用户文本 | 启动行为 | 适用 |
+|---|---|---|---|
+| `visible`(默认) | `... [BOT:xxx]` 可见 | 不发消息 | 跨框架 bot 兼容,可靠 |
+| `zero-width` | 不可见 | 不发消息 | 美观优先,99% 场景有效 |
+| `none` | 无签名 | 不发消息 | 仅靠 sender.bot / knownBotIds / cache |
+| ~~`metadata`~~ | 无签名 | **向所有群发卡片 spam** | ❌ 已删除 |
+
 ### v1.9.1 - 默认回复格式硬约束 (2026-06-01)
 
 #### Added

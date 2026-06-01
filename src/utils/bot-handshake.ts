@@ -1,55 +1,37 @@
 /**
- * Bot 协议层握手（Plan A 协议扩展）
+ * Bot 协议层识别（v1.9.2 精简版 — 仅保留读侧）
  *
- * 在 OneBot v11 上,在不污染用户文本的前提下,声明 bot 身份。
- * 发送端:构造一段以 `json` 段承载的元数据消息,内容为
- *   { app: "openclaw-napcat", kind: "bot", selfId, version, signedAt }
- * 接收端:解析这种 json 段,提取 selfId 并写入 known-bots-store。
+ * 历史:
+ *   v1.9.0 引入 Plan A 协议层握手(发送 json 段声明 bot 身份)。
+ *   v1.9.1 加入 24h 心跳 + group_increase 触发。
+ *   v1.9.2 删除发送侧:OneBot json 段在 QQ 客户端渲染为可见卡片消息,
+ *         启动握手 / 24h 心跳 / 首次出站握手都会向所有群广播 spam 卡片。
  *
- * 优点:用户文本 100% 干净、协议层稳定、不会"被平台剥"。
- * 兜底:仍保留 [BOT:xxx] 文本签名作为旧版 bot 兼容(visible / zero-width)。
+ * 现仅保留:
+ *   - parseBotHandshake: 解析入站消息中的握手 json 段(防御性,即便没有 bot 发也能识别)
+ *   - runHandshakeBackfill: 冷启动时拉最近 30 条群历史,扫描握手 + 文本签名入 cache(只读不发)
  *
- * 节流:每个群握手一次后,24h 内不重复发送(避免重启/重连风暴)。
+ * 友军识别现依赖: sender.bot / knownBotIds / 持久化 known-bots cache / 文本签名([BOT:xxx])。
  */
 
 import type { OneBotMessage } from "../types.js";
-import { BOT_HANDSHAKE_APP, BOT_HANDSHAKE_KIND, BOT_HANDSHAKE_MIN_LENGTH, BOT_SIGNATURE_PATTERN, BOT_SIGNATURE_ZW_PATTERN } from "../constants.js";
-import { getPackageVersion } from "./pkg-version.js";
-import { recordKnownBot } from "../known-bots-store.js";
-import { isKnownBot } from "../known-bots-store.js";
+import { BOT_SIGNATURE_PATTERN, BOT_SIGNATURE_ZW_PATTERN } from "../constants.js";
+import { recordKnownBot, isKnownBot } from "../known-bots-store.js";
 import { maskId } from "./log-sanitize.js";
 
-/** 握手元数据 payload 类型 */
-export interface BotHandshakePayload {
-  /** 固定为 "openclaw-napcat",用于跨实现识别 */
-  app: typeof BOT_HANDSHAKE_APP;
-  /** 固定为 "bot",用于和未来其他 kind 区分 */
-  kind: typeof BOT_HANDSHAKE_KIND;
-  /** bot 的 QQ 号(字符串,避免精度丢失) */
-  selfId: string;
-  /** 协议版本(目前固定 1) */
-  v: 1;
-  /** 插件版本(从 package.json 读取) */
-  version: string;
-  /** Unix ms 时间戳,用于节流和审计 */
-  signedAt: number;
-}
+/** 握手元数据中 app 字段的固定值,用于跨实现识别 */
+const HANDSHAKE_APP = "openclaw-napcat";
+/** 握手元数据中 kind 字段的固定值 */
+const HANDSHAKE_KIND = "bot";
 
-/**
- * 构造 bot 握手消息的 OneBot 段数组。
- * 仅包含一个 `json` 段,无任何 text 段,内容是元数据。
- * OneBot 11 规定 `json` 段的 `data.data` 必须是 JSON 字符串。
- */
-export function makeBotHandshakeMessage(selfId: string | number): OneBotMessage {
-  const payload: BotHandshakePayload = {
-    app: BOT_HANDSHAKE_APP,
-    kind: BOT_HANDSHAKE_KIND,
-    selfId: String(selfId),
-    v: 1,
-    version: getPackageVersion(),
-    signedAt: Date.now(),
-  };
-  return [{ type: "json", data: { data: JSON.stringify(payload) } }];
+/** 握手消息的 payload 形态(用于 parse 端) */
+export interface BotHandshakePayload {
+  app: string;
+  kind: string;
+  selfId: string;
+  v: number;
+  version: string;
+  signedAt: number;
 }
 
 /**
@@ -64,20 +46,19 @@ export function parseBotHandshake(message: OneBotMessage | undefined): BotHandsh
     if (seg?.type !== "json") continue;
     const segData = seg.data as { data?: unknown };
     let inner: unknown = segData?.data;
-    // 字符串形态:JSON.parse;对象形态:直接用
     if (typeof inner === "string") {
       try { inner = JSON.parse(inner); } catch { continue; }
     }
     if (!inner || typeof inner !== "object") continue;
     const obj = inner as Record<string, unknown>;
-    if (obj.app === BOT_HANDSHAKE_APP && obj.kind === BOT_HANDSHAKE_KIND) {
+    if (obj.app === HANDSHAKE_APP && obj.kind === HANDSHAKE_KIND) {
       const selfId = obj.selfId;
       if (typeof selfId === "string" || typeof selfId === "number") {
         return {
-          app: BOT_HANDSHAKE_APP,
-          kind: BOT_HANDSHAKE_KIND,
+          app: HANDSHAKE_APP,
+          kind: HANDSHAKE_KIND,
           selfId: String(selfId),
-          v: 1,
+          v: typeof obj.v === "number" ? obj.v : 1,
           version: typeof obj.version === "string" ? obj.version : "unknown",
           signedAt: typeof obj.signedAt === "number" ? obj.signedAt : 0,
         };
@@ -87,50 +68,9 @@ export function parseBotHandshake(message: OneBotMessage | undefined): BotHandsh
   return null;
 }
 
-/**
- * 群级握手节流状态:24h 内不重复发送。
- * 模块级 Map,按 (accountId, groupId) 隔离。
- */
-const lastHandshakeAt = new Map<string, number>();
-const HANDSHAKE_THROTTLE_MS = 24 * 60 * 60 * 1_000;
-
-function makeThrottleKey(accountId: string, groupId: string | number): string {
-  return `${accountId}:${groupId}`;
-}
-
-/** 判断指定群是否在节流窗口内(返回 true=需要发送) */
-export function shouldSendHandshake(accountId: string, groupId: string | number): boolean {
-  const key = makeThrottleKey(accountId, groupId);
-  const last = lastHandshakeAt.get(key);
-  if (last === undefined) return true;
-  return Date.now() - last >= HANDSHAKE_THROTTLE_MS;
-}
-
-/** 记录已发送握手(用于 shouldSendHandshake 判断) */
-export function markHandshakeSent(accountId: string, groupId: string | number): void {
-  lastHandshakeAt.set(makeThrottleKey(accountId, groupId), Date.now());
-}
-
-/**
- * 清除指定群的握手节流(强制下一次发送时重发)。
- *
- * 使用场景:`group_increase` notice 事件 — 有新成员入群时,清掉该群节流,
- * 本 bot 下次在该群发任何消息时,会先发一次握手(向新成员自我介绍)。
- *
- * 注意:此函数不清除 known-bots-cache(那是发现表,不是节流表)。
- */
-export function clearHandshakeThrottle(accountId: string, groupId: string | number): void {
-  lastHandshakeAt.delete(makeThrottleKey(accountId, groupId));
-}
-
-/** 测试用:重置节流状态 */
-export function _resetHandshakeThrottle(): void {
-  lastHandshakeAt.clear();
-}
-
 // ============ 冷启动历史回填 ============
 
-/** 回填时拉取的每群历史消息条数。30 条足够覆盖 24h 节流窗口内的握手 */
+/** 回填时拉取的每群历史消息条数 */
 const BACKFILL_HISTORY_COUNT = 30;
 
 /**
@@ -142,12 +82,10 @@ function extractBotIdsFromHistoryMessage(
   message: OneBotMessage | undefined,
 ): string[] {
   const ids: string[] = [];
-  // 协议层握手
-  if (Array.isArray(message) && (rawMessage?.length ?? 0) >= BOT_HANDSHAKE_MIN_LENGTH) {
+  if (Array.isArray(message)) {
     const hs = parseBotHandshake(message);
     if (hs) ids.push(hs.selfId);
   }
-  // 文本签名(visible)
   if (rawMessage) {
     const m = BOT_SIGNATURE_PATTERN.exec(rawMessage);
     if (m?.[1]) ids.push(m[1]);
@@ -172,10 +110,8 @@ interface BackfillClient {
 }
 
 /**
- * 冷启动握手回填：对每个已加入群拉取最近 BACKFILL_HISTORY_COUNT 条消息,
- * 扫描并记录其中出现的所有 bot 标识(握手/签名)。
- *
- * 解决时序问题:对方 bot 在本 bot 启动前发过握手,本 bot 通过历史记录也能发现对方。
+ * 冷启动握手回填(只读):对每个已加入群拉取最近 BACKFILL_HISTORY_COUNT 条消息,
+ * 扫描并记录其中出现的所有 bot 标识(握手 + 文本签名)。
  *
  * @returns 新发现的 bot 数量
  */
@@ -202,7 +138,6 @@ export async function runHandshakeBackfill(
         }
       }
     } catch (err) {
-      // 单群失败不阻塞其他群
       console.warn(`[napcat-QQ][backfill] group ${g.group_id} history fetch failed: ${err}`);
     }
   }
