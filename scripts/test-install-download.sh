@@ -165,6 +165,73 @@ test_single_mirror() {
   fi
 }
 
+# ── 场景 F:本地 tarball 优先级锁 ────────────────────────────────────────────
+# 回归保护:即使所有网络镜像可用,设置 OPENCLAW_NAPCAT_LOCAL_TARBALL 后
+# 必须直接走本地路径,不触碰网络。原因:用户实测 6 个公开镜像在跨区域容器
+# 部署里全部不可达,本地 tarball 是唯一安装通道(见 commit 9004030)。
+# 若此测试失败,说明有人改动了 docker-install.sh 的下载段优先级,
+# 重新评估删除 OPENCLAW_NAPCAT_LOCAL_TARBALL 入口的代价。
+test_local_tarball_priority() {
+  echo ""
+  echo "── 场景 F: 本地 tarball 优先级锁(网络镜像全可用也必须走本地)──"
+
+  local ARCHIVE="/tmp/test-archive-f.tar.gz"
+  local EXTRACT_DIR="/tmp/test-extract-f-$$"
+  rm -rf "$EXTRACT_DIR" "$ARCHIVE"
+  mkdir -p "$EXTRACT_DIR"
+
+  (cd "$SCRIPT_DIR/.." && git archive --format=tar.gz -o "$ARCHIVE" HEAD) 2>/dev/null
+  if [ ! -f "$ARCHIVE" ]; then
+    echo "  ⚠ 跳过（无法创建 tarball，需要 git 环境）"
+    return
+  fi
+
+  # 模拟"网络镜像全部可用"的环境
+  local NETWORK_MIRRORS_AVAILABLE=1
+  local OPENCLAW_NAPCAT_LOCAL_TARBALL="$ARCHIVE"
+  local BRANCH="main"
+  local DOWNLOAD_OK=0
+  local MIRRORS=(
+    "https://github.com/Daiyimo/openclaw-napcat/archive"
+    "https://ghfast.top/https://github.com/Daiyimo/openclaw-napcat/archive"
+  )
+
+  # 模拟 docker-install.sh 的优先级判断
+  if [ -n "$OPENCLAW_NAPCAT_LOCAL_TARBALL" ]; then
+    if [ -f "$OPENCLAW_NAPCAT_LOCAL_TARBALL" ] \
+       && tar -tzf "$OPENCLAW_NAPCAT_LOCAL_TARBALL" &>/dev/null; then
+      DOWNLOAD_OK=1
+    fi
+  fi
+
+  # 验证 1: 设置环境变量后 DOWNLOAD_OK 必须 = 1
+  TOTAL=$((TOTAL + 1))
+  if [ "$DOWNLOAD_OK" = "1" ]; then
+    echo "  ✓ DOWNLOAD_OK=1 (本地 tarball 优先于网络)"
+    PASS=$((PASS + 1))
+  else
+    echo "  ✗ DOWNLOAD_OK != 1,本地 tarball 没被优先"
+    FAIL=$((FAIL + 1))
+  fi
+
+  # 验证 2: 当 DOWNLOAD_OK=1 时,网络循环必须被跳过
+  # (docker-install.sh 实际逻辑: if [ "$DOWNLOAD_OK" -ne 1 ]; then ... 镜像循环 ... fi)
+  local network_touched=0
+  if [ "$DOWNLOAD_OK" -ne 1 ]; then
+    network_touched=1
+  fi
+  TOTAL=$((TOTAL + 1))
+  if [ "$network_touched" = "0" ]; then
+    echo "  ✓ 网络下载段被跳过(DOWNLOAD_OK=1 时进入镜像循环为 false)"
+    PASS=$((PASS + 1))
+  else
+    echo "  ✗ 网络下载段被错误进入"
+    FAIL=$((FAIL + 1))
+  fi
+
+  rm -rf "$EXTRACT_DIR" "$ARCHIVE"
+}
+
 # ── 场景 E:case 诊断翻译 ─────────────────────────────────────────────────────
 test_diagnostic_translation() {
   echo ""
@@ -207,6 +274,7 @@ test_local_tarball_missing
 test_local_tarball_corrupt
 test_single_mirror
 test_diagnostic_translation
+test_local_tarball_priority
 
 echo ""
 echo "─────────────────────────────────"

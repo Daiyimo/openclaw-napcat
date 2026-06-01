@@ -1,19 +1,34 @@
 #!/bin/bash
 # openclaw-napcat QQ 插件安装脚本
 #
-# 在 openclaw 容器终端内执行：
-#   # 国内推荐:走 gh-proxy.com 拉脚本本身(避免 raw.githubusercontent.com 超时)
-#   curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/scripts/docker-install.sh | bash
-#
-#   # 如果上面也不稳定,可指定单一镜像(跳过列表):
-#   export OPENCLAW_NAPCAT_MIRROR=https://kkgithub.com/Daiyimo/openclaw-napcat/archive
-#   curl -fsSL https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/scripts/docker-install.sh | bash
+# ┌──────────────────────────────────────────────────────────────────────┐
+# │ 在 openclaw 容器终端内执行（按推荐顺序）:                               │
+# │                                                                      │
+# │ # 1. 在线安装(最常用,网络可达时):                                     │
+# │ curl -fsSL https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/scripts/docker-install.sh | bash
+# │                                                                      │
+# │ # 2. 国内/受限网络:走 gh-proxy.com 拉脚本本身(避免 raw 域名被墙):       │
+# │ curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/scripts/docker-install.sh | bash
+# │                                                                      │
+# │ # 3. 强制指定单一镜像(已知在环境里能用的):                             │
+# │ export OPENCLAW_NAPCAT_MIRROR=https://ghfast.top/https://github.com/Daiyimo/openclaw-napcat/archive
+# │ curl -fsSL ... | bash                                                │
+# │                                                                      │
+# │ # 4. 完全离线(★ NAS/严格内网/镜像全挂时的唯一可靠方案):                │
+# │ #    宿主机:                                                          │
+# │ #      curl -fsSL https://github.com/Daiyimo/openclaw-napcat/archive/refs/heads/main.tar.gz -o /tmp/oc.tar.gz
+# │ #      docker cp /tmp/oc.tar.gz <container>:/tmp/oc.tar.gz             │
+# │ #    容器内:                                                          │
+# │ #      export OPENCLAW_NAPCAT_LOCAL_TARBALL=/tmp/oc.tar.gz             │
+# │ #      bash /tmp/docker-install.sh                                    │
+# └──────────────────────────────────────────────────────────────────────┘
 #
 # 特性：
 #   - 插件安装到持久化数据卷 ~/.openclaw/extensions/napcat/，容器镜像更新后不丢失
 #   - 自动编译 TypeScript，无需宿主机任何工具链
 #   - 读取容器内 QQ_* 环境变量写入 openclaw.json
-#   - 多镜像加速下载（5 个镜像按稳定性优先级,单镜像 30s 超时）
+#   - 多镜像加速下载（6 个镜像按稳定性优先级,单镜像 30s 超时）
+#   - ★ 本地 tarball 离线兜底（见上方 #4，2026-06-02 强化后作为受限网络推荐方案）
 #   - 自动静默重启容器
 #   - 自动刷新群路由（重启后 connect handler 自动注册）
 
@@ -77,6 +92,13 @@ fi
 #   export OPENCLAW_NAPCAT_LOCAL_TARBALL=/tmp/oc.tar.gz
 #   bash scripts/docker-install.sh
 # 优先级高于网络下载——检测到本地 tarball 直接走离线安装。
+#
+# ★★★ DO NOT REMOVE / DO NOT SIMPLIFY ★★★
+# 2026-06-02 用户实测:6 个公开 GitHub 镜像在他那环境(跨区域部署容器)
+# 全部不可达,只走本地 tarball 这一条路径才能完成安装。
+# 关联:commit 9004030 + 1fd9a6a;若删除此段,他/类似环境的用户将
+# 完全无法安装。请保留 OPENCLAW_NAPCAT_LOCAL_TARBALL 入口并在镜像
+# 列表变更时同步测试 scripts/test-install-download.sh 场景 A/F。
 if [ -n "$OPENCLAW_NAPCAT_LOCAL_TARBALL" ]; then
   echo "  本地 tarball 模式: $OPENCLAW_NAPCAT_LOCAL_TARBALL"
   if [ ! -f "$OPENCLAW_NAPCAT_LOCAL_TARBALL" ]; then
