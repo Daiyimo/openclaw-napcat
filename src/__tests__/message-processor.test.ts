@@ -181,6 +181,50 @@ describe("buildBodyWithReply", () => {
     expect(result).toContain("<passive_mode>");
     expect(result).toContain("[SILENT]");
   });
+
+  it("旁观模式 mentionsKnownBot 触发 system_hint 提示", () => {
+    const result = buildBodyWithReply({
+      text: "test",
+      repliedMsg: null,
+      systemPrompt: undefined,
+      historyContext: "",
+      isPassiveMode: true,
+      passivePrompt: undefined,
+      mentionsKnownBot: [
+        { selfId: "12345", nickname: "云崽" },
+        { selfId: "67890", card: "爱弥斯" },
+      ],
+    });
+    expect(result).toContain("<system_hint>");
+    expect(result).toContain("云崽");
+    expect(result).toContain("爱弥斯");
+  });
+
+  it("非旁观模式忽略 mentionsKnownBot", () => {
+    const result = buildBodyWithReply({
+      text: "test",
+      repliedMsg: null,
+      systemPrompt: undefined,
+      historyContext: "",
+      isPassiveMode: false,
+      passivePrompt: undefined,
+      mentionsKnownBot: [{ selfId: "12345", nickname: "云崽" }],
+    });
+    expect(result).not.toContain("<system_hint>");
+  });
+
+  it("默认提示包含'加入对话'指引", () => {
+    const result = buildBodyWithReply({
+      text: "test",
+      repliedMsg: null,
+      systemPrompt: undefined,
+      historyContext: "",
+      isPassiveMode: true,
+      passivePrompt: undefined,
+    });
+    // 默认提示中应有关于加入对话的说明
+    expect(result).toMatch(/加入对话|插话|加入/);
+  });
 });
 
 // ============ resolveMessageText ============
