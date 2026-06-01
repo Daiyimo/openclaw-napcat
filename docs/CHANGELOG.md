@@ -2,6 +2,16 @@
 
 # 更新日志
 
+### v1.8.1 - 安装脚本 find 自匹配 bug (2026-06-01)
+
+#### Fixed
+
+- **`docker-install.sh` / `install.sh` / `update.sh` 编译/安装失败**：v1.8.0 引入的 `find ... -maxdepth 1 -type d -name "openclaw-napcat-*"` 模式会匹配 `EXTRACT_DIR` 自身（`openclaw-napcat-extract-<pid>` 也以 `openclaw-napcat-` 开头），`head -1` 取到父目录而非 `openclaw-napcat-<branch>/` 子目录，导致后续 `cd` / `mv` / `cp -r` / `npm install` 找不到源码。
+
+  修复：find 加 `-mindepth 1` 跳过搜索根；3 个脚本都加 `SRC_DIR != EXTRACT_DIR` 断言作为回归保护。
+
+  触发场景：所有通过 v1.8.0 脚本安装/更新的用户必现（症状为 `npm error code ENOENT ... package.json`）。
+
 ### v1.8.0 - 多 bot 协同 + 安装脚本改造 (2026-06-01)
 
 #### 安装脚本改造（scripts/）
