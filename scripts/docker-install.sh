@@ -31,32 +31,62 @@ echo "分支: $BRANCH"
 echo "安装目录: $EXT_DIR"
 echo ""
 
-# ── 1. 下载源码（多镜像加速）─────────────────────────────────────────────
-echo "[1/4] 正在下载源码..."
-rm -rf "$TEMP_DIR"
+# ── 1. 下载源码（多镜像 tarball，不依赖 git）────────────────────────────────────
+# 改用 tarball 下载的原因：
+#  1. openclaw 容器基础镜像（node:alpine/slim）通常没装 git，`git clone` 静默失败
+#  2. tarball 只含源码（~1-2 MB），比 `git clone --depth 1`（拉 git objects）快 5-10x
+#  3. curl 显示 HTTP 状态码，失败时用户能立即看到原因
+#  4. 任何 Linux 基础镜像都自带 tar + curl
+echo "[1/4] 正在下载源码（tarball 模式，无需 git）..."
 
-# 镜像列表：按优先级尝试
+ARCHIVE="/tmp/openclaw-napcat-${BRANCH}.tar.gz"
+EXTRACT_DIR="/tmp/openclaw-napcat-extract-$$"
+rm -rf "$TEMP_DIR" "$EXTRACT_DIR" "$ARCHIVE"
+mkdir -p "$EXTRACT_DIR"
+
+# 镜像列表：按优先级尝试（GitHub archive 直链）
 MIRRORS=(
-  "https://ghfast.top/https://github.com"
-  "https://gh-proxy.com/https://github.com"
-  "https://github.com"
+  "https://ghfast.top/https://github.com/Daiyimo/openclaw-napcat/archive"
+  "https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat/archive"
+  "https://github.com/Daiyimo/openclaw-napcat/archive"
 )
 
-REPO="Daiyimo/openclaw-napcat"
-CLONE_URL=""
-
+DOWNLOAD_OK=0
 for mirror in "${MIRRORS[@]}"; do
-  echo "  尝试镜像: $mirror"
-  if git clone --branch "$BRANCH" --depth 1 "$mirror/$REPO.git" "$TEMP_DIR" 2>/dev/null; then
-    CLONE_URL="$mirror/$REPO.git"
-    echo "  ✓ 下载成功"
-    break
+  url="${mirror}/refs/heads/${BRANCH}.tar.gz"
+  echo "  尝试: $url"
+  # -f 失败时返回非零；-L 跟随重定向；--connect-timeout 5 防止代理卡死；
+  # --max-time 120 兜底；-# 显示进度条
+  if curl -fL --connect-timeout 5 --max-time 120 -# -o "$ARCHIVE" "$url"; then
+    # 验证 tarball 完整（避免下载到 HTML 错误页）
+    if tar -tzf "$ARCHIVE" &>/dev/null; then
+      size=$(du -h "$ARCHIVE" | cut -f1)
+      echo "  ✓ 下载成功 (${size})"
+      DOWNLOAD_OK=1
+      break
+    else
+      echo "  ✗ tarball 损坏（可能是 HTML 错误页），重试下一个镜像"
+      rm -f "$ARCHIVE"
+    fi
+  else
+    echo "  ✗ 下载失败 (curl exit=$?)"
   fi
-  rm -rf "$TEMP_DIR"
 done
 
-if [ -z "$CLONE_URL" ]; then
+if [ "$DOWNLOAD_OK" -ne 1 ]; then
   echo "✗ 所有镜像均失败，请检查网络连接"
+  exit 1
+fi
+
+# 解压到临时目录（GitHub archive 根目录是 openclaw-napcat-<branch>/）
+if ! tar -xzf "$ARCHIVE" -C "$EXTRACT_DIR"; then
+  echo "✗ 解压失败"
+  exit 1
+fi
+rm -f "$ARCHIVE"
+TEMP_DIR=$(find "$EXTRACT_DIR" -maxdepth 1 -type d -name "openclaw-napcat-*" | head -1)
+if [ -z "$TEMP_DIR" ]; then
+  echo "✗ 解压后未找到源码目录"
   exit 1
 fi
 
