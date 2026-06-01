@@ -99,7 +99,7 @@ describe("buildFromId", () => {
 // ============ buildBodyWithReply ============
 
 describe("buildBodyWithReply", () => {
-  it("无 reply、无 systemPrompt、无 history，返回纯文本", () => {
+  it("无 reply、无 systemPrompt、无 history、关闭 guidelines，返回纯文本", () => {
     const result = buildBodyWithReply({
       text: "hello [CQ:at,qq=123]",
       repliedMsg: null,
@@ -107,11 +107,57 @@ describe("buildBodyWithReply", () => {
       historyContext: "",
       isPassiveMode: false,
       passivePrompt: undefined,
+      responseGuidelines: "",  // 关闭默认约束
     });
     // cleanCQCodes 应去掉 CQ 码并 trim
     expect(result).toBe("hello");
     expect(result).not.toContain("[Replying");
     expect(result).not.toContain("<system>");
+  });
+
+  it("默认注入 <response_guidelines> 块(v1.9.1+ 防 CoT 泄漏)", () => {
+    const result = buildBodyWithReply({
+      text: "hi",
+      repliedMsg: null,
+      systemPrompt: undefined,
+      historyContext: "",
+      isPassiveMode: false,
+      passivePrompt: undefined,
+      // 不传 responseGuidelines → 应使用默认
+    });
+    expect(result).toContain("<response_guidelines>");
+    expect(result).toContain("回复格式硬性约束");
+    // 约束在 body 之前(顶部优先级)
+    const idx = result.indexOf("<response_guidelines>");
+    const bodyIdx = result.indexOf("hi");
+    expect(idx).toBeLessThan(bodyIdx);
+  });
+
+  it("传 responseGuidelines 时用自定义内容替换默认", () => {
+    const result = buildBodyWithReply({
+      text: "x",
+      repliedMsg: null,
+      systemPrompt: undefined,
+      historyContext: "",
+      isPassiveMode: false,
+      passivePrompt: undefined,
+      responseGuidelines: "我自己的约束",
+    });
+    expect(result).toContain("我自己的约束");
+    expect(result).not.toContain("回复格式硬性约束");
+  });
+
+  it("传空字符串可关闭 guidelines 注入", () => {
+    const result = buildBodyWithReply({
+      text: "x",
+      repliedMsg: null,
+      systemPrompt: undefined,
+      historyContext: "",
+      isPassiveMode: false,
+      passivePrompt: undefined,
+      responseGuidelines: "",
+    });
+    expect(result).not.toContain("<response_guidelines>");
   });
 
   it("有 reply 消息追加 [Replying to] 块", () => {

@@ -12,6 +12,13 @@ export const QQConfigSchema = z.object({
   admins: z.array(z.number().int().positive()).optional().describe("List of admin QQ numbers"),
   requireMention: z.boolean().optional().default(true).describe("Require @mention or reply to bot in group chats"),
   systemPrompt: z.string().optional().describe("Custom system prompt to inject into the context"),
+  /**
+   * 回复格式硬约束:硬性规定 LLM 不要输出 CoT / meta 注释 / 英文内部推理。
+   * 默认 = DEFAULT_RESPONSE_GUIDELINES(注入在 system prompt 顶部)。
+   * 传空字符串 "" 关闭约束(完全信任 LLM 自身的输出格式)。
+   * 传自定义字符串:替换默认。
+   */
+  responseGuidelines: z.string().optional().describe("Response format constraints injected at the top of system prompt. Default = DEFAULT_RESPONSE_GUIDELINES. Empty string disables."),
   enableDeduplication: z.boolean().optional().default(true).describe("Enable message deduplication to prevent double replies"),
   enableErrorNotify: z.boolean().optional().default(true).describe("Notify admins or users when errors occur"),
   autoApproveRequests: z.boolean().optional().default(false).describe("Automatically approve friend/group add requests"),

@@ -699,6 +699,7 @@ export function installMessageHandler(
         botSelfId: client.getSelfId() ?? event.self_id,
         botName: config._selfName,
         mentionsKnownBot: mentionsKnownBot.length > 0 ? mentionsKnownBot : undefined,
+        responseGuidelines: config.responseGuidelines,
       });
 
       // ── 解析正确的 session key（框架格式）────────────────────

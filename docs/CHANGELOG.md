@@ -2,6 +2,16 @@
 
 # 更新日志
 
+### v1.9.1 - 默认回复格式硬约束 (2026-06-01)
+
+#### Added
+
+- **responseGuidelines 配置项**:在 system prompt 顶部默认注入 `DEFAULT_RESPONSE_GUIDELINES` 硬约束,防止 reasoning 类模型(Claude with extended thinking / o1 / o3 等)把 CoT 混到回复里。
+  - 默认约束包括:不输出内部推理 / 用户行为分析 / 英文 meta 注释;群聊 50 字以内;不"八股"结构;语言跟用户;多 bot 不复述;旁听没想说的回复 [SILENT]。
+  - **关闭方式**:`responseGuidelines: ""` 或 `QQ_RESPONSE_GUIDELINES: ""`。
+  - **自定义方式**:传非空字符串,完全替换默认内容。
+- **docker-compose 环境变量**:`QQ_RESPONSE_GUIDELINES` 透传到 `channels.napcat.responseGuidelines`。
+
 ### v1.9.0 - Plan A 协议层握手 + 用户文本 100% 干净 (2026-06-01)
 
 #### Changed

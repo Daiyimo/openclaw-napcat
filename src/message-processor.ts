@@ -17,6 +17,7 @@ import { cleanCQCodes } from "./message-parser.js";
 import { convertSilkToWav } from "./utils/audio-convert.js";
 import { transcribeAudioForNapcat } from "./message-parser.js";
 import { maskId } from "./utils/log-sanitize.js";
+import { DEFAULT_RESPONSE_GUIDELINES } from "./constants.js";
 
 // ============ 文本提取 ============
 
@@ -301,6 +302,12 @@ export function buildBodyWithReply(opts: {
   botName?: string;
   /** 消息中 @ 的已知 bot 列表（v1.8+ 被动观测插话用） */
   mentionsKnownBot?: Array<{ selfId: string; nickname?: string; card?: string }>;
+  /**
+   * 回复格式硬约束。undefined = 用 DEFAULT_RESPONSE_GUIDELINES;
+   * 空字符串 = 完全关闭约束;非空字符串 = 替换默认。
+   * v1.9.1+ 用于防止 reasoning 类模型把 CoT 混到回复里。
+   */
+  responseGuidelines?: string;
 }): string {
   const { text, repliedMsg, systemPrompt, historyContext, isPassiveMode, passivePrompt, mentionsKnownBot } = opts;
 
@@ -331,6 +338,17 @@ export function buildBodyWithReply(opts: {
   const bodyWithReply = strippedText + replySuffix;
 
   let systemBlock = "";
+
+  // ── 回复格式硬约束（v1.9.1+）────────────────────────────────
+  // 默认注入 DEFAULT_RESPONSE_GUIDELINES,把约束放在 system prompt 顶部,
+  // 让 LLM 在生成任何回复前先看到格式要求。
+  // 关闭方式:传 responseGuidelines: ""
+  // 替换方式:传 responseGuidelines: "你的自定义约束..."
+  const guidelines = opts.responseGuidelines ?? DEFAULT_RESPONSE_GUIDELINES;
+  if (guidelines) {
+    systemBlock += `<response_guidelines>\n${guidelines}\n</response_guidelines>\n\n`;
+  }
+
   if (systemPrompt) systemBlock += `<system>${systemPrompt}</system>\n\n`;
   if (historyContext) systemBlock += `<history>\n${historyContext}\n</history>\n\n`;
   if (isPassiveMode) {

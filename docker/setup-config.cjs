@@ -67,6 +67,7 @@ if (env.QQ_REQUIRE_MENTION !== undefined)
 
 // AI 行为
 if (env.QQ_SYSTEM_PROMPT)    qqEnv.systemPrompt    = env.QQ_SYSTEM_PROMPT;
+if (env.QQ_RESPONSE_GUIDELINES !== undefined) qqEnv.responseGuidelines = env.QQ_RESPONSE_GUIDELINES;
 
 const historyLimit = parseIntOpt(env.QQ_HISTORY_LIMIT);
 if (historyLimit !== undefined) qqEnv.historyLimit  = historyLimit;
