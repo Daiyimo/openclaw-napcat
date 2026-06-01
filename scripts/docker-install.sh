@@ -66,31 +66,107 @@ DOWNLOAD_OK=0
 if [ -n "$OPENCLAW_NAPCAT_MIRROR" ]; then
   MIRRORS=("$OPENCLAW_NAPCAT_MIRROR")
 fi
-for mirror in "${MIRRORS[@]}"; do
-  url="${mirror}/refs/heads/${BRANCH}.tar.gz"
-  echo "  尝试: $url"
-  # -f 失败时返回非零；-L 跟随重定向；--connect-timeout 3 快速放弃坏代理；
-  # --max-time 30 单镜像 30s 兜底(避免一个挂掉拖 2 分钟);-# 显示进度条
-  if curl -fL --connect-timeout 3 --max-time 30 -# -o "$ARCHIVE" "$url"; then
-    # 验证 tarball 完整（避免下载到 HTML 错误页）
-    if tar -tzf "$ARCHIVE" &>/dev/null; then
-      size=$(du -h "$ARCHIVE" | cut -f1)
-      echo "  ✓ 下载成功 (${size})"
-      DOWNLOAD_OK=1
-      break
-    else
-      echo "  ✗ tarball 损坏（可能是 HTML 错误页），重试下一个镜像"
-      rm -f "$ARCHIVE"
-    fi
+
+# ── 兜底 1:本地 tarball(NAS/受限网络环境必备)──────────────────────────────
+# 适用场景:用户从能访问 GitHub 的环境下载 tarball 后 scp 进来。
+# 用法(在容器内运行前):
+#   docker cp /path/to/openclaw-napcat-main.tar.gz <container>:/tmp/oc.tar.gz
+#   export OPENCLAW_NAPCAT_LOCAL_TARBALL=/tmp/oc.tar.gz
+#   bash scripts/docker-install.sh
+# 优先级高于网络下载——检测到本地 tarball 直接走离线安装。
+if [ -n "$OPENCLAW_NAPCAT_LOCAL_TARBALL" ]; then
+  echo "  本地 tarball 模式: $OPENCLAW_NAPCAT_LOCAL_TARBALL"
+  if [ ! -f "$OPENCLAW_NAPCAT_LOCAL_TARBALL" ]; then
+    echo "  ✗ 文件不存在,降级到网络下载"
+  elif ! tar -tzf "$OPENCLAW_NAPCAT_LOCAL_TARBALL" &>/dev/null; then
+    echo "  ✗ 不是有效 tarball(可能下载到 HTML 错误页),降级到网络下载"
   else
-    echo "  ✗ 下载失败 (curl exit=$?)"
+    cp "$OPENCLAW_NAPCAT_LOCAL_TARBALL" "$ARCHIVE"
+    size=$(du -h "$ARCHIVE" | cut -f1)
+    echo "  ✓ 本地 tarball 验证通过 (${size}),跳过网络下载"
+    DOWNLOAD_OK=1
   fi
-done
+fi
+
+# ── 兜底 2:网络下载(带详细错误诊断 + 单镜像重试)─────────────────────────
+# curl exit code 含义:
+#   6  = 无法解析主机 (DNS 失败/被劫持)
+#   7  = 无法连接 (网络封禁/防火墙拦截)
+#   28 = 连接超时 (30s 无响应,镜像源可能挂了)
+#   35 = TLS 握手失败 (SSL 证书问题)
+#   52 = 服务器空回复
+#   56 = 连接被对端重置
+if [ "$DOWNLOAD_OK" -ne 1 ]; then
+  for mirror in "${MIRRORS[@]}"; do
+    url="${mirror}/refs/heads/${BRANCH}.tar.gz"
+    echo "  尝试: $url"
+
+    # 单镜像最多重试 2 次(第 1 次失败后等 2s 重试,应对网络抖动)
+    attempt=1
+    while [ $attempt -le 2 ]; do
+      # 不加 -f,让 HTTP 错误也能下载到文件然后被 tar 验证捕获
+      # (避免某些镜像把 404 响应降级为 200 页面导致误判)
+      curl_err=$(curl -L --connect-timeout 3 --max-time 30 -# -o "$ARCHIVE" "$url" 2>&1)
+      curl_exit=$?
+
+      if [ $curl_exit -eq 0 ]; then
+        if tar -tzf "$ARCHIVE" &>/dev/null; then
+          size=$(du -h "$ARCHIVE" | cut -f1)
+          echo "  ✓ 下载成功 (${size})"
+          DOWNLOAD_OK=1
+          break 2  # 跳出 for + while 双层循环
+        else
+          echo "  ✗ tarball 损坏（可能是 HTML 错误页），换下一个镜像"
+          rm -f "$ARCHIVE"
+          break  # 损坏不重试,直接换镜像(重试也没用)
+        fi
+      fi
+
+      # 失败诊断:把 curl exit code 翻译成可读消息
+      case $curl_exit in
+        6)  reason="无法解析主机 (DNS 失败/被劫持)" ;;
+        7)  reason="无法连接 (网络封禁/防火墙拦截)" ;;
+        28) reason="连接超时 (30s 无响应,镜像源可能挂了)" ;;
+        35) reason="TLS 握手失败 (SSL 证书问题)" ;;
+        52) reason="服务器空回复" ;;
+        56) reason="连接被对端重置" ;;
+        *)  reason="curl 错误 (exit=$curl_exit)" ;;
+      esac
+      echo "  ✗ 第 ${attempt} 次: ${reason}"
+
+      if [ $attempt -eq 1 ]; then
+        echo "    等待 2s 后重试..."
+        sleep 2
+      fi
+      attempt=$((attempt + 1))
+    done
+  done
+fi
 
 if [ "$DOWNLOAD_OK" -ne 1 ]; then
-  echo "✗ 所有镜像均失败，请检查网络连接"
-  echo "  提示:可设置 OPENCLAW_NAPCAT_MIRROR 指定单一镜像，例如:"
-  echo "    export OPENCLAW_NAPCAT_MIRROR=https://kkgithub.com/Daiyimo/openclaw-napcat/archive"
+  echo ""
+  echo "✗ 所有镜像均失败"
+  echo ""
+  echo "可能原因:"
+  echo "  1. 网络环境完全无法访问 GitHub 镜像（NAS/公司内网常见）"
+  echo "  2. DNS 被劫持或屏蔽（试试 nslookup github.com）"
+  echo "  3. 防火墙拦截 outbound HTTPS（试试 curl -v https://baidu.com）"
+  echo ""
+  echo "解决方案（按推荐度排序）:"
+  echo ""
+  echo "  a) 本地 tarball 兜底（推荐,适合 NAS/受限网络）:"
+  echo "     # 在能访问 GitHub 的机器上下载:"
+  echo "     curl -fsSL https://github.com/Daiyimo/openclaw-napcat/archive/refs/heads/main.tar.gz -o /tmp/oc.tar.gz"
+  echo "     # 复制到容器内:"
+  echo "     docker cp /tmp/oc.tar.gz <container>:/tmp/oc.tar.gz"
+  echo "     # 重新运行,指定本地 tarball:"
+  echo "     export OPENCLAW_NAPCAT_LOCAL_TARBALL=/tmp/oc.tar.gz"
+  echo "     bash scripts/docker-install.sh"
+  echo ""
+  echo "  b) 指定单一镜像（已知在你的环境能用的）:"
+  echo "     export OPENCLAW_NAPCAT_MIRROR=https://kkgithub.com/Daiyimo/openclaw-napcat/archive"
+  echo ""
+  echo "  c) 在宿主机/路由器配置代理或 hosts 解析"
   exit 1
 fi
 
