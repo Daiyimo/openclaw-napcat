@@ -2,6 +2,27 @@
 
 # 更新日志
 
+### v1.9.0 - Plan A 协议层握手 + 用户文本 100% 干净 (2026-06-01)
+
+#### Changed
+
+- **友军识别默认策略从 `visible` 改为 `metadata`**：用 OneBot `json` 段在协议层声明 bot 身份，**用户消息文本 100% 干净**,不再出现 `[BOT:xxx]` 后缀。
+  - 旧默认值 `visible` 仍可用(回退兼容),显式设置 `botSignatureStyle: "visible"` 即可。
+  - 新增 `none` 选项:完全禁用文本签名,仅靠 `sender.bot` / `knownBotIds` / 持久化 cache 兜底。
+- **五层检测机制**：在原四层(白名单 / sender.bot / 持久化 cache / 文本签名)之上新增 **Layer 4 协议层握手**。
+- **冷启动历史回填**：bot 启动时拉取每个群最近 30 条历史,扫描握手 / 文本签名,自动回填 `known-bots-store`,解决"对方 bot 后上线"的不对称时序问题。
+
+#### Added
+
+- `src/utils/bot-handshake.ts`：握手消息的构造 / 解析 / 节流 / 冷启动回填逻辑。
+- `botSignatureStyle` 新增 `metadata` / `none` 两个枚举值。
+- `BOT_HANDSHAKE_APP` / `BOT_HANDSHAKE_KIND` / `BOT_HANDSHAKE_MIN_LENGTH` 常量。
+
+#### Compatibility
+
+- 旧 bot(非 v1.9+)继续按 in-band 签名 / `sender.bot` / `knownBotIds` 工作,无 breaking change。
+- 协议层握手只在 openclaw-napcat v1.9+ 之间生效;新默认值 `metadata` 对老 bot 兼容(对方仍能通过持久化 cache 识别本 bot,因为握手会被老 bot 忽略但不影响)。
+
 ### v1.8.1 - 安装脚本 find 自匹配 bug (2026-06-01)
 
 #### Fixed

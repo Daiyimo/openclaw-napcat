@@ -41,6 +41,8 @@ export interface SharedState {
   inboundStores: Map<string, InboundRateLimitStore>;
   passiveMode: PassiveModeManager;
   setBotSelfId: (accountId: string, selfId: number) => void;
+  /** 每账号冷启动握手回填是否已执行（避免定时器重复触发） */
+  handshakeBackfillDone?: Set<string>;
 }
 
 export interface PluginRuntimeChannel {

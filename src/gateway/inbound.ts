@@ -36,7 +36,8 @@ import {
   buildBodyWithReply,
 } from "../message-processor.js";
 import { MessageSender } from "../message-sender.js";
-import { BOT_SIGNATURE_PATTERN, BOT_SIGNATURE_ZW_PATTERN, ERROR_NOTIFY_SLEEP_MS, BOT_STOPPED_SUPPRESS_MS, DEFAULT_STOP_KEYWORDS } from "../constants.js";
+import { parseBotHandshake } from "../utils/bot-handshake.js";
+import { BOT_SIGNATURE_PATTERN, BOT_SIGNATURE_ZW_PATTERN, ERROR_NOTIFY_SLEEP_MS, BOT_STOPPED_SUPPRESS_MS, DEFAULT_STOP_KEYWORDS, BOT_HANDSHAKE_MIN_LENGTH } from "../constants.js";
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -116,6 +117,30 @@ export function installMessageHandler(
         } else return;
       }
 
+      // ── 新成员入群:清除该群握手节流,下次发消息时重发自我介绍 ──
+      // 场景:对方 bot 后入场,本 bot 上次握手可能已滚出 30 条历史。
+      // 通过清掉节流,本 bot 下次主动发任何消息前会先发一次握手,
+      // 让新 bot 的 backfill 能看到。
+      if (
+        event.post_type === "notice" &&
+        event.notice_type === "group_increase" &&
+        event.sub_type === "increase" &&
+        event.group_id
+      ) {
+        const gid = String(event.group_id);
+        // 跳过自己入群的事件(自己刚连上时也会收到)
+        if (String(event.user_id) !== String(event.self_id ?? "")) {
+          if (config.botSignatureStyle === "metadata") {
+            const { clearHandshakeThrottle } = await import("../utils/bot-handshake.js");
+            clearHandshakeThrottle(account.accountId, gid);
+            if (config.debug) {
+              console.log(`[napcat-QQ][debug-handshake] group_increase detected, cleared throttle for ${gid}`);
+            }
+          }
+        }
+        return;
+      }
+
       if (event.post_type !== "message") return;
 
       const isGroup = event.message_type === "group";
@@ -164,7 +189,7 @@ export function installMessageHandler(
         return;
 
       // 友军识别：bot 消息记录活跃时间后跳过
-      // 四层检测：白名单 → sender.bot 字段 → 自维护 bot ID 缓存 → 签名（可见/零宽）
+      // 五层检测：白名单 → sender.bot 字段 → 自维护 bot ID 缓存 → 签名（可见/零宽）→ 协议层握手
       let isBot = false;
       if (isGroup) {
         const userIdStr = userId != null ? String(userId) : null;
@@ -178,12 +203,20 @@ export function installMessageHandler(
         const sigMatch = BOT_SIGNATURE_PATTERN.exec(text);
         const zwSigMatch = BOT_SIGNATURE_ZW_PATTERN.exec(text);
         const matchedBotId = sigMatch?.[1] ?? zwSigMatch?.[1] ?? null;
-        isBot = whitelistMatch || senderBot || cachedBotMatch || matchedBotId !== null;
+        // Layer 4: 协议层握手（Plan A, v1.8+ 默认）。
+        // json 段中携带 { app: "openclaw-napcat", kind: "bot", selfId } 元数据。
+        // 仅在元数据载荷满足最小长度时检查,避免误判。
+        let handshakeMatch: string | null = null;
+        if (Array.isArray(event.message) && (event.raw_message?.length ?? 0) >= BOT_HANDSHAKE_MIN_LENGTH) {
+          const hs = parseBotHandshake(event.message);
+          if (hs) handshakeMatch = hs.selfId;
+        }
+        isBot = whitelistMatch || senderBot || cachedBotMatch || matchedBotId !== null || handshakeMatch !== null;
         if (config.debug) {
           console.log(
             `[napcat-QQ][debug-bot-filter] userId=${maskId(userId)} whitelist=${whitelistMatch} ` +
               `sender.bot=${senderBot} cachedBot=${cachedBotMatch} sigMatch=${matchedBotId} ` +
-              `isBot=${isBot} text="${text.slice(0, 80)}"`,
+              `handshake=${handshakeMatch} isBot=${isBot} text="${text.slice(0, 80)}"`,
           );
         }
         if (isBot) {
@@ -194,6 +227,18 @@ export function installMessageHandler(
             fetchBotInfoAsync(client, account.accountId, matchedBotId, isGroup ? groupId : undefined, log).catch((err) => {
               log.warn?.(`[napcat-QQ] Failed to fetch bot info for ${matchedBotId}: ${err.message}`);
             });
+          }
+          // 通过握手消息（Plan A）发现 bot：记录元数据并异步拉昵称
+          if (handshakeMatch !== null) {
+            recordKnownBot(account.accountId, handshakeMatch);
+            fetchBotInfoAsync(client, account.accountId, handshakeMatch, isGroup ? groupId : undefined, log).catch((err) => {
+              log.warn?.(`[napcat-QQ] Failed to fetch bot info for ${handshakeMatch}: ${err.message}`);
+            });
+            // 握手消息本身不携带用户内容，直接 return 不进入 AI 派发
+            if (config.debug) {
+              console.log(`[napcat-QQ][debug-handshake] recorded bot ${handshakeMatch} from handshake, skipping AI dispatch`);
+            }
+            return;
           }
           if (config.ignoreSenderBot !== false) passiveMode.markBotActive(`group:${groupId}`);
 

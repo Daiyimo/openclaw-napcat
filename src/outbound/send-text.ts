@@ -19,6 +19,7 @@ import {
 import { OUTBOUND_MULTI_CHUNK_SLEEP_MS, DEFAULT_BOT_SIGNATURE_STYLE } from "../constants.js";
 import { maskIdsInText } from "../utils/log-sanitize.js";
 import { appendBotSignature } from "../utils/bot-signature.js";
+import { makeBotHandshakeMessage, shouldSendHandshake, markHandshakeSent } from "../utils/bot-handshake.js";
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -85,8 +86,11 @@ export async function sendText(
 
   // ── 追加友军签名（仅群消息） ─────────────────────────────────
   // 根据配置选择签名格式：
-  // - visible: [BOT:selfId] 格式，可靠但用户可见
-  // - zero-width: 零宽字符格式，用户不可见，但可能被平台剥离
+  // - visible:   [BOT:selfId] 格式，可靠但用户可见
+  // - zero-width:零宽字符格式，用户不可见，但可能被平台剥离
+  // - none:      不追加（仅靠 sender.bot / knownBotIds / 持久化 cache）
+  // - metadata:  不追加文本（用户文本 100% 干净）；握手在启动时 + outbound 首次发送时
+  //              通过 shouldSendHandshake 节流,后续每 24h 最多补发一次
   const isGroup = /^\d+$/.test(to) || to.startsWith("group:");
   const style = params.cfg?.botSignatureStyle ?? DEFAULT_BOT_SIGNATURE_STYLE;
   const finalText = isGroup && params.botSelfId
@@ -94,6 +98,22 @@ export async function sendText(
     : text;
   const client = getClient(resolvedAccountId);
   if (!client) return { channel: "napcat", sent: false, error: "Client not connected" };
+
+  // ── metadata 模式：先发一次握手（若节流允许），让其他 bot 发现本 bot ──
+  // 握手失败不阻塞主消息,容错处理
+  if (isGroup && style === "metadata" && params.botSelfId) {
+    const gidMatch = to.match(/^(?:group:)?(\d+)$/);
+    const gid = gidMatch?.[1];
+    if (gid && shouldSendHandshake(resolvedAccountId, gid)) {
+      try {
+        const target = parseTarget(`group:${gid}`);
+        await dispatchMessage(client, target, makeBotHandshakeMessage(params.botSelfId));
+        markHandshakeSent(resolvedAccountId, gid);
+      } catch (hsErr) {
+        console.warn(`[napcat-QQ][handshake] send failed (non-fatal): ${hsErr}`);
+      }
+    }
+  }
 
   try {
     // 裸数字 to 处理

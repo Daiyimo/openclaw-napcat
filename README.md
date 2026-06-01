@@ -74,18 +74,19 @@
 
 原理：调用 `getGroupList()` 拉取所有已加入群，为每个群注册 session 路由。无需重启容器。
 
-### 友军识别（Bot-to-Bot Recognition）
+### 友军识别（Bot-to-Bot Recognition，v1.9+ 协议层握手）
 
 多个 bot 在同一群会产生循环对话？开启 `ignoreSenderBot`（默认 true），bot 消息会被自动过滤：
 
-**四层检测机制：**
+**五层检测机制（v1.9+ 新增 Layer 4 协议层握手）：**
 
 1. **手动白名单**（`knownBotIds`）：最高优先级，适用于不支持签名的 bot
 2. **sender.bot 字段**：OneBot v11 标准字段，部分 bot 框架会设置
-3. **自维护缓存**：通过签名自动发现并缓存，后续无需签名也能识别
-4. **签名检测**：支持两种格式
-   - `visible`（默认）：`[BOT:12345678]`，可靠但用户可见
-   - `zero-width`：零宽字符，用户不可见，但可能被平台剥离
+3. **自维护缓存**：通过签名 / 握手自动发现并缓存（持久化到 `~/.openclaw/napcat-qq/data/known-bots-<accountId>.json`），后续无需任何标记也能识别
+4. **签名检测**（in-band，仅 visible / zero-width 模式启用）：见下表
+5. **协议层握手**（Plan A，v1.9+ 默认）：bot 启动时向每个群发一条 `{app:"openclaw-napcat", kind:"bot", selfId, ...}` 的 OneBot `json` 段；接收方解析后入 cache，**用户文本 100% 干净**
+
+**冷启动历史回填**：bot 启动时拉取每个群最近 30 条历史,扫描握手 / 文本签名,自动回填 `known-bots-store`。解决"对方 bot 之前发过握手,本 bot 启动后才入群"的不对称时序问题。
 
 **友军抑制**：检测到其他 bot 活跃后，本 bot 会静默 `botSuppressionMs` 毫秒（默认 120 秒）
 
@@ -94,7 +95,7 @@
   "ignoreSenderBot": true,
   "botSuppressionMs": 120000,
   "knownBotIds": [123456789, 987654321],
-  "botSignatureStyle": "visible"
+  "botSignatureStyle": "metadata"
 }
 ```
 
@@ -103,17 +104,19 @@
 QQ_IGNORE_SENDER_BOT: "true"
 QQ_BOT_SUPPRESSION_MS: "120000"
 QQ_KNOWN_BOT_IDS: "123456789,987654321"  # 手动 bot 白名单
-QQ_BOT_SIGNATURE_STYLE: visible          # 或 zero-width
+QQ_BOT_SIGNATURE_STYLE: metadata          # 默认：协议层握手，用户文本干净
 ```
 
-**签名样式对比：**
+**签名样式对比（v1.9+）：**
 
-| 样式 | 格式 | 优点 | 缺点 |
-|------|------|------|------|
-| `visible`（默认） | `[BOT:12345678]` | 可靠，不会被平台剥离 | 用户可见 |
-| `zero-width` | `​12345678‌` | 用户不可见 | 可能被部分平台剥离 |
+| 样式 | 格式 | 用户文本 | 适用场景 |
+|------|------|----------|----------|
+| `metadata`（默认） | OneBot `json` 段握手 | ✅ 100% 干净 | v1.9+ openclaw-napcat 之间首选 |
+| `visible` | `[BOT:12345678]` 拼到消息末尾 | ❌ 用户可见 | 兼容老 bot / 跨框架 bot |
+| `zero-width` | 零宽字符 U+200B/U+200C | ✅ 用户不可见 | 长期运行后可能失效 |
+| `none` | 无任何文本标记 | ✅ 干净 | 仅靠 sender.bot / knownBotIds / cache |
 
-私聊不追加签名。账号断开重连时缓存自动清空，重新学习。
+私聊不追加签名也不发握手。账号断开重连时握手节流 24h 内不重发(避免重启风暴);持久化 cache 跨重启保留。
 
 ### 旁观模式（Passive Mode）
 
@@ -315,7 +318,7 @@ docker compose restart openclaw
 | `blockedUsers` | number[] | `[]` | 用户黑名单 |
 | `ignoreSenderBot` | boolean | `true` | 过滤其他 bot 消息，防止循环对话 |
 | `knownBotIds` | number[] | `[]` | 手动 bot 白名单，适用于不支持签名的 bot |
-| `botSignatureStyle` | string | `"visible"` | 签名样式：`visible` 或 `zero-width` |
+| `botSignatureStyle` | string | `"metadata"` | 签名样式：`metadata`(默认,协议层握手) / `visible` / `zero-width` / `none` |
 | `debug` | boolean | `false` | 开启消息处理流水线的详细诊断日志（@mention / bot 过滤 / 表情），排查问题时临时开启 |
 | `botSuppressionMs` | number | `120000` | 友军抑制时长（ms），0=禁用 |
 | `keywordTriggers` | string[] | `[]` | 无需 @ 的触发关键词 |
