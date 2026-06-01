@@ -18,7 +18,8 @@
     "pretest": "npm run check:config",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:install": "bash scripts/test-install-download.sh"
   },
   "openclaw": {
     "extensions": [
