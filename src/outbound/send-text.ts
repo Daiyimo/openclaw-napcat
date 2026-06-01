@@ -16,8 +16,9 @@ import {
   splitMessage,
   dispatchMessage,
 } from "../message-parser.js";
-import { OUTBOUND_MULTI_CHUNK_SLEEP_MS, makeZeroWidthSignature } from "../constants.js";
+import { OUTBOUND_MULTI_CHUNK_SLEEP_MS } from "../constants.js";
 import { maskIdsInText } from "../utils/log-sanitize.js";
+import { appendBotSignature } from "../utils/bot-signature.js";
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -87,16 +88,10 @@ export async function sendText(
   // - visible: [BOT:selfId] 格式，可靠但用户可见
   // - zero-width: 零宽字符格式，用户不可见，但可能被平台剥离
   const isGroup = /^\d+$/.test(to) || to.startsWith("group:");
-  let botSig = "";
-  if (params.botSelfId && isGroup) {
-    const style = params.cfg?.botSignatureStyle ?? "visible";
-    if (style === "zero-width") {
-      botSig = makeZeroWidthSignature(params.botSelfId);
-    } else {
-      botSig = `[BOT:${params.botSelfId}]`;
-    }
-  }
-  const effectiveText = botSig ? text + botSig : text;
+  const style = params.cfg?.botSignatureStyle ?? "visible";
+  const finalText = isGroup && params.botSelfId
+    ? appendBotSignature(text, params.botSelfId, style)
+    : text;
   const client = getClient(resolvedAccountId);
   if (!client) return { channel: "napcat", sent: false, error: "Client not connected" };
 
@@ -127,7 +122,7 @@ export async function sendText(
     }
 
     const target = parseTarget(effectiveTo);
-    const chunks = splitMessage(effectiveText, 4000);
+    const chunks = splitMessage(finalText, 4000);
     for (let i = 0; i < chunks.length; i++) {
       let message: OneBotMessage | string = chunks[i];
       if (replyToId && i === 0)

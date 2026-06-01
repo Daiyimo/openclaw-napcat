@@ -28,7 +28,8 @@ import {
   PASSIVE_COOLDOWN_MAX_AGE_MS,
 } from "../constants.js";
 import { installConnectHandler } from "./connection.js";
-import { installMessageHandler, resetKnownBotUserIds } from "./inbound.js";
+import { installMessageHandler } from "./inbound.js";
+import { initKnownBotsStore, flushKnownBotsStore } from "../known-bots-store.js";
 
 /**
  * 启动单个 QQ 账号的完整生命周期。
@@ -64,6 +65,9 @@ export async function startAccount(
 
   // ── 初始化引用索引 ──────────────────────────────────
   initRefIndexStore();
+
+  // ── 初始化已知 bot 持久化缓存（避免冷启动漏识别） ──
+  initKnownBotsStore(account.accountId);
 
   // ── 上传缓存 ────────────────────────────────────────
   const uploadCache = new UploadCache();
@@ -149,7 +153,7 @@ export async function startAccount(
   // ── Cleanup ─────────────────────────────────────────
   clearInterval(cleanupInterval);
   if (connResult.groupRouteRefreshTimer) clearInterval(connResult.groupRouteRefreshTimer);
-  resetKnownBotUserIds();
+  flushKnownBotsStore();
   flushKnownUsers();
   await flushRefIndex();
   uploadCache.dispose();
