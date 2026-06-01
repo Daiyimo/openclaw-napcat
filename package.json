@@ -1,6 +1,6 @@
 {
   "name": "@openclaw/qq",
-  "version": "1.7.1",
+  "version": "1.9.2",
   "type": "module",
   "description": "OpenClaw QQ channel plugin via OneBot v11",
   "main": "./dist/src/index.js",
@@ -14,6 +14,8 @@
   "scripts": {
     "build": "tsc --project tsconfig.json",
     "prepublishOnly": "npm run build",
+    "check:config": "node scripts/check-config-sync.cjs && node scripts/check-docker-env-parity.cjs",
+    "pretest": "npm run check:config",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"

@@ -131,6 +131,64 @@
         "type": "array",
         "items": { "type": "string" },
         "description": "Messages containing any of these keywords are silently dropped"
+      },
+      "responseGuidelines": {
+        "type": "string",
+        "description": "Response format constraints injected at the top of system prompt. Default = DEFAULT_RESPONSE_GUIDELINES (v1.9.1+). Empty string disables."
+      },
+      "ignoreSenderBot": {
+        "type": "boolean",
+        "description": "Ignore messages from other bot accounts (sender.bot=true) to prevent bot-to-bot loops. When true, bot messages are dropped and passiveMode.botSuppressionMs takes effect."
+      },
+      "knownBotIds": {
+        "type": "array",
+        "items": { "type": "number" },
+        "description": "Manual whitelist of known bot QQ numbers. Highest priority recognition, useful for bots that don't support auto-discovery via [BOT:xxx] signature."
+      },
+      "botSignatureStyle": {
+        "type": "string",
+        "enum": ["none", "visible", "zero-width"],
+        "description": "Bot identification strategy. 'visible' (default) appends [BOT:selfId] to message text - reliable, no startup spam. 'zero-width' uses invisible Unicode characters. 'none' disables text signatures entirely. Note: an earlier 'metadata' option (OneBot json-segment handshake) was removed in v1.9.2 because json segments render as visible card messages in QQ, causing startup broadcast spam."
+      },
+      "debug": {
+        "type": "boolean",
+        "description": "Enable verbose debug logging for message processing pipeline (self-filter, bot-filter, mention, reaction). Recommended only for troubleshooting."
+      },
+      "passiveMode": {
+        "type": "object",
+        "description": "Passive observation mode: AI watches all group messages and decides whether to chime in. AI replies [SILENT] to stay quiet.",
+        "properties": {
+          "enabled":          { "type": "boolean" },
+          "cooldownMs":       { "type": "number" },
+          "minIntervalMs":    { "type": "number" },
+          "botSuppressionMs": { "type": "number" },
+          "systemPrompt":     { "type": "string" }
+        }
+      },
+      "botDialogMaxRounds": {
+        "type": "number",
+        "description": "Hard cap on consecutive bot-to-bot exchanges before self-quiet (resets on user message). Default 5."
+      },
+      "dialogTimeoutMs": {
+        "type": "number",
+        "description": "Dialog state reset after this many ms of no new messages. Default 60s."
+      },
+      "botStopKeywords": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "User stop-intent keywords. When any keyword is in the user message, bots enter 'dialog stopped' state and may reply with a brief acknowledgement."
+      },
+      "botStopReplyEnabled": {
+        "type": "boolean",
+        "description": "When user sends a stop-intent message, whether THIS bot may reply with a brief acknowledgement. Default true."
+      },
+      "botStopReplyRatio": {
+        "type": "number",
+        "description": "Fraction of bots that reply with a stop-acknowledgement (selfId hash distribution). Default 0.66 (~2/3)."
+      },
+      "botStopReplyDelayMaxMs": {
+        "type": "number",
+        "description": "Max stagger delay (ms) for stop-acknowledgement replies. Default 300ms."
       }
     }
   },

@@ -96,9 +96,36 @@ if (env.QQ_PASSIVE_MODE_ENABLED !== undefined) {
   passiveMode.enabled = parseBool(env.QQ_PASSIVE_MODE_ENABLED, false);
   const cooldownMs = parseIntOpt(env.QQ_PASSIVE_MODE_COOLDOWN_MS);
   if (cooldownMs !== undefined) passiveMode.cooldownMs = cooldownMs;
+  // 补全 minIntervalMs（v1.7.1+ 新增，避免覆盖上面 if 块构建的 passiveMode 对象）
+  const minIntervalMs = parseIntOpt(env.QQ_PASSIVE_MODE_MIN_INTERVAL_MS);
+  if (minIntervalMs !== undefined) passiveMode.minIntervalMs = minIntervalMs;
   if (env.QQ_PASSIVE_MODE_SYSTEM_PROMPT) passiveMode.systemPrompt = env.QQ_PASSIVE_MODE_SYSTEM_PROMPT;
   qqEnv.passiveMode = passiveMode;
 }
+
+// ── 友军识别（v1.7.1+，v1.9.2 移除 metadata 模式）───────────────────────────
+if (env.QQ_BOT_SIGNATURE_STYLE) qqEnv.botSignatureStyle = env.QQ_BOT_SIGNATURE_STYLE;
+if (env.QQ_IGNORE_SENDER_BOT !== undefined)
+  qqEnv.ignoreSenderBot = parseBool(env.QQ_IGNORE_SENDER_BOT, true);
+const knownBotIds = parseIntList(env.QQ_KNOWN_BOT_IDS);
+if (knownBotIds) qqEnv.knownBotIds = knownBotIds;
+
+// ── 调试门控（v1.7.1+）────────────────────────────────────────────────────
+if (env.QQ_DEBUG !== undefined) qqEnv.debug = parseBool(env.QQ_DEBUG, false);
+
+// ── 多 bot 对话控制（v1.8+）──────────────────────────────────────────────
+const botDialogRounds = parseIntOpt(env.QQ_BOT_DIALOG_MAX_ROUNDS);
+if (botDialogRounds !== undefined) qqEnv.botDialogMaxRounds = botDialogRounds;
+const dialogTimeout = parseIntOpt(env.QQ_DIALOG_TIMEOUT_MS);
+if (dialogTimeout !== undefined) qqEnv.dialogTimeoutMs = dialogTimeout;
+const stopKeywords = parseStringList(env.QQ_BOT_STOP_KEYWORDS);
+if (stopKeywords) qqEnv.botStopKeywords = stopKeywords;
+if (env.QQ_BOT_STOP_REPLY_ENABLED !== undefined)
+  qqEnv.botStopReplyEnabled = parseBool(env.QQ_BOT_STOP_REPLY_ENABLED, true);
+const stopRatio = parseIntOpt(env.QQ_BOT_STOP_REPLY_RATIO);
+if (stopRatio !== undefined) qqEnv.botStopReplyRatio = stopRatio;
+const stopDelay = parseIntOpt(env.QQ_BOT_STOP_REPLY_DELAY_MAX_MS);
+if (stopDelay !== undefined) qqEnv.botStopReplyDelayMaxMs = stopDelay;
 
 // ── 无可配置的 env vars → 退出，让 openclaw 自主加载现有配置 ───────────────────
 
