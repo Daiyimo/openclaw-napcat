@@ -51,16 +51,15 @@ rm -rf "$TEMP_DIR" "$EXTRACT_DIR" "$ARCHIVE"
 mkdir -p "$EXTRACT_DIR"
 
 # 镜像列表：按优先级尝试（GitHub archive 直链）
-# 顺序按"国内可用度 + 稳定性"排。ghfast/gh-proxy 经常挂,加 kkgithub 等兜底。
+# 顺序按"国内可用度 + 稳定性"排。ghfast/gh-proxy 经常挂,补多镜像兜底。
+# 2026-06-02:移除 kkgithub(部分容器环境不可达,排首位导致脚本卡 60s)
 # 用户可通过 OPENCLAW_NAPCAT_MIRROR 环境变量强制指定单个镜像（跳过列表）。
 MIRRORS=(
-  "https://kkgithub.com/Daiyimo/openclaw-napcat/archive"
   "https://ghfast.top/https://github.com/Daiyimo/openclaw-napcat/archive"
   "https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat/archive"
   "https://mirror.ghproxy.com/https://github.com/Daiyimo/openclaw-napcat/archive"
   "https://github.com/Daiyimo/openclaw-napcat/archive"
-  # 2026-06-02 新增:kkgithub 在部分容器环境(尤其跨区域部署)偶发不可达,
-  # 补 2 个常见代理作为最后兜底,只走 30s 超时,挂了不影响主流程
+  # 新增 2 个常见代理作为最后兜底,只走 30s 超时,挂了不影响主流程
   "https://ghproxy.cn/https://github.com/Daiyimo/openclaw-napcat/archive"
   "https://gh-proxy.net/https://github.com/Daiyimo/openclaw-napcat/archive"
 )
