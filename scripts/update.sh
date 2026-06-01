@@ -32,18 +32,25 @@ EXTRACT_DIR="/tmp/openclaw-napcat-update"
 mkdir -p "$EXTRACT_DIR"
 
 # 镜像列表：按优先级尝试
+# 顺序按"国内可用度 + 稳定性"排,可通过 OPENCLAW_NAPCAT_MIRROR 强制指定单一镜像
 MIRRORS=(
+  "https://kkgithub.com/Daiyimo/openclaw-napcat/archive"
   "https://ghfast.top/https://github.com/Daiyimo/openclaw-napcat/archive"
   "https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat/archive"
+  "https://mirror.ghproxy.com/https://github.com/Daiyimo/openclaw-napcat/archive"
   "https://github.com/Daiyimo/openclaw-napcat/archive"
 )
+if [ -n "$OPENCLAW_NAPCAT_MIRROR" ]; then
+  MIRRORS=("$OPENCLAW_NAPCAT_MIRROR")
+fi
 
 echo "正在下载最新源码（tarball 模式，无需 git）..."
 DOWNLOAD_OK=0
 for mirror in "${MIRRORS[@]}"; do
     url="${mirror}/refs/heads/main.tar.gz"
     echo "  尝试: $url"
-    if curl -fL --connect-timeout 5 --max-time 120 -# -o "$ARCHIVE" "$url"; then
+    # 单镜像 30s 超时(原 120s 偏长,挂掉时拖 6 分钟)
+    if curl -fL --connect-timeout 3 --max-time 30 -# -o "$ARCHIVE" "$url"; then
         if tar -tzf "$ARCHIVE" &>/dev/null; then
             size=$(du -h "$ARCHIVE" | cut -f1)
             echo "  ✓ 下载成功 (${size})"
@@ -60,6 +67,8 @@ done
 
 if [ "$DOWNLOAD_OK" -ne 1 ]; then
     echo "✗ 所有镜像均失败，请检查网络连接"
+    echo "  提示:可设置 OPENCLAW_NAPCAT_MIRROR 指定单一镜像，例如:"
+    echo "    export OPENCLAW_NAPCAT_MIRROR=https://kkgithub.com/Daiyimo/openclaw-napcat/archive"
     exit 1
 fi
 
