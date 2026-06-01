@@ -156,6 +156,42 @@ describe("sendText — passive mode silent interception", () => {
     expect(client.sendGroupMsg).toHaveBeenCalled();
     expect(deps.passiveMode.markSilent).not.toHaveBeenCalled();
   });
+
+  it("intercepts NO_REPLY with Chinese period (NO_REPLY。)", async () => {
+    const client = makeClient();
+    const deps = makeDeps({ getClient: () => client });
+    const result = await sendText(
+      { to: "group:88888", text: "NO_REPLY。" },
+      deps,
+    );
+    expect(result).toEqual({ channel: "napcat", sent: true });
+    expect(client.sendGroupMsg).not.toHaveBeenCalled();
+    expect(deps.passiveMode.markSilent).toHaveBeenCalled();
+  });
+
+  it("intercepts NO_REPLY with Chinese comma (NO_REPLY，)", async () => {
+    const client = makeClient();
+    const deps = makeDeps({ getClient: () => client });
+    const result = await sendText(
+      { to: "group:88888", text: "NO_REPLY，" },
+      deps,
+    );
+    expect(result).toEqual({ channel: "napcat", sent: true });
+    expect(client.sendGroupMsg).not.toHaveBeenCalled();
+    expect(deps.passiveMode.markSilent).toHaveBeenCalled();
+  });
+
+  it("intercepts no_reply with Chinese exclamation (no_reply！)", async () => {
+    const client = makeClient();
+    const deps = makeDeps({ getClient: () => client });
+    const result = await sendText(
+      { to: "group:88888", text: "no_reply！" },
+      deps,
+    );
+    expect(result).toEqual({ channel: "napcat", sent: true });
+    expect(client.sendGroupMsg).not.toHaveBeenCalled();
+    expect(deps.passiveMode.markSilent).toHaveBeenCalled();
+  });
 });
 
 describe("sendText — edge cases", () => {
