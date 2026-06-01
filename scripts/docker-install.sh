@@ -59,6 +59,10 @@ MIRRORS=(
   "https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat/archive"
   "https://mirror.ghproxy.com/https://github.com/Daiyimo/openclaw-napcat/archive"
   "https://github.com/Daiyimo/openclaw-napcat/archive"
+  # 2026-06-02 新增:kkgithub 在部分容器环境(尤其跨区域部署)偶发不可达,
+  # 补 2 个常见代理作为最后兜底,只走 30s 超时,挂了不影响主流程
+  "https://ghproxy.cn/https://github.com/Daiyimo/openclaw-napcat/archive"
+  "https://gh-proxy.net/https://github.com/Daiyimo/openclaw-napcat/archive"
 )
 
 DOWNLOAD_OK=0
