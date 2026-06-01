@@ -12,12 +12,10 @@ import {
   LOGIN_INFO_TIMEOUT_MS,
   GROUP_ROUTE_REFRESH_INTERVAL_MS,
 } from "../constants.js";
-import { makeBotHandshakeMessage, shouldSendHandshake, markHandshakeSent, runHandshakeBackfill } from "../utils/bot-handshake.js";
+import { runHandshakeBackfill } from "../utils/bot-handshake.js";
 
 export interface ConnectionResult {
   groupRouteRefreshTimer: ReturnType<typeof setInterval> | null;
-  /** 24h 一次的握手心跳定时器(让对方后入场的 bot 也能发现本 bot) */
-  handshakeHeartbeatTimer: ReturnType<typeof setInterval> | null;
 }
 
 /**
@@ -28,7 +26,7 @@ export function installConnectHandler(
   client: OneBotClient,
   ctx: ConnectionContext,
 ): ConnectionResult {
-  const result: ConnectionResult = { groupRouteRefreshTimer: null, handshakeHeartbeatTimer: null };
+  const result: ConnectionResult = { groupRouteRefreshTimer: null };
 
   client.on("connect", async () => {
     console.log(`[napcat-QQ] Connected account ${ctx.account.accountId}`);
@@ -130,37 +128,10 @@ export function installConnectHandler(
         console.warn(`[napcat-QQ] Group route pre-registration failed (non-fatal): ${err}`);
       }
 
-      // ── 协议层握手（Plan A）：对每个已加入群发一次 bot 身份声明 ──
-      // 仅在 metadata 模式下发送；其他模式（visible/zero-width/none）跳过，
-      // 仍依赖 in-band 签名或 sender.bot / knownBotIds。
-      // 节流：每个群 24h 内不重复发送。
-      if (ctx.config.botSignatureStyle === "metadata" && info?.user_id) {
-        try {
-          const groups = await client.getGroupList();
-          let sent = 0;
-          let skipped = 0;
-          for (const g of groups) {
-            const gid = String(g.group_id);
-            if (!shouldSendHandshake(ctx.account.accountId, gid)) {
-              skipped += 1;
-              continue;
-            }
-            try {
-              await client.sendGroupMsg(g.group_id, makeBotHandshakeMessage(info.user_id));
-              markHandshakeSent(ctx.account.accountId, gid);
-              sent += 1;
-            } catch (sendErr) {
-              // 单群失败不阻塞其他群
-              console.warn(`[napcat-QQ] Handshake send failed for group ${gid}: ${sendErr}`);
-            }
-          }
-          if (sent > 0) {
-            console.log(`[napcat-QQ] Sent bot handshake to ${sent} groups (skipped ${skipped} by throttle)`);
-          }
-        } catch (hsErr) {
-          console.warn(`[napcat-QQ] Handshake batch failed (non-fatal): ${hsErr}`);
-        }
-      }
+      // v1.9.2 移除启动握手(原 metadata 模式):
+      //  OneBot json 段在 QQ 客户端会渲染成可见卡片消息,
+      //  启动时向所有群广播 = spam。现仅依赖文本签名/sender.bot/knownBotIds。
+      // 冷启动 backfill 仍保留:拉历史(只读)补充 known-bots-cache。
 
       // ── 冷启动历史回填：拉最近 N 条群消息，扫描握手 / 文本签名 ──
       // 解决"对方 bot 之前发过握手,本 bot 启动后才入群"的不对称时序问题。
@@ -195,34 +166,11 @@ export function installConnectHandler(
         }, GROUP_ROUTE_REFRESH_INTERVAL_MS);
       }
 
-      // ── 握手心跳：每 24h 重发一次握手 ─────────────────────────
-      // 解决"老握手滚出 30 条历史,对方 bot 后入群抓不到"问题。
-      // 节流由 shouldSendHandshake 控制(24h 窗口),定时器只触发"重发请求"。
-      if (!result.handshakeHeartbeatTimer) {
-        result.handshakeHeartbeatTimer = setInterval(async () => {
-          if (ctx.config.botSignatureStyle !== "metadata" || !info?.user_id) return;
-          try {
-            const groups = await client.getGroupList();
-            let sent = 0;
-            for (const g of groups) {
-              const gid = String(g.group_id);
-              if (!shouldSendHandshake(ctx.account.accountId, gid)) continue;
-              try {
-                await client.sendGroupMsg(g.group_id, makeBotHandshakeMessage(info.user_id));
-                markHandshakeSent(ctx.account.accountId, gid);
-                sent += 1;
-              } catch {
-                // 单群失败静默,定时器下次再试
-              }
-            }
-            if (sent > 0) {
-              console.log(`[napcat-QQ][handshake-heartbeat] re-sent to ${sent} groups`);
-            }
-          } catch (err) {
-            console.warn(`[napcat-QQ][handshake-heartbeat] tick failed: ${err}`);
-          }
-        }, 24 * 60 * 60 * 1_000);
-      }
+      // v1.9.2 移除 24h 握手心跳定时器(原因:每 24h 也会向所有群发卡片消息 spam)
+      // 解决"老握手滚出 30 条历史"问题改由:
+      // 1. 启动时一次性握手(opt-in metadata 用户)
+      // 2. group_increase 触发节流清除(在 inbound.ts)
+      // 3. 对方 bot 重启时会自动从冷启动 backfill 重新发现
     } catch (err) {
       console.warn(`[napcat-QQ] connect handler error (non-fatal): ${err}`);
     }

@@ -152,7 +152,6 @@ export async function startAccount(
   // ── Cleanup ─────────────────────────────────────────
   clearInterval(cleanupInterval);
   if (connResult.groupRouteRefreshTimer) clearInterval(connResult.groupRouteRefreshTimer);
-  if (connResult.handshakeHeartbeatTimer) clearInterval(connResult.handshakeHeartbeatTimer);
   flushKnownBotsStore();
   flushKnownUsers();
   await flushRefIndex();

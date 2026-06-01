@@ -20,7 +20,6 @@ import {
 } from "./message-parser.js";
 import { parseMediaTagsToSendQueue } from "./media-send.js";
 import { appendBotSignature } from "./utils/bot-signature.js";
-import { makeBotHandshakeMessage, shouldSendHandshake, markHandshakeSent } from "./utils/bot-handshake.js";
 import { markStopped } from "./dialog-state.js";
 import { DEFAULT_BOT_SIGNATURE_STYLE } from "./constants.js";
 
@@ -114,19 +113,7 @@ export class MessageSender {
     const botSelfId = isGroup ? client.getSelfId() : null;
     const style = config.botSignatureStyle ?? DEFAULT_BOT_SIGNATURE_STYLE;
 
-    // ── metadata 模式：在发文本前补一次握手（仅本群首次 / 节流窗口后） ──
-    // 失败不阻塞主消息（其他 bot 即使没收到握手,也有 sender.bot / 持久化 cache 兜底）
-    if (isGroup && style === "metadata" && botSelfId && groupId !== undefined) {
-      const gid = String(groupId);
-      if (shouldSendHandshake(this.ctx.accountId, gid)) {
-        try {
-          await client.sendGroupMsg(groupId, makeBotHandshakeMessage(botSelfId));
-          markHandshakeSent(this.ctx.accountId, gid);
-        } catch (hsErr) {
-          console.warn(`[message-sender] handshake send failed (non-fatal): ${hsErr}`);
-        }
-      }
-    }
+    // v1.9.2 移除 metadata 模式:发文本前补握手 json 段会变成可见卡片消息 = spam
 
     // ── 媒体标签优先路径 ──
     const { hasMediaTags, sendQueue } = parseMediaTagsToSendQueue(processed);

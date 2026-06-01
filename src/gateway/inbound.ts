@@ -37,7 +37,7 @@ import {
 } from "../message-processor.js";
 import { MessageSender } from "../message-sender.js";
 import { parseBotHandshake } from "../utils/bot-handshake.js";
-import { BOT_SIGNATURE_PATTERN, BOT_SIGNATURE_ZW_PATTERN, ERROR_NOTIFY_SLEEP_MS, BOT_STOPPED_SUPPRESS_MS, DEFAULT_STOP_KEYWORDS, BOT_HANDSHAKE_MIN_LENGTH } from "../constants.js";
+import { BOT_SIGNATURE_PATTERN, BOT_SIGNATURE_ZW_PATTERN, ERROR_NOTIFY_SLEEP_MS, BOT_STOPPED_SUPPRESS_MS, DEFAULT_STOP_KEYWORDS } from "../constants.js";
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -117,29 +117,7 @@ export function installMessageHandler(
         } else return;
       }
 
-      // ── 新成员入群:清除该群握手节流,下次发消息时重发自我介绍 ──
-      // 场景:对方 bot 后入场,本 bot 上次握手可能已滚出 30 条历史。
-      // 通过清掉节流,本 bot 下次主动发任何消息前会先发一次握手,
-      // 让新 bot 的 backfill 能看到。
-      if (
-        event.post_type === "notice" &&
-        event.notice_type === "group_increase" &&
-        event.sub_type === "increase" &&
-        event.group_id
-      ) {
-        const gid = String(event.group_id);
-        // 跳过自己入群的事件(自己刚连上时也会收到)
-        if (String(event.user_id) !== String(event.self_id ?? "")) {
-          if (config.botSignatureStyle === "metadata") {
-            const { clearHandshakeThrottle } = await import("../utils/bot-handshake.js");
-            clearHandshakeThrottle(account.accountId, gid);
-            if (config.debug) {
-              console.log(`[napcat-QQ][debug-handshake] group_increase detected, cleared throttle for ${gid}`);
-            }
-          }
-        }
-        return;
-      }
+      // v1.9.2 移除 group_increase 触发握手节流清除(metadata 模式已删)
 
       if (event.post_type !== "message") return;
 
@@ -203,11 +181,10 @@ export function installMessageHandler(
         const sigMatch = BOT_SIGNATURE_PATTERN.exec(text);
         const zwSigMatch = BOT_SIGNATURE_ZW_PATTERN.exec(text);
         const matchedBotId = sigMatch?.[1] ?? zwSigMatch?.[1] ?? null;
-        // Layer 4: 协议层握手（Plan A, v1.8+ 默认）。
-        // json 段中携带 { app: "openclaw-napcat", kind: "bot", selfId } 元数据。
-        // 仅在元数据载荷满足最小长度时检查,避免误判。
+        // Layer 4: 协议层握手（v1.9 引入,v1.9.2 发送侧已删除,接收侧保留作防御性检测）
+        // 如果对方 bot 仍发送 json 段握手,本 bot 仍能识别;否则此层不命中。
         let handshakeMatch: string | null = null;
-        if (Array.isArray(event.message) && (event.raw_message?.length ?? 0) >= BOT_HANDSHAKE_MIN_LENGTH) {
+        if (Array.isArray(event.message)) {
           const hs = parseBotHandshake(event.message);
           if (hs) handshakeMatch = hs.selfId;
         }
