@@ -21,6 +21,7 @@ import {
 import { parseMediaTagsToSendQueue } from "./media-send.js";
 import { appendBotSignature } from "./utils/bot-signature.js";
 import { markStopped } from "./dialog-state.js";
+import { DEFAULT_BOT_SIGNATURE_STYLE } from "./constants.js";
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -92,7 +93,7 @@ export class MessageSender {
 
     // 群消息所需参数：签名追加到最后一个 chunk（避免被 splitMessage 切开）
     const botSelfId = isGroup ? client.getSelfId() : null;
-    const style = config.botSignatureStyle ?? "visible";
+    const style = config.botSignatureStyle ?? DEFAULT_BOT_SIGNATURE_STYLE;
 
     // ── 媒体标签优先路径 ──
     const { hasMediaTags, sendQueue } = parseMediaTagsToSendQueue(processed);

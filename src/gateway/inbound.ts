@@ -15,9 +15,6 @@ import { populateGroupMemberCache } from "../member-cache.js";
 import { isKnownBot, recordKnownBot, recordBotInfo, getBotInfo } from "../known-bots-store.js";
 import { getDialogState, recordBotTurn, markStopped, recordUserMessage } from "../dialog-state.js";
 import { shouldBotReplyToStop, getBotStopDelay, detectStopIntent } from "../utils/bot-decision.js";
-
-/** 多 bot 对话默认停止意图关键词 */
-const DEFAULT_STOP_KEYWORDS = ["别聊了", "stop", "Stop", "STOP", "闭嘴", "安静", "别说了", "别吵了"];
 import {
   extractImageUrls,
   downloadImages,
@@ -39,7 +36,7 @@ import {
   buildBodyWithReply,
 } from "../message-processor.js";
 import { MessageSender } from "../message-sender.js";
-import { BOT_SIGNATURE_PATTERN, BOT_SIGNATURE_ZW_PATTERN, ERROR_NOTIFY_SLEEP_MS } from "../constants.js";
+import { BOT_SIGNATURE_PATTERN, BOT_SIGNATURE_ZW_PATTERN, ERROR_NOTIFY_SLEEP_MS, BOT_STOPPED_SUPPRESS_MS, DEFAULT_STOP_KEYWORDS } from "../constants.js";
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -208,7 +205,7 @@ export function installMessageHandler(
             const maxRounds = config.botDialogMaxRounds ?? 5;
 
             // 已被用户停止 → 静默
-            if (dialog.stoppedAt !== null && Date.now() - dialog.stoppedAt < 60_000) {
+            if (dialog.stoppedAt !== null && Date.now() - dialog.stoppedAt < BOT_STOPPED_SUPPRESS_MS) {
               if (config.debug) {
                 console.log(`[napcat-QQ][debug-dialog] bot msg dropped: dialog stopped at ${dialog.stoppedAt}`);
               }
