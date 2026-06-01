@@ -84,9 +84,16 @@ if ! tar -xzf "$ARCHIVE" -C "$EXTRACT_DIR"; then
   exit 1
 fi
 rm -f "$ARCHIVE"
-TEMP_DIR=$(find "$EXTRACT_DIR" -maxdepth 1 -type d -name "openclaw-napcat-*" | head -1)
+# -mindepth 1 跳过搜索根自身：EXTRACT_DIR 名为 openclaw-napcat-extract-<pid>，
+# 模式 openclaw-napcat-* 会把它本身当匹配项，导致 head -1 拿到父目录而非子目录
+TEMP_DIR=$(find "$EXTRACT_DIR" -mindepth 1 -maxdepth 1 -type d -name "openclaw-napcat-*" | head -1)
 if [ -z "$TEMP_DIR" ]; then
   echo "✗ 解压后未找到源码目录"
+  exit 1
+fi
+# 回归保护：find 自匹配 bug 不应再出现
+if [ "$TEMP_DIR" = "$EXTRACT_DIR" ]; then
+  echo "✗ 内部错误：find 返回了 EXTRACT_DIR 自身，请报告此 bug"
   exit 1
 fi
 

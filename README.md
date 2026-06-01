@@ -331,6 +331,7 @@ docker compose restart openclaw
 
 ## 文档
 
+- [BUILD.md](docs/BUILD.md) — 本地构建与开发指南
 - [CONFIG.md](docs/CONFIG.md) — 完整配置项
 - [COMMANDS.md](docs/COMMANDS.md) — 管理员指令
 - [DOCKER.md](docs/DOCKER.md) — Docker 部署指南
