@@ -284,7 +284,7 @@ describe("buildBodyWithReply", () => {
     expect(result).toContain("只在被 @ 时才回复");
   });
 
-  it("v1.9.4 默认提示禁止'我是谁谁谁'自我意识式回答", () => {
+  it("v1.9.4 默认提示禁止'我是 X bot'自我意识式回答", () => {
     const result = buildBodyWithReply({
       text: "test",
       repliedMsg: null,
@@ -293,11 +293,11 @@ describe("buildBodyWithReply", () => {
       isPassiveMode: true,
       passivePrompt: undefined,
     });
-    // 显式禁止"我是谁谁谁,管不了别人的 bot"这种泄露身份的回复
-    expect(result).toMatch(/不要解释.*我是谁.*管不了|管不了别人的 bot/);
+    // 抽象为"自我意识式解释"通用禁令,不写死具体 bot 名
+    expect(result).toMatch(/自我意识/);
   });
 
-  it("v1.9.4 默认提示对管理类指令要求 @ 你才执行", () => {
+  it("v1.9.4 默认提示对管理类指令要求 @ 你本人才响应", () => {
     const result = buildBodyWithReply({
       text: "test",
       repliedMsg: null,
@@ -306,8 +306,8 @@ describe("buildBodyWithReply", () => {
       isPassiveMode: true,
       passivePrompt: undefined,
     });
-    expect(result).toContain("消息里 @ 你");
-    expect(result).toContain("执行");
+    expect(result).toContain("管理类指令");
+    expect(result).toContain("@ 了你本人");
   });
 
   it("v1.9.4 identity 块在 passive_mode 之前(让 AI 早期知道我是谁)", () => {
