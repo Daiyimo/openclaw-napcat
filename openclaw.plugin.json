@@ -189,6 +189,10 @@
       "botStopReplyDelayMaxMs": {
         "type": "number",
         "description": "Max stagger delay (ms) for stop-acknowledgement replies. Default 300ms."
+      },
+      "sensitiveFileGuard": {
+        "type": "object",
+        "description": "Pre-dispatch guard: block non-admin users from instructing the agent to modify persona/memory files (SOUL.md, AGENTS.md, IDENTITY.md, USER.md, MEMORY.md by default). Enabled by default."
       }
     }
   },

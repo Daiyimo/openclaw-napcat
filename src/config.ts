@@ -76,6 +76,22 @@ export const QQConfigSchema = z.object({
   botStopReplyRatio: z.number().min(0).max(1).optional().default(0.66).describe("Fraction of bots that reply with a stop-acknowledgement. Default 0.66 (≈2/3)."),
   /** 用户停止指令时，回结束语的 bot 错开延迟上限（ms）。延迟 = hash(selfId) % maxMs */
   botStopReplyDelayMaxMs: z.number().int().min(0).max(5000).optional().default(300).describe("Max stagger delay (ms) for stop-acknowledgement replies. Default 300ms."),
+  // ── 系统文件预拦截（v1.10+） ─────────────────────────────────────
+  /**
+   * 非管理员系统文件保护：检测非 admin 用户是否在请求修改人设/记忆/身份等
+   * 系统文件，命中时直接 reply 一句拒绝消息并 return，不调用 OpenClaw。
+   *
+   * 治标原因：OpenClaw 主项目 LLM tool dispatch 层不消费 CommandAuthorized，
+   * 在 napcat 网关侧把消息挡在 OpenClaw 调用之前是用户可控的最快防线。
+   * 默认开启（fail-secure）。Admin 完全不受影响。
+   */
+  sensitiveFileGuard: z.object({
+    enabled: z.boolean().optional().default(true).describe("Block non-admin users from instructing the agent to modify persona/memory files. Default true."),
+    files: z.array(z.string().min(1)).optional().describe("Protected file basenames (case-insensitive). Default: SOUL.md, AGENTS.md, IDENTITY.md, USER.md, MEMORY.md."),
+    verbs: z.array(z.string().min(1)).optional().describe("Intent verbs that, combined with a noun, trigger the guard. Default contains 中文 改/修改/更新/重写/设置/覆盖/写入/替换 and 英文 edit/modify/update/rewrite/set/overwrite/write/replace."),
+    nouns: z.array(z.string().min(1)).optional().describe("Intent nouns paired with verbs. Default contains 中文 人设/灵魂/记忆/身份/人格/性格 and 英文 soul/agents/memory/identity/persona."),
+    rejectMessage: z.string().optional().describe("Custom rejection text sent to non-admin sender. Default contains a generic admin-only notice."),
+  }).optional().describe("Pre-dispatch guard against non-admin persona/memory file modification."),
 });
 
 export type QQConfig = z.infer<typeof QQConfigSchema>;
