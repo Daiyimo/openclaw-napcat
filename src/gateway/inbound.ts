@@ -16,6 +16,10 @@ import { isKnownBot, recordKnownBot, recordBotInfo, getBotInfo } from "../known-
 import { getDialogState, recordBotTurn, markStopped, recordUserMessage } from "../dialog-state.js";
 import { shouldBotReplyToStop, getBotStopDelay, detectStopIntent } from "../utils/bot-decision.js";
 import {
+  detectSensitiveFileRequest,
+  DEFAULT_REJECTION_MESSAGE,
+} from "../utils/sensitive-guard.js";
+import {
   extractImageUrls,
   downloadImages,
   cleanCQCodes,
@@ -253,6 +257,34 @@ export function installMessageHandler(
       }
 
       const isAdmin = config.admins?.includes(userId!) ?? false;
+
+      // ── 系统文件预拦截（v1.10+）──────────────────────────────
+      // 非 admin 用户试图诱导 bot 修改 SOUL/AGENTS/IDENTITY/USER/MEMORY 等
+      // 系统文件时直接拒绝。治标方案：OpenClaw 主项目 LLM tool dispatch 层
+      // 不消费 CommandAuthorized，在网关侧把消息挡在 OpenClaw 调用之前。
+      // 详见 src/utils/sensitive-guard.ts。
+      if (!isAdmin && config.sensitiveFileGuard?.enabled !== false) {
+        const guardOpts = {
+          ...(config.sensitiveFileGuard?.files ? { files: config.sensitiveFileGuard.files } : {}),
+          ...(config.sensitiveFileGuard?.verbs ? { verbs: config.sensitiveFileGuard.verbs } : {}),
+          ...(config.sensitiveFileGuard?.nouns ? { nouns: config.sensitiveFileGuard.nouns } : {}),
+        };
+        const check = detectSensitiveFileRequest(text, guardOpts);
+        if (check.matched) {
+          const rejectMsg = config.sensitiveFileGuard?.rejectMessage ?? DEFAULT_REJECTION_MESSAGE;
+          if (isGroup && groupId) {
+            await client.sendGroupMsg(groupId, rejectMsg);
+          } else if (userId) {
+            await client.sendPrivateMsg(userId, rejectMsg);
+          }
+          if (config.debug) {
+            console.log(
+              `[napcat-QQ][debug-sensitive-guard] blocked user=${maskId(userId)} reason=${check.reason} hit=${check.hit}`,
+            );
+          }
+          return;
+        }
+      }
 
       // ── 管理员命令 ────────────────────────────────────
       if (!isGuild && isAdmin && text.trim().startsWith("/")) {
