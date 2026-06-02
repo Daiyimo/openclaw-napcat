@@ -2,6 +2,61 @@
 
 # 更新日志
 
+### [Unreleased] - 群管理全套补齐
+
+#### Added — 群管命令从 3 个扩展到 30+
+
+参考 NapCat 4.18.1 OpenAPI 补齐群管命令，按分组展示。详见 [`docs/COMMANDS.md`](COMMANDS.md)。
+
+**A. OneBot v11 原生群管**：
+- `/unmute` 解除禁言、`/kickbatch` 批量踢人（⚠️ 二次确认）
+- `/admin /unadmin` 任命/撤销管理员（⚠️ 二次确认）
+- `/card` 改群名片、`/title` 专属头衔
+- `/banall /unbanall` 全员禁言开关
+- `/shutlist` 查看禁言名单
+
+**B. 群资料**：
+- `/setname` 改群名（⚠️ 二次确认）
+- `/setremark` 改群备注（⚠️ 二次确认）
+- `/setportrait` 改群头像（⚠️ 二次确认，需回复一张图片）
+- `/leave` bot 退群（⚠️ 二次确认）
+- `/dismiss` 解散本群（⚠️ 二次确认，不可逆）
+
+**C. 精华消息**：`/essence /deessence /essencelist`
+
+**D. 查询**：`/honor`（群荣誉）、`/atallremain`（@全体剩余）、`/groupinfo`
+
+**E. 群文件全套**（per-admin per-group cwd 状态，类 shell 体验）：
+- `/files /cd /cdup /pwd` 浏览
+- `/dl /delfile /mkdir /rmdir /mvfile /renamefile` 增删改查
+- `/upload` 上传方式说明
+
+**F. NapCat 扩展**：
+- `/poke` 戳一戳、`/sign` 群签到
+- `/todo /donetodo /canceltodo` 群待办三件套
+
+**底层 `src/client.ts` 同步补齐 27 个 OneBot/NapCat API**（`setGroupAdmin / setGroupCard / setEssenceMsg / getGroupRootFiles / setGroupPortrait` 等）。
+
+#### Added — 二次确认机制
+
+新增 `src/utils/confirm-pending.ts`（纯函数 + 模块 Map，30s TTL）。高代价命令（带 ⚠️）首次触发返回 "pending" 提示，30 秒内同 admin 同 action 再发一次才真正执行。防止手滑误操作。
+
+#### Added — 群文件 cwd 状态
+
+新增 `src/utils/group-file-cwd.ts`（纯函数 + 模块 Map）。每个 admin 在每个群里独立维护当前目录栈，`/cd /cdup /files` 等命令像 shell 一样工作。
+
+#### Added — 测试 +54
+
+- `confirm-pending.test.ts` 11 it（纯函数零 mock）
+- `group-file-cwd.test.ts` 10 it（纯函数零 mock）
+- `admin-commands.test.ts` +33 it：覆盖新命令 happy path + 二次确认 + cwd 流转 + 边界
+
+#### Why
+
+- 现状：napcat 群管命令只有 3 个（`/mute /ban /kick`），75% 群管 API 在 client.ts 也空白
+- 痛点：群主每次想做群管要切 NapCat WebUI 手动点
+- 决策：参考 NapCat 4.18.1 OpenAPI 全套补齐；高代价操作走二次确认防误按；全部仅 admin 与现有 gate 一致
+
 ### [Unreleased] - 系统文件预拦截
 
 #### Added
