@@ -2,6 +2,15 @@
 
 # 更新日志
 
+### [Unreleased] - docker-install.sh set -e 陷阱修复
+
+#### Fixed
+
+- **`scripts/docker-install.sh` 第一个镜像失败时 silent 退出**：用户在容器里跑 `curl -fsSL .../docker-install.sh | bash`，输出 "尝试: https://ghfast.top/..." 后脚本直接退回 shell prompt，没有任何错误诊断。
+  - 根因：line 134 用 `curl_err=$(curl ... 2>&1)` 形式。按 bash 规范，命令替换内命令的非零退出不应触发 set -e；**但 bash 4.4 之前的版本（以及部分容器 minimal shell）行为不一致**，会因 inner curl 失败立刻退出，跳过下面的 case 诊断和 fallback 镜像循环。
+  - 修复：改用 `set +e` / `set -e` 显式包裹 curl 调用，并加 `< /dev/null` 显式关闭 stdin 防 `curl | bash` 模式下子 curl 偷读外层 pipe 字节。
+  - 影响范围：所有用 docker-install.sh 一键安装的用户，特别是 ghfast.top 在当前网络环境不可达时。`install.sh` / `update.sh` 已经用 `if curl ...; then` 模式，无此问题。
+
 ### [Unreleased] - 群管理全套补齐
 
 #### Added — 群管命令从 3 个扩展到 30+

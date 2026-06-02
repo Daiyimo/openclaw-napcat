@@ -131,8 +131,17 @@ if [ "$DOWNLOAD_OK" -ne 1 ]; then
     while [ $attempt -le 2 ]; do
       # 不加 -f,让 HTTP 错误也能下载到文件然后被 tar 验证捕获
       # (避免某些镜像把 404 响应降级为 200 页面导致误判)
-      curl_err=$(curl -L --connect-timeout 3 --max-time 30 -# -o "$ARCHIVE" "$url" 2>&1)
+      #
+      # ★ 用 if/set +e 包裹避免 set -e 在不同 bash 版本下行为不一致:
+      #   - bash 4.4- 下 `var=$(cmd_that_fails)` 可能触发 set -e 退出
+      #   - 这会导致镜像第一次失败直接 silent 终止整个脚本
+      #     (用户看到的现象:输出 "尝试: ..." 后立刻退回 shell prompt)
+      # ★ `< /dev/null` 显式关闭 stdin,防止 `curl ... | bash` 模式下
+      #   内部 curl 偷读外层 pipe 的剩余字节
+      set +e
+      curl -L --connect-timeout 3 --max-time 30 -# -o "$ARCHIVE" "$url" </dev/null 2>&1
       curl_exit=$?
+      set -e
 
       if [ $curl_exit -eq 0 ]; then
         if tar -tzf "$ARCHIVE" &>/dev/null; then
