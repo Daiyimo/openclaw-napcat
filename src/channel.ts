@@ -302,12 +302,13 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
     sendText: async ({ to, text, accountId, replyToId, cfg }: { to: string; text: string; accountId?: string | null; replyToId?: string | null; cfg?: any }) => {
       console.log(`[napcat-QQ][outbound.sendText] called with to=${to}, accountId=${accountId}`);
       const resolvedAid = accountId || DEFAULT_ACCOUNT_ID;
-      // 提取本 bot 的 QQ 号用于生成友军签名 [BOT:${selfId}]
-      // 优先从模块级缓存读取（connect handler 写入），回退到 config（兼容旧路径）
-      const selfId = getBotSelfId(resolvedAid) ?? cfg?.channels?.napcat?._selfId;
+      // 提取本 bot 的 QQ 号和昵称用于生成友军签名
+      // 优先用昵称（更可读），UID 作为兜底
       const accountCfg = (resolvedAid === DEFAULT_ACCOUNT_ID ? cfg?.channels?.napcat : cfg?.channels?.napcat?.accounts?.[resolvedAid]) as QQConfig | undefined;
+      const selfId = getBotSelfId(resolvedAid) ?? cfg?.channels?.napcat?._selfId;
+      const selfName = accountCfg?._selfName;
       return sendText(
-        { to, text, accountId, botSelfId: selfId, cfg: accountCfg },
+        { to, text, accountId, botSelfId: selfId, botSelfName: selfName, cfg: accountCfg },
         { getClient: getClientForAccount, knownGroupIds: getKnownGroupIds(resolvedAid), passiveMode },
       );
     },

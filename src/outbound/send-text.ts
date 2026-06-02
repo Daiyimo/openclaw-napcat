@@ -29,8 +29,10 @@ export interface SendTextParams {
   accountId?: string | null;
   replyToId?: string | null;
   cfg?: QQConfig;
-  /** 本 bot 的 QQ 号，用于生成友军签名 [BOT:${selfId}] */
+  /** 本 bot 的 QQ 号(兜底) */
   botSelfId?: number | string;
+  /** 本 bot 的昵称(优先),由 connection.ts 启动时 getLoginInfo().nickname 注入 */
+  botSelfName?: string;
 }
 
 export interface SendTextDeps {
@@ -88,12 +90,11 @@ export async function sendText(
   // - visible:   [BOT:selfId] 格式，可靠但用户可见
   // - zero-width:零宽字符格式，用户不可见，但可能被平台剥离
   // - none:      不追加（仅靠 sender.bot / knownBotIds / 持久化 cache）
-  // - metadata:  不追加文本（用户文本 100% 干净）；握手在启动时 + outbound 首次发送时
-  //              通过 shouldSendHandshake 节流,后续每 24h 最多补发一次
+  // v1.9.4: 签名优先用 bot 昵称(更可读),UID 兜底
   const isGroup = /^\d+$/.test(to) || to.startsWith("group:");
   const style = params.cfg?.botSignatureStyle ?? DEFAULT_BOT_SIGNATURE_STYLE;
-  const finalText = isGroup && params.botSelfId
-    ? appendBotSignature(text, params.botSelfId, style)
+  const finalText = isGroup && (params.botSelfId || params.botSelfName)
+    ? appendBotSignature(text, params.botSelfName ?? null, params.botSelfId, style)
     : text;
   const client = getClient(resolvedAccountId);
   if (!client) return { channel: "napcat", sent: false, error: "Client not connected" };

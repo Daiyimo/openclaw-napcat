@@ -105,6 +105,46 @@ describe("MessageSender.deliver", () => {
   });
 });
 
+// ============ v1.9.4 真 silent 拦截 ============
+
+describe("MessageSender.deliver — silent token 真拦截", () => {
+  it("[SILENT] token 不发送任何消息", async () => {
+    const client = makeClient();
+    const sender = makeSender({ client });
+    await sender.deliver({ text: "[SILENT]" });
+    expect(client.sendGroupMsg).not.toHaveBeenCalled();
+    expect(client.sendPrivateMsg).not.toHaveBeenCalled();
+  });
+
+  it("NO_REPLY 不发送", async () => {
+    const client = makeClient();
+    const sender = makeSender({ client });
+    await sender.deliver({ text: "NO_REPLY" });
+    expect(client.sendGroupMsg).not.toHaveBeenCalled();
+  });
+
+  it("NO_REPLY 加中文标点也不发送", async () => {
+    const client = makeClient();
+    const sender = makeSender({ client });
+    await sender.deliver({ text: "NO_REPLY。" });
+    expect(client.sendGroupMsg).not.toHaveBeenCalled();
+  });
+
+  it("[END_DIALOG] 不发送 + 标记 stopped", async () => {
+    const client = makeClient();
+    const sender = makeSender({ client });
+    await sender.deliver({ text: "[END_DIALOG]" });
+    expect(client.sendGroupMsg).not.toHaveBeenCalled();
+  });
+
+  it("正常文本照常发送", async () => {
+    const client = makeClient();
+    const sender = makeSender({ client });
+    await sender.deliver({ text: "正常回复" });
+    expect(client.sendGroupMsg).toHaveBeenCalledTimes(1);
+  });
+});
+
 // ============ deliver — files ============
 
 describe("MessageSender.deliver — files", () => {
