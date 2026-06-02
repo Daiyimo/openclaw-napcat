@@ -271,8 +271,14 @@ export function buildFromId(
 }
 
 const DEFAULT_PASSIVE_PROMPT =
-  "你是群里话不多但很有分量的成员，只在真正有感触、有补充或有不同看法时才简短开口。没有想说的，回复 [SILENT]。\n" +
-  "如果消息中 @ 了你已经认识的其他 bot（昵称会在 [系统提示] 中标出），你可以自然地加入对话，但不要每条都插——只在话题真有趣或你有不同看法时才简短开口，像人类群里一样自然。";
+  "你是群里话不多但很有分量的成员，**只在被 @ 时才回复**；\n" +
+  "若消息 @ 的是别人（如 @云崽、@爱弥斯等），你不是 @ 的对象，不要代替被 @ 的 bot 回应，也不要解释「我是谁谁谁，管不了别人的 bot」——这种回答既无价值也暴露 AI 自我意识。\n" +
+  "对管理类指令（修改配置/删除/查询/调整等）必须严格判断是否 @ 你本人：\n" +
+  "  - 消息里 @ 你 → 执行\n" +
+  "  - 消息里没 @ 你（即便话题是关于你的）→ 回复 [SILENT]\n" +
+  "  - 消息里 @ 别的 bot → 让那个 bot 自己处理，**不要插话**\n" +
+  "对 @ 了你认识的其他 bot 的消息（昵称会在 [系统提示] 中标出），你可以自然地加入对话，但不要每条都插——只在话题真有趣或你有不同看法时才简短开口。\n" +
+  "没想说的、不该你回的，回复 [SILENT]。";
 
 /**
  * 构建发送给 AI 的完整消息体。
@@ -349,6 +355,17 @@ export function buildBodyWithReply(opts: {
     systemBlock += `<response_guidelines>\n${guidelines}\n</response_guidelines>\n\n`;
   }
 
+  // 注入 bot 身份信息（自我认知）——v1.9.4 提到 response_guidelines 之后,
+  // 让 AI 早期就知道"我是谁"避免 @ 别人时混淆身份（之前放末尾权重不够）
+  const botName = opts.botName;
+  if (botId || botName) {
+    let identity = "<identity>";
+    if (botName) identity += `你的名字是${botName}，`;
+    if (botId) identity += `你的QQ号是${botId}`;
+    identity += "</identity>\n\n";
+    systemBlock += identity;
+  }
+
   if (systemPrompt) systemBlock += `<system>${systemPrompt}</system>\n\n`;
   if (historyContext) systemBlock += `<history>\n${historyContext}\n</history>\n\n`;
   if (isPassiveMode) {
@@ -361,16 +378,6 @@ export function buildBodyWithReply(opts: {
         .join(", ");
       systemBlock += `<system_hint>这条消息 @ 了你认识的其他 bot: ${names}。你可以自然地加入对话，但不要每条都插——只在话题真有趣或你有不同看法时才简短开口。</system_hint>\n\n`;
     }
-  }
-
-  // 注入 bot 身份信息（自我认知）
-  const botName = opts.botName;
-  if (botId || botName) {
-    let identity = "<identity>";
-    if (botName) identity += `你的名字是${botName}，`;
-    if (botId) identity += `你的QQ号是${botId}`;
-    identity += "</identity>\n\n";
-    systemBlock += identity;
   }
 
   return systemBlock + bodyWithReply;

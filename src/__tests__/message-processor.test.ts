@@ -271,6 +271,62 @@ describe("buildBodyWithReply", () => {
     // 默认提示中应有关于加入对话的说明
     expect(result).toMatch(/加入对话|插话|加入/);
   });
+
+  it("v1.9.4 默认提示明确'只在被 @ 时才回复'", () => {
+    const result = buildBodyWithReply({
+      text: "test",
+      repliedMsg: null,
+      systemPrompt: undefined,
+      historyContext: "",
+      isPassiveMode: true,
+      passivePrompt: undefined,
+    });
+    expect(result).toContain("只在被 @ 时才回复");
+  });
+
+  it("v1.9.4 默认提示禁止'我是谁谁谁'自我意识式回答", () => {
+    const result = buildBodyWithReply({
+      text: "test",
+      repliedMsg: null,
+      systemPrompt: undefined,
+      historyContext: "",
+      isPassiveMode: true,
+      passivePrompt: undefined,
+    });
+    // 显式禁止"我是谁谁谁,管不了别人的 bot"这种泄露身份的回复
+    expect(result).toMatch(/不要解释.*我是谁.*管不了|管不了别人的 bot/);
+  });
+
+  it("v1.9.4 默认提示对管理类指令要求 @ 你才执行", () => {
+    const result = buildBodyWithReply({
+      text: "test",
+      repliedMsg: null,
+      systemPrompt: undefined,
+      historyContext: "",
+      isPassiveMode: true,
+      passivePrompt: undefined,
+    });
+    expect(result).toContain("消息里 @ 你");
+    expect(result).toContain("执行");
+  });
+
+  it("v1.9.4 identity 块在 passive_mode 之前(让 AI 早期知道我是谁)", () => {
+    const result = buildBodyWithReply({
+      text: "test",
+      repliedMsg: null,
+      systemPrompt: undefined,
+      historyContext: "",
+      isPassiveMode: true,
+      passivePrompt: undefined,
+      botName: "爱弥斯",
+      botSelfId: 12345,
+    });
+    const identityIdx = result.indexOf("<identity>");
+    const passiveIdx = result.indexOf("<passive_mode>");
+    expect(identityIdx).toBeGreaterThan(-1);
+    expect(passiveIdx).toBeGreaterThan(-1);
+    expect(identityIdx).toBeLessThan(passiveIdx);
+  });
 });
 
 // ============ resolveMessageText ============
