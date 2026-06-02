@@ -71,12 +71,19 @@ export class MessageSender {
     files?: Array<{ url?: string; name?: string }>;
     [key: string]: unknown;
   }): Promise<void> {
-    // 拦截 [END_DIALOG] token：AI 在多 bot 对话中觉得话题聊不下去时返回此 token
-    // 行为：不实际发送，标记该群对话已结束（其他 bot 静默 60s）
-    if (payload.text?.trim() === "[END_DIALOG]") {
-      if (this.ctx.isGroup && this.ctx.groupId !== undefined) {
+    // v1.9.4 拦截 silent 类 token:真 silent(完全不发送任何消息,只 log)
+    // 之前只在 outbound.sendText 路径拦截,但 AI 派发走 MessageSender.deliver,
+    // 漏拦截导致"[SILENT]"或"@user [SILENT]"真的发出去了。
+    // 拦截 [END_DIALOG](多 bot 对话结束)、[SILENT](旁观/被动决策不回复)、NO_REPLY。
+    const trimmed = payload.text?.trim() ?? "";
+    const isSilentToken = trimmed === "[END_DIALOG]" || trimmed === "[SILENT]" ||
+      /^NO[_\s]?REPLY[.!?。!！,，;；…]*$/i.test(trimmed);
+    if (isSilentToken) {
+      if (trimmed === "[END_DIALOG]" && this.ctx.isGroup && this.ctx.groupId !== undefined) {
         markStopped(this.ctx.accountId, `group:${this.ctx.groupId}`);
       }
+      // 真 silent:什么都不发,仅 log 留痕(便于 /logs 命令查)
+      console.log(`[napcat-QQ][silent] dropped token "${trimmed}" (to=${this.ctx.isGroup ? `group:${this.ctx.groupId}` : `private:${this.ctx.userId}`})`);
       return;
     }
     if (payload.text) await this.sendText(payload.text);
@@ -110,7 +117,9 @@ export class MessageSender {
     if (config.antiRiskMode) processed = processAntiRisk(processed);
 
     // 群消息所需参数：签名追加到最后一个 chunk（避免被 splitMessage 切开）
+    // 优先用昵称(由 connection.ts 启动时 getLoginInfo().nickname 注入),UID 兜底
     const botSelfId = isGroup ? client.getSelfId() : null;
+    const botName = isGroup ? (config._selfName ?? null) : null;
     const style = config.botSignatureStyle ?? DEFAULT_BOT_SIGNATURE_STYLE;
 
     // v1.9.2 移除 metadata 模式:发文本前补握手 json 段会变成可见卡片消息 = spam
@@ -129,7 +138,7 @@ export class MessageSender {
         if (item.type === "text") {
           let content = item.content;
           if (botSelfId && idx === lastTextIdx) {
-            content = appendBotSignature(content, botSelfId, style);
+            content = appendBotSignature(content, botName, botSelfId, style);
           }
           const chunks = splitMessage(content, config.maxMessageLength || 4000);
           for (const chunk of chunks) {
@@ -155,7 +164,7 @@ export class MessageSender {
     // 签名追加到最后一个 chunk（避免被 splitMessage 切开）
     const chunks = [...splitMessage(processed, config.maxMessageLength || 4000)];
     if (botSelfId && chunks.length > 0) {
-      chunks[chunks.length - 1] = appendBotSignature(chunks[chunks.length - 1], botSelfId, style);
+      chunks[chunks.length - 1] = appendBotSignature(chunks[chunks.length - 1], botName, botSelfId, style);
     }
     for (let i = 0; i < chunks.length; i++) {
       await this.sendTextChunk(chunks[i], effectiveMarkdownMode, i === 0);
@@ -174,16 +183,20 @@ export class MessageSender {
     const { client, config, isGroup, isGuild, groupId, userId, guildId, channelId } = this.ctx;
 
     // ── 发送文本 ──
+    // 双保险:即便上游 [SILENT] 拦截失败,silent token 也不加 @ 段(避免"@user [SILENT]"泄漏)
+    const isSilentChunk = chunk.trim() === "[END_DIALOG]" || chunk.trim() === "[SILENT]" ||
+      /^NO[_\s]?REPLY[.!?。!！,，;；…]*$/i.test(chunk.trim());
+
     if (markdownMode === "native") {
       const mdSegments: OneBotMessage = [];
-      if (isGroup && isFirst)
+      if (isGroup && isFirst && !isSilentChunk)
         mdSegments.push({ type: "at", data: { qq: String(userId) } });
       mdSegments.push({ type: "markdown", data: { content: chunk } });
       await sendByTarget(client, mdSegments, this.ctx);
     } else {
       if (isGroup) {
         const segments: OneBotMessage = [];
-        if (isFirst) {
+        if (isFirst && !isSilentChunk) {
           segments.push({ type: "at", data: { qq: String(userId) } });
           segments.push({ type: "text", data: { text: " " + chunk } });
         } else {
