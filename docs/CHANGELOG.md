@@ -2,6 +2,25 @@
 
 # 更新日志
 
+### [Unreleased] - 系统文件预拦截
+
+#### Added
+
+- **`sensitiveFileGuard` 配置项**（默认启用）：在 inbound pipeline 中拦截非 admin 用户对系统文件（SOUL/AGENTS/IDENTITY/USER/MEMORY.md）的修改请求。命中时直接 reply 一句拒绝消息并 return，不调用 OpenClaw。Admin 完全不受影响。
+  - 两路匹配：文件名直命（如 "改一下你的 SOUL.md"）或动词+名词意图组合（如 "帮我修改一下人设"）
+  - 默认词表：中英共 5 个文件名 + 16 个动词 + 11 个名词
+  - 英文按 `\b` 词边界匹配避免误伤；中文按 substring 匹配；不区分大小写；按词长降序优先
+  - 全场景生效（群聊 / 频道 / 私聊）
+  - 完整配置示例与字段说明见 [`docs/CONFIG.md`](CONFIG.md#sensitivefileguard-详细说明)
+- 新增纯函数模块 `src/utils/sensitive-guard.ts` + 21 个单元测试 + 6 个集成测试
+
+#### Why
+
+- **问题**：非管理员在 QQ 群 @bot 后能让 bot 修改 SOUL.md（人设文件）
+- **根因**（已在主项目 openclaw 验证）：napcat 网关已正确传 `CommandAuthorized: isAdmin` 给 OpenClaw，但 OpenClaw 主项目的 `src/agents/` 树整体不读这个字段，LLM tool dispatch 层（write/edit/apply_patch 工具）缺权限闸门
+- **决策**：上游 `openclaw/CLAUDE.md` 明确要求 security 改动必须 owner ask/review，不能直接动主项目。在 napcat 网关侧加预拦截是用户可控的最快防线
+- **后续**：本字段是治标方案。根治需要 OpenClaw 主项目在 `src/agents/agent-tools.before-tool-call.ts` 加 bootstrap 文件 denylist
+
 ### v1.9.3 - docker-install 网络修复 + 本地 tarball 强化 (2026-06-02)
 
 #### Fixed
