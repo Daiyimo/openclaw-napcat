@@ -301,3 +301,368 @@ describe("handleAdminCommand", () => {
     expect(client.sendGroupMsg).not.toHaveBeenCalled();
   });
 });
+
+// ── 群管扩展（v1.10+） ─────────────────────────────────────────────────
+//
+// 覆盖新增的 ~25 个命令：成员管理、群资料、精华、查询、群文件、NapCat 扩展。
+// 重点验证：调用了正确的 client 方法和参数 / 二次确认 / cwd 流转 / 边界提示。
+
+import {
+  _testReset as resetConfirmPending,
+} from "../utils/confirm-pending.js";
+import {
+  _testReset as resetGroupFileCwd,
+} from "../utils/group-file-cwd.js";
+
+function makeFullClient(): OneBotClient {
+  return {
+    // 基础
+    sendGroupMsg: vi.fn().mockResolvedValue(undefined),
+    sendPrivateMsg: vi.fn().mockResolvedValue(undefined),
+    getSelfId: vi.fn().mockReturnValue(10000),
+    // 现有
+    setGroupBan: vi.fn(),
+    setGroupKick: vi.fn(),
+    sendGroupPoke: vi.fn(),
+    // A 类原生群管
+    setGroupAdmin: vi.fn(),
+    setGroupWholeBan: vi.fn(),
+    setGroupCard: vi.fn(),
+    setGroupName: vi.fn(),
+    setGroupSpecialTitle: vi.fn(),
+    setGroupLeave: vi.fn(),
+    setGroupKickMembers: vi.fn(),
+    setEssenceMsg: vi.fn().mockResolvedValue(undefined),
+    deleteEssenceMsg: vi.fn().mockResolvedValue(undefined),
+    getEssenceMsgList: vi.fn().mockResolvedValue([]),
+    getGroupShutList: vi.fn().mockResolvedValue([]),
+    getGroupAtAllRemain: vi.fn().mockResolvedValue({ can_at_all: true, remain_at_all_count_for_group: 10, remain_at_all_count_for_uin: 5 }),
+    getGroupHonorInfo: vi.fn().mockResolvedValue({ current_talkative: { nickname: "Top", day_count: 3 } }),
+    getGroupInfo: vi.fn().mockResolvedValue({ group_id: 88888, group_name: "测试群", member_count: 50, max_member_count: 200 }),
+    // B 类群文件
+    getGroupRootFiles: vi.fn().mockResolvedValue({ folders: [], files: [] }),
+    getGroupFilesByFolder: vi.fn().mockResolvedValue({ folders: [], files: [] }),
+    getGroupFileUrl: vi.fn().mockResolvedValue({ url: "https://example.com/file" }),
+    deleteGroupFile: vi.fn().mockResolvedValue(undefined),
+    createGroupFileFolder: vi.fn().mockResolvedValue(undefined),
+    deleteGroupFolder: vi.fn().mockResolvedValue(undefined),
+    moveGroupFile: vi.fn().mockResolvedValue(undefined),
+    renameGroupFile: vi.fn().mockResolvedValue(undefined),
+    // C 类 NapCat 扩展
+    setGroupPortrait: vi.fn().mockResolvedValue(undefined),
+    setGroupRemark: vi.fn().mockResolvedValue(undefined),
+    setGroupSign: vi.fn().mockResolvedValue(undefined),
+    setGroupTodo: vi.fn().mockResolvedValue(undefined),
+    completeGroupTodo: vi.fn().mockResolvedValue(undefined),
+    cancelGroupTodo: vi.fn().mockResolvedValue(undefined),
+  } as unknown as OneBotClient;
+}
+
+describe("handleAdminCommand — 群管扩展（v1.10+）", () => {
+  let client: OneBotClient;
+
+  beforeEach(() => {
+    client = makeFullClient();
+    vi.clearAllMocks();
+    resetConfirmPending();
+    resetGroupFileCwd();
+  });
+
+  // ── 成员管理 ─────────────────────────────────────────────
+
+  it("test_unmute_calls_setGroupBan_with_duration_zero", async () => {
+    const at: OneBotMessage = [{ type: "at", data: { qq: "55555" } }];
+    await handleAdminCommand("/unmute", ["/unmute"], {
+      client, isGroup: true, groupId: 88888, userId: 1, text: "/unmute", message: at,
+    });
+    expect(client.setGroupBan).toHaveBeenCalledWith(88888, 55555, 0);
+  });
+
+  it("test_admin_first_call_returns_pending_does_not_invoke_client", async () => {
+    const at: OneBotMessage = [{ type: "at", data: { qq: "55555" } }];
+    await handleAdminCommand("/admin", ["/admin"], {
+      client, isGroup: true, groupId: 88888, userId: 1, text: "/admin", message: at,
+    });
+    expect(client.setGroupAdmin).not.toHaveBeenCalled();
+    expect(client.sendGroupMsg).toHaveBeenCalledWith(88888, expect.stringContaining("再发一次"));
+  });
+
+  it("test_admin_second_call_within_ttl_invokes_setGroupAdmin", async () => {
+    const at: OneBotMessage = [{ type: "at", data: { qq: "55555" } }];
+    const ctx = { client, isGroup: true, groupId: 88888, userId: 1, text: "/admin", message: at };
+    await handleAdminCommand("/admin", ["/admin"], ctx);  // pending
+    await handleAdminCommand("/admin", ["/admin"], ctx);  // confirmed
+    expect(client.setGroupAdmin).toHaveBeenCalledWith(88888, 55555, true);
+  });
+
+  it("test_unadmin_confirmed_invokes_setGroupAdmin_with_false", async () => {
+    const at: OneBotMessage = [{ type: "at", data: { qq: "55555" } }];
+    const ctx = { client, isGroup: true, groupId: 88888, userId: 1, text: "/unadmin", message: at };
+    await handleAdminCommand("/unadmin", ["/unadmin"], ctx);
+    await handleAdminCommand("/unadmin", ["/unadmin"], ctx);
+    expect(client.setGroupAdmin).toHaveBeenCalledWith(88888, 55555, false);
+  });
+
+  it("test_kickbatch_confirmed_invokes_setGroupKickMembers_with_all_ids", async () => {
+    const at: OneBotMessage = [
+      { type: "at", data: { qq: "111" } },
+      { type: "at", data: { qq: "222" } },
+      { type: "at", data: { qq: "333" } },
+    ];
+    const ctx = { client, isGroup: true, groupId: 88888, userId: 1, text: "/kickbatch", message: at };
+    await handleAdminCommand("/kickbatch", ["/kickbatch"], ctx);
+    await handleAdminCommand("/kickbatch", ["/kickbatch"], ctx);
+    expect(client.setGroupKickMembers).toHaveBeenCalledWith(88888, [111, 222, 333]);
+  });
+
+  it("test_card_with_new_card_calls_setGroupCard", async () => {
+    const at: OneBotMessage = [{ type: "at", data: { qq: "55555" } }];
+    await handleAdminCommand("/card", ["/card", "新名片"], {
+      client, isGroup: true, groupId: 88888, userId: 1,
+      text: "/card [CQ:at,qq=55555] 新名片", message: at,
+    });
+    expect(client.setGroupCard).toHaveBeenCalledWith(88888, 55555, "新名片");
+  });
+
+  it("test_card_with_empty_clears_card", async () => {
+    const at: OneBotMessage = [{ type: "at", data: { qq: "55555" } }];
+    await handleAdminCommand("/card", ["/card"], {
+      client, isGroup: true, groupId: 88888, userId: 1,
+      text: "/card [CQ:at,qq=55555]", message: at,
+    });
+    expect(client.setGroupCard).toHaveBeenCalledWith(88888, 55555, "");
+  });
+
+  it("test_title_calls_setGroupSpecialTitle", async () => {
+    const at: OneBotMessage = [{ type: "at", data: { qq: "55555" } }];
+    await handleAdminCommand("/title", ["/title", "尊贵的"], {
+      client, isGroup: true, groupId: 88888, userId: 1,
+      text: "/title [CQ:at,qq=55555] 尊贵的", message: at,
+    });
+    expect(client.setGroupSpecialTitle).toHaveBeenCalledWith(88888, 55555, "尊贵的");
+  });
+
+  it("test_shutlist_formats_active_bans", async () => {
+    const future = Math.floor(Date.now() / 1000) + 600; // 10 分钟后解禁
+    vi.mocked(client.getGroupShutList).mockResolvedValue([
+      { user_id: 111, nickname: "甲", shut_up_timestamp: future },
+    ]);
+    await handleAdminCommand("/shutlist", ["/shutlist"], {
+      client, isGroup: true, groupId: 88888, userId: 1, text: "/shutlist",
+    });
+    expect(client.getGroupShutList).toHaveBeenCalledWith(88888);
+    expect(client.sendGroupMsg).toHaveBeenCalledWith(
+      88888,
+      expect.stringContaining("111"),
+    );
+  });
+
+  // ── 全员禁言 ─────────────────────────────────────────────
+
+  it("test_banall_calls_setGroupWholeBan_true", async () => {
+    await handleAdminCommand("/banall", ["/banall"], {
+      client, isGroup: true, groupId: 88888, userId: 1, text: "/banall",
+    });
+    expect(client.setGroupWholeBan).toHaveBeenCalledWith(88888, true);
+  });
+
+  it("test_unbanall_calls_setGroupWholeBan_false", async () => {
+    await handleAdminCommand("/unbanall", ["/unbanall"], {
+      client, isGroup: true, groupId: 88888, userId: 1, text: "/unbanall",
+    });
+    expect(client.setGroupWholeBan).toHaveBeenCalledWith(88888, false);
+  });
+
+  // ── 群资料 ───────────────────────────────────────────────
+
+  it("test_setname_confirmed_calls_setGroupName", async () => {
+    const ctx = { client, isGroup: true, groupId: 88888, userId: 1, text: "/setname 新名" };
+    await handleAdminCommand("/setname", ["/setname", "新名"], ctx);
+    await handleAdminCommand("/setname", ["/setname", "新名"], ctx);
+    expect(client.setGroupName).toHaveBeenCalledWith(88888, "新名");
+  });
+
+  it("test_setremark_confirmed_calls_setGroupRemark", async () => {
+    const ctx = { client, isGroup: true, groupId: 88888, userId: 1, text: "/setremark 备注" };
+    await handleAdminCommand("/setremark", ["/setremark", "备注"], ctx);
+    await handleAdminCommand("/setremark", ["/setremark", "备注"], ctx);
+    expect(client.setGroupRemark).toHaveBeenCalledWith(88888, "备注");
+  });
+
+  it("test_setportrait_requires_reply_image", async () => {
+    await handleAdminCommand("/setportrait", ["/setportrait"], {
+      client, isGroup: true, groupId: 88888, userId: 1, text: "/setportrait", message: [],
+    });
+    expect(client.setGroupPortrait).not.toHaveBeenCalled();
+    expect(client.sendGroupMsg).toHaveBeenCalledWith(88888, expect.stringContaining("回复一张图片"));
+  });
+
+  it("test_setportrait_with_image_confirmed_calls_setGroupPortrait", async () => {
+    const msg: OneBotMessage = [{ type: "image", data: { file: "/path/to/img.jpg" } }];
+    const ctx = { client, isGroup: true, groupId: 88888, userId: 1, text: "/setportrait", message: msg };
+    await handleAdminCommand("/setportrait", ["/setportrait"], ctx);  // pending
+    await handleAdminCommand("/setportrait", ["/setportrait"], ctx);  // confirmed
+    expect(client.setGroupPortrait).toHaveBeenCalledWith(88888, "/path/to/img.jpg");
+  });
+
+  it("test_leave_confirmed_calls_setGroupLeave_false", async () => {
+    const ctx = { client, isGroup: true, groupId: 88888, userId: 1, text: "/leave" };
+    await handleAdminCommand("/leave", ["/leave"], ctx);
+    await handleAdminCommand("/leave", ["/leave"], ctx);
+    expect(client.setGroupLeave).toHaveBeenCalledWith(88888, false);
+  });
+
+  it("test_dismiss_confirmed_calls_setGroupLeave_true", async () => {
+    const ctx = { client, isGroup: true, groupId: 88888, userId: 1, text: "/dismiss" };
+    await handleAdminCommand("/dismiss", ["/dismiss"], ctx);
+    await handleAdminCommand("/dismiss", ["/dismiss"], ctx);
+    expect(client.setGroupLeave).toHaveBeenCalledWith(88888, true);
+  });
+
+  // ── 精华消息 ─────────────────────────────────────────────
+
+  it("test_essence_from_reply_calls_setEssenceMsg", async () => {
+    const msg: OneBotMessage = [{ type: "reply", data: { id: "999" } }];
+    await handleAdminCommand("/essence", ["/essence"], {
+      client, isGroup: true, groupId: 88888, userId: 1, text: "/essence", message: msg,
+    });
+    expect(client.setEssenceMsg).toHaveBeenCalledWith("999");
+  });
+
+  it("test_deessence_with_explicit_msgid_calls_deleteEssenceMsg", async () => {
+    await handleAdminCommand("/deessence", ["/deessence", "999"], {
+      client, isGroup: true, groupId: 88888, userId: 1, text: "/deessence 999",
+    });
+    expect(client.deleteEssenceMsg).toHaveBeenCalledWith("999");
+  });
+
+  // ── 查询 ─────────────────────────────────────────────────
+
+  it("test_honor_default_type_calls_getGroupHonorInfo_all", async () => {
+    await handleAdminCommand("/honor", ["/honor"], {
+      client, isGroup: true, groupId: 88888, userId: 1, text: "/honor",
+    });
+    expect(client.getGroupHonorInfo).toHaveBeenCalledWith(88888, "all");
+  });
+
+  it("test_atallremain_replies_with_counts", async () => {
+    await handleAdminCommand("/atallremain", ["/atallremain"], {
+      client, isGroup: true, groupId: 88888, userId: 1, text: "/atallremain",
+    });
+    expect(client.sendGroupMsg).toHaveBeenCalledWith(
+      88888,
+      expect.stringContaining("@全体"),
+    );
+  });
+
+  // ── 群文件 ───────────────────────────────────────────────
+
+  it("test_files_at_root_calls_getGroupRootFiles", async () => {
+    await handleAdminCommand("/files", ["/files"], {
+      client, isGroup: true, groupId: 88888, userId: 1, text: "/files",
+    });
+    expect(client.getGroupRootFiles).toHaveBeenCalledWith(88888, 20);
+  });
+
+  it("test_cd_into_existing_folder_pushes_cwd", async () => {
+    vi.mocked(client.getGroupRootFiles).mockResolvedValue({
+      folders: [{ folder_id: "f123", folder_name: "文档" }],
+      files: [],
+    });
+    await handleAdminCommand("/cd", ["/cd", "文档"], {
+      client, isGroup: true, groupId: 88888, userId: 1, text: "/cd 文档",
+    });
+    expect(client.sendGroupMsg).toHaveBeenCalledWith(88888, expect.stringContaining("/文档"));
+    // 后续 /files 应改用 byFolder
+    await handleAdminCommand("/files", ["/files"], {
+      client, isGroup: true, groupId: 88888, userId: 1, text: "/files",
+    });
+    expect(client.getGroupFilesByFolder).toHaveBeenCalledWith(88888, "f123", 20);
+  });
+
+  it("test_cd_to_root_resets_cwd", async () => {
+    vi.mocked(client.getGroupRootFiles).mockResolvedValue({
+      folders: [{ folder_id: "f123", folder_name: "文档" }],
+      files: [],
+    });
+    const ctx = { client, isGroup: true, groupId: 88888, userId: 1, text: "" };
+    await handleAdminCommand("/cd", ["/cd", "文档"], { ...ctx, text: "/cd 文档" });
+    await handleAdminCommand("/cd", ["/cd", "/"], { ...ctx, text: "/cd /" });
+    await handleAdminCommand("/files", ["/files"], { ...ctx, text: "/files" });
+    // /cd / 后 /files 应回到 root API
+    expect(client.getGroupRootFiles).toHaveBeenCalledTimes(2);
+  });
+
+  it("test_pwd_shows_current_path", async () => {
+    await handleAdminCommand("/pwd", ["/pwd"], {
+      client, isGroup: true, groupId: 88888, userId: 1, text: "/pwd",
+    });
+    expect(client.sendGroupMsg).toHaveBeenCalledWith(88888, expect.stringContaining("/"));
+  });
+
+  it("test_dl_returns_url", async () => {
+    await handleAdminCommand("/dl", ["/dl", "fileXYZ"], {
+      client, isGroup: true, groupId: 88888, userId: 1, text: "/dl fileXYZ",
+    });
+    expect(client.getGroupFileUrl).toHaveBeenCalledWith(88888, "fileXYZ");
+    expect(client.sendGroupMsg).toHaveBeenCalledWith(88888, expect.stringContaining("https://example.com/file"));
+  });
+
+  it("test_delfile_calls_deleteGroupFile", async () => {
+    await handleAdminCommand("/delfile", ["/delfile", "fileXYZ"], {
+      client, isGroup: true, groupId: 88888, userId: 1, text: "/delfile fileXYZ",
+    });
+    expect(client.deleteGroupFile).toHaveBeenCalledWith(88888, "fileXYZ");
+  });
+
+  it("test_mkdir_calls_createGroupFileFolder", async () => {
+    await handleAdminCommand("/mkdir", ["/mkdir", "新文件夹"], {
+      client, isGroup: true, groupId: 88888, userId: 1, text: "/mkdir 新文件夹",
+    });
+    expect(client.createGroupFileFolder).toHaveBeenCalledWith(88888, "新文件夹");
+  });
+
+  // ── NapCat 扩展 ──────────────────────────────────────────
+
+  it("test_poke_calls_sendGroupPoke", async () => {
+    const at: OneBotMessage = [{ type: "at", data: { qq: "55555" } }];
+    await handleAdminCommand("/poke", ["/poke"], {
+      client, isGroup: true, groupId: 88888, userId: 1, text: "/poke", message: at,
+    });
+    expect(client.sendGroupPoke).toHaveBeenCalledWith(88888, 55555);
+  });
+
+  it("test_sign_calls_setGroupSign", async () => {
+    await handleAdminCommand("/sign", ["/sign"], {
+      client, isGroup: true, groupId: 88888, userId: 1, text: "/sign",
+    });
+    expect(client.setGroupSign).toHaveBeenCalledWith(88888);
+  });
+
+  it("test_todo_from_reply_calls_setGroupTodo", async () => {
+    const msg: OneBotMessage = [{ type: "reply", data: { id: "888" } }];
+    await handleAdminCommand("/todo", ["/todo"], {
+      client, isGroup: true, groupId: 88888, userId: 1, text: "/todo", message: msg,
+    });
+    expect(client.setGroupTodo).toHaveBeenCalledWith(88888, "888");
+  });
+
+  // ── 边界：群外执行群命令 ─────────────────────────────────
+
+  it("test_group_only_command_rejected_in_private", async () => {
+    await handleAdminCommand("/banall", ["/banall"], {
+      client, isGroup: false, userId: 1, text: "/banall",
+    });
+    expect(client.setGroupWholeBan).not.toHaveBeenCalled();
+    expect(client.sendPrivateMsg).toHaveBeenCalledWith(1, expect.stringContaining("仅限群聊"));
+  });
+
+  it("test_admin_without_target_replies_usage", async () => {
+    await handleAdminCommand("/admin", ["/admin"], {
+      client, isGroup: true, groupId: 88888, userId: 1, text: "/admin",
+    });
+    expect(client.setGroupAdmin).not.toHaveBeenCalled();
+    expect(client.sendGroupMsg).toHaveBeenCalledWith(88888, expect.stringContaining("用法"));
+  });
+});
+
