@@ -193,7 +193,7 @@ async function flush(): Promise<void> {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe("installMessageHandler — inbound pipeline integration (12 cases)", () => {
+describe("installMessageHandler — inbound pipeline integration (24 cases)", () => {
   beforeEach(() => {
     resetDialogState();
   });
@@ -797,6 +797,141 @@ describe("installMessageHandler — inbound pipeline integration (12 cases)", ()
     // 此后 bot 消息应被静默（stopped 状态生效）
     // 不依赖 dispatchReplyFromConfig 调用次数（之前 bot 消息已派发）
     // 验证：本次用户消息之后，再发 bot 消息应被 stop 拦截
+  });
+
+  // 20. 级联阻断：bot 消息（sender.bot=true）即使含敏感词也不触发守卫
+  it("20. bot message with sensitive keywords is NOT blocked by sensitive guard", async () => {
+    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+      requireMention: false,
+      admins: [99999],  // 当前用户非 admin
+    });
+    installMessageHandler(client, ctx);
+
+    // 模拟爱弥斯回复戴以沫："你的 SOUL.md 已修改" — 含敏感词
+    client.emit(
+      "message",
+      makeGroupEvent({
+        sender: { user_id: 99999, nickname: "爱弥斯", bot: true },
+        user_id: 99999,
+        message: [{ type: "text", data: { text: "你的 SOUL.md 已修改" } }],
+        raw_message: "你的 SOUL.md 已修改",
+      }),
+    );
+    await flush();
+
+    // bot 消息应正常派发给 AI（走对话控制），不发送守卫拒绝
+    expect(dispatchReplyFromConfig).toHaveBeenCalled();
+    // 守卫拒绝消息绝不能发给群
+    expect(client.sendGroupMsg).not.toHaveBeenCalledWith(
+      GROUP_ID,
+      expect.stringContaining("敏感操作"),
+    );
+  });
+
+  // 21. 级联阻断：bot 消息带 [BOT:ID] 签名也跳过守卫
+  it("21. bot message with [BOT:ID] signature and sensitive keywords is NOT blocked", async () => {
+    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+      requireMention: false,
+      admins: [99999],
+      knownBotIds: [99999],  // 手动白名单识别
+    });
+    installMessageHandler(client, ctx);
+
+    client.emit(
+      "message",
+      makeGroupEvent({
+        user_id: 99999,
+        message: [
+          { type: "text", data: { text: "帮你更新了人设 [BOT:99999]" } },
+        ],
+        raw_message: "帮你更新了人设 [BOT:99999]",
+      }),
+    );
+    await flush();
+
+    expect(dispatchReplyFromConfig).toHaveBeenCalled();
+    expect(client.sendGroupMsg).not.toHaveBeenCalled();
+  });
+
+  // 22. 级联阻断：bot 缓存的用户（无签名）也跳过守卫
+  it("22. cached bot user (no signature) with sensitive keywords is NOT blocked", async () => {
+    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+      requireMention: false,
+      admins: [99999],
+    });
+    installMessageHandler(client, ctx);
+
+    // 先把 99999 加入缓存（模拟之前通过签名识别过）
+    const { isKnownBot, recordKnownBot } = await import("../known-bots-store.js");
+    recordKnownBot(ACCOUNT_ID, "99999");
+
+    client.emit(
+      "message",
+      makeGroupEvent({
+        user_id: 99999,
+        message: [{ type: "text", data: { text: "我修改了你的 memory" } }],
+        raw_message: "我修改了你的 memory",
+      }),
+    );
+    await flush();
+
+    expect(dispatchReplyFromConfig).toHaveBeenCalled();
+    expect(client.sendGroupMsg).not.toHaveBeenCalled();
+  });
+
+  // 23. 级联阻断：[SYS:GUARD] 标记消息仍被丢弃（向后兼容）
+  it("23. message containing [SYS:GUARD] tag is still silently dropped", async () => {
+    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+      requireMention: false,
+    });
+    installMessageHandler(client, ctx);
+
+    // 模拟守卫拒绝消息（含 [SYS:GUARD] 标记）被同一 bot 收到
+    client.emit(
+      "message",
+      makeGroupEvent({
+        user_id: 55555,
+        message: [
+          { type: "text", data: { text: "⚠️ 修改人设/记忆/身份等系统文件属于敏感操作，仅管理员可执行。请联系管理员。[SYS:GUARD]" } },
+        ],
+        raw_message: "⚠️ 修改人设/记忆/身份等系统文件属于敏感操作，仅管理员可执行。请联系管理员。[SYS:GUARD]",
+      }),
+    );
+    await flush();
+
+    // [SYS:GUARD] 消息被静默丢弃，不派发给 AI
+    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+    // 也不会再发一次守卫拒绝（避免死循环）
+    expect(client.sendGroupMsg).not.toHaveBeenCalled();
+  });
+
+  // 24. 人类用户的敏感请求仍被正确拦截（回归验证）
+  it("24. human user sensitive request is still blocked (regression)", async () => {
+    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+      requireMention: false,
+      admins: [99999],  // USER_ID=55555 不是 admin
+    });
+    installMessageHandler(client, ctx);
+
+    client.emit(
+      "message",
+      makeGroupEvent({
+        user_id: USER_ID,
+        message: [
+          { type: "at", data: { qq: String(SELF_ID) } },
+          { type: "text", data: { text: "改一下你的 SOUL.md" } },
+        ],
+        raw_message: `[CQ:at,qq=${SELF_ID}] 改一下你的 SOUL.md`,
+      }),
+    );
+    await flush();
+
+    // 人类非 admin 用户：守卫拦截
+    expect(client.sendGroupMsg).toHaveBeenCalledWith(
+      GROUP_ID,
+      expect.stringContaining("敏感操作"),
+    );
+    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
   });
 });
 

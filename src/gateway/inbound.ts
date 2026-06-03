@@ -259,9 +259,8 @@ export function installMessageHandler(
       const isAdmin = config.admins?.includes(userId!) ?? false;
       const effectiveSelfId = client.getSelfId() ?? event.self_id;
 
-      // ── 级联阻断：来自其他 bot 的守卫拒绝消息直接丢弃 ──────
-      // 敏感守卫发送的拒绝消息含 [SYS:GUARD] 标记，接收方 bot 检测到后
-      // 不进入守卫、不进入 AI 派发，阻断 bot 间 ping-pong 级联。
+      // ── 级联阻断：守卫拒绝消息（含 [SYS:GUARD] 标记）直接丢弃 ──────
+      // 防止 bot 间收到守卫拒绝后再次触发守卫，形成 ping-pong 死循环。
       if (text.includes("[SYS:GUARD]")) {
         if (config.debug) {
           console.log(`[napcat-QQ][debug-sensitive-guard] cascade blocked: msg contains [SYS:GUARD]`);
@@ -274,7 +273,17 @@ export function installMessageHandler(
       // 系统文件时直接拒绝。治标方案：OpenClaw 主项目 LLM tool dispatch 层
       // 不消费 CommandAuthorized，在网关侧把消息挡在 OpenClaw 调用之前。
       // 详见 src/utils/sensitive-guard.ts。
-      if (!isAdmin && config.sensitiveFileGuard?.enabled !== false) {
+      //
+      // 注意：来自其他 bot 的消息跳过守卫（bot 间的正常对话不应被敏感守卫拦截）。
+      // 检测五层：白名单 → sender.bot → 持久化缓存 → 签名 → 握手。
+      // 仅群聊场景需要判断（私聊不存在 bot 间消息）。
+      const isKnownBotSender =
+        isGroup &&
+        ((config.knownBotIds?.some(id => String(id) === String(userId)) ?? false) ||
+          event.sender?.bot === true ||
+          (userId != null && isKnownBot(account.accountId, String(userId))) ||
+          (BOT_SIGNATURE_PATTERN.test(text) || BOT_SIGNATURE_ZW_PATTERN.test(text)));
+      if (!isAdmin && !isKnownBotSender && config.sensitiveFileGuard?.enabled !== false) {
         const guardOpts = {
           ...(config.sensitiveFileGuard?.files ? { files: config.sensitiveFileGuard.files } : {}),
           ...(config.sensitiveFileGuard?.verbs ? { verbs: config.sensitiveFileGuard.verbs } : {}),
@@ -283,7 +292,7 @@ export function installMessageHandler(
         const check = detectSensitiveFileRequest(text, guardOpts);
         if (check.matched) {
           // 指向性判断（群聊人类消息）：只有消息明确指向本 bot 时才发拒绝
-          // 私聊消息天然指向 bot，不检查。bot 消息的级联由 [SYS:GUARD] 入口拦截处理。
+          // 私聊消息天然指向 bot，不检查。bot 消息已在守卫入口跳过。
           const isDirectedAtMe =
             !isGroup ||
             (effectiveSelfId
