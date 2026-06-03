@@ -257,6 +257,17 @@ export function installMessageHandler(
       }
 
       const isAdmin = config.admins?.includes(userId!) ?? false;
+      const effectiveSelfId = client.getSelfId() ?? event.self_id;
+
+      // ── 级联阻断：来自其他 bot 的守卫拒绝消息直接丢弃 ──────
+      // 敏感守卫发送的拒绝消息含 [SYS:GUARD] 标记，接收方 bot 检测到后
+      // 不进入守卫、不进入 AI 派发，阻断 bot 间 ping-pong 级联。
+      if (text.includes("[SYS:GUARD]")) {
+        if (config.debug) {
+          console.log(`[napcat-QQ][debug-sensitive-guard] cascade blocked: msg contains [SYS:GUARD]`);
+        }
+        return;
+      }
 
       // ── 系统文件预拦截（v1.10+）──────────────────────────────
       // 非 admin 用户试图诱导 bot 修改 SOUL/AGENTS/IDENTITY/USER/MEMORY 等
@@ -271,7 +282,25 @@ export function installMessageHandler(
         };
         const check = detectSensitiveFileRequest(text, guardOpts);
         if (check.matched) {
-          const rejectMsg = config.sensitiveFileGuard?.rejectMessage ?? DEFAULT_REJECTION_MESSAGE;
+          // 指向性判断（群聊人类消息）：只有消息明确指向本 bot 时才发拒绝
+          // 私聊消息天然指向 bot，不检查。bot 消息的级联由 [SYS:GUARD] 入口拦截处理。
+          const isDirectedAtMe =
+            !isGroup ||
+            (effectiveSelfId
+              ? detectMention(event, effectiveSelfId, text, null, false)
+                || detectNameTrigger(text, config._selfName ?? String(effectiveSelfId), false)
+              : false);
+
+          if (!isDirectedAtMe) {
+            if (config.debug) {
+              console.log(
+                `[napcat-QQ][debug-sensitive-guard] silent drop: matched but not directed at bot, user=${maskId(userId)}`,
+              );
+            }
+            return;
+          }
+
+          const rejectMsg = (config.sensitiveFileGuard?.rejectMessage ?? DEFAULT_REJECTION_MESSAGE) + "[SYS:GUARD]";
           if (isGroup && groupId) {
             await client.sendGroupMsg(groupId, rejectMsg);
           } else if (userId) {
@@ -279,7 +308,7 @@ export function installMessageHandler(
           }
           if (config.debug) {
             console.log(
-              `[napcat-QQ][debug-sensitive-guard] blocked user=${maskId(userId)} reason=${check.reason} hit=${check.hit}`,
+              `[napcat-QQ][debug-sensitive-guard] blocked user=${maskId(userId)} reason=${check.reason} hit=${check.hit} directed=${isDirectedAtMe}`,
             );
           }
           return;
@@ -421,7 +450,6 @@ export function installMessageHandler(
       // ── @其他人检测：仅在 bot 自身未被 @/回复 时跳过 ──────────────────
       // 如果消息 @了其他用户但 bot 也被 @，bot 仍应响应
       if (isGroup || isGuild) {
-        const effectiveSelfId = client.getSelfId() ?? event.self_id;
         if (effectiveSelfId && !detectMention(event, effectiveSelfId, text, null, config.debug)) {
           if (hasMentionOtherUser(event, effectiveSelfId)) {
             if (config.debug) {
@@ -438,7 +466,6 @@ export function installMessageHandler(
       const checkMention = isGroup || isGuild;
       let isMentioned = false;
       if (checkMention) {
-        const effectiveSelfId = client.getSelfId() ?? event.self_id;
         if (!effectiveSelfId) return;
         isMentioned = detectMention(event, effectiveSelfId, text, repliedMsg, config.debug);
       }
