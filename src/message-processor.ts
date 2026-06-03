@@ -151,9 +151,6 @@ export function detectMention(
   repliedMsg?: { sender?: { user_id?: any } } | null,
   debug = false,
 ): boolean {
-  if (debug) {
-    console.log(`[napcat-QQ][debug-mention] enter: selfId=${selfId} msgType=${typeof event.message} isArray=${Array.isArray(event.message)} text="${text.slice(0, 80)}"`);
-  }
   if (Array.isArray(event.message)) {
     for (const s of event.message) {
       if (s.type === "at") {
@@ -183,13 +180,24 @@ export function detectMention(
  * @param event  OneBot 事件
  * @param selfId 机器人自身 QQ 号
  */
+/**
+ * 检测消息中是否 @ 了其他用户（非 bot 自身、非 @all）。
+ * 用于在 @其他人 时跳过所有触发逻辑（被动模式、关键词、回复引用）。
+ *
+ * NapCat 发送端可能 stripping @ 段，只保留纯文本昵称。
+ * 此时通过检查消息是否以其他已知 bot 的昵称开头来补判。
+ *
+ * @param event        OneBot 事件
+ * @param selfId       机器人自身 QQ 号
+ * @param otherBotNames 其他已知 bot 的昵称列表（用于 NapCat stripping 后的补判）
+ */
 export function hasMentionOtherUser(
   event: OneBotEvent,
   selfId: number | string,
+  otherBotNames?: string[],
 ): boolean {
   if (!Array.isArray(event.message)) {
     if (typeof event.message === "string") {
-      console.log(`[napcat-QQ][debug-mention-other] string message format: type=${typeof event.message} len=${event.message.length} preview="${event.message.slice(0, 80)}" selfId=${selfId}`);
       const selfIdStr = String(selfId);
       const atRegex = /\[CQ:at,qq=(\d+)\]/g;
       let m;
@@ -207,6 +215,25 @@ export function hasMentionOtherUser(
       }
     }
   }
+
+  // NapCat stripping 补判：消息以其他 bot 昵称开头 → 视为隐式 @
+  if (otherBotNames && otherBotNames.length > 0) {
+    const text = typeof event.message === "string"
+      ? event.message
+      : event.message.filter(s => s.type === "text").map(s => s.data?.text || "").join("");
+    const trimmed = text.trimStart();
+    for (const name of otherBotNames) {
+      if (!name || name === String(selfId)) continue;
+      if (trimmed.startsWith(name)) {
+        // 名字后必须紧跟空白或句末标点，避免 "我爱你小爱" 误命中
+        const after = trimmed.slice(name.length);
+        if (after.length === 0 || /^[\s，。！？!?,."'、；;：:（(）)]/.test(after)) {
+          return true;
+        }
+      }
+    }
+  }
+
   return false;
 }
 
