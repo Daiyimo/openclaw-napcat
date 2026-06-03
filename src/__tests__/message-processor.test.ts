@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   detectMention,
   detectKeywordTrigger,
+  detectNameTrigger,
+  hasMentionOtherUser,
   buildFromId,
   buildBodyWithReply,
 } from "../message-processor.js";
@@ -54,6 +56,78 @@ describe("detectMention", () => {
       message: [{ type: "at", data: { qq: "9999" } }],
     });
     expect(detectMention(event, selfId, "")).toBe(false);
+  });
+});
+
+// ============ hasMentionOtherUser ============
+
+describe("hasMentionOtherUser", () => {
+  const selfId = 12345;
+
+  function makeEvent(overrides: Partial<OneBotEvent> = {}): OneBotEvent {
+    return {
+      time: 0, self_id: selfId, post_type: "message",
+      message_type: "group", group_id: 99, user_id: 1001,
+      raw_message: "", message: [],
+      ...overrides,
+    } as OneBotEvent;
+  }
+
+  it("at 段命中其他用户返回 true", () => {
+    const event = makeEvent({
+      message: [{ type: "at", data: { qq: "99999" } }],
+    });
+    expect(hasMentionOtherUser(event, selfId)).toBe(true);
+  });
+
+  it("at 段命中自身返回 false", () => {
+    const event = makeEvent({
+      message: [{ type: "at", data: { qq: String(selfId) } }],
+    });
+    expect(hasMentionOtherUser(event, selfId)).toBe(false);
+  });
+
+  it("at 段为 all 返回 false", () => {
+    const event = makeEvent({
+      message: [{ type: "at", data: { qq: "all" } }],
+    });
+    expect(hasMentionOtherUser(event, selfId)).toBe(false);
+  });
+
+  it("无 at 段返回 false", () => {
+    const event = makeEvent({
+      message: [{ type: "text", data: { text: "你好" } }],
+    });
+    expect(hasMentionOtherUser(event, selfId)).toBe(false);
+  });
+
+  it("NapCat stripping 后：消息以其他 bot 昵称开头返回 true", () => {
+    // NapCat 发送端 stripping 了 @段，只保留 "云崽 帮我查一下"
+    const event = makeEvent({
+      message: [{ type: "text", data: { text: "云崽 帮我查一下" } }],
+    });
+    expect(hasMentionOtherUser(event, selfId, ["云崽"])).toBe(true);
+  });
+
+  it("NapCat stripping 后：消息以自身昵称开头不触发", () => {
+    const event = makeEvent({
+      message: [{ type: "text", data: { text: `${selfId} 帮我查一下` } }],
+    });
+    expect(hasMentionOtherUser(event, selfId, [String(selfId)])).toBe(false);
+  });
+
+  it("不误命中昵称子串（如'小爱'在'我爱你'中）", () => {
+    const event = makeEvent({
+      message: [{ type: "text", data: { text: "我爱你小爱" } }],
+    });
+    expect(hasMentionOtherUser(event, selfId, ["小爱"])).toBe(false);
+  });
+
+  it("CQ 字符串格式：包含其他 bot 的 [CQ:at] 返回 true", () => {
+    const event = makeEvent({
+      message: "[CQ:at,qq=99999] 帮我查一下",
+    });
+    expect(hasMentionOtherUser(event, selfId)).toBe(true);
   });
 });
 

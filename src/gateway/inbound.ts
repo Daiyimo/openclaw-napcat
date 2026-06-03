@@ -449,12 +449,19 @@ export function installMessageHandler(
 
       // ── @其他人检测：仅在 bot 自身未被 @/回复 时跳过 ──────────────────
       // 如果消息 @了其他用户但 bot 也被 @，bot 仍应响应
-      if (isGroup || isGuild) {
-        if (config.debug) {
-          console.log(`[napcat-QQ][debug-mention-other] pre-check: effectiveSelfId=${effectiveSelfId} isArray=${Array.isArray(event.message)} msgType=${typeof event.message} msgPreview="${typeof event.message === 'string' ? event.message.slice(0, 100) : JSON.stringify(event.message).slice(0, 100)}"`);
+      // NapCat 可能 stripping @ 段，只保留纯文本昵称，需要 nickname 补判
+      const otherBotNames: string[] = [];
+      if (config.knownBotIds?.length) {
+        for (const botId of config.knownBotIds) {
+          if (String(botId) === String(effectiveSelfId)) continue;
+          const info = getBotInfo(account.accountId, String(botId));
+          const name = info?.card || info?.nickname;
+          if (name) otherBotNames.push(name);
         }
+      }
+      if (isGroup || isGuild) {
         if (effectiveSelfId && !detectMention(event, effectiveSelfId, text, null, config.debug)) {
-          if (hasMentionOtherUser(event, effectiveSelfId)) {
+          if (hasMentionOtherUser(event, effectiveSelfId, otherBotNames)) {
             if (config.debug) {
               console.log(`[napcat-QQ][debug-mention-other] skipping message that @mentions other user, not bot`);
             }
@@ -502,7 +509,7 @@ export function installMessageHandler(
         if (config.passiveMode?.enabled && isGroup) {
           // 旁观模式：消息 @ 了其他用户时也不进入（避免 "你是叫我吗" 误回复）
           const passiveSelfId = client.getSelfId() ?? event.self_id;
-          if (passiveSelfId && hasMentionOtherUser(event, passiveSelfId)) {
+          if (passiveSelfId && hasMentionOtherUser(event, passiveSelfId, otherBotNames)) {
             if (config.debug) {
               console.log(`[napcat-QQ][debug-mention-other] passive mode skipped: msg @ other user, not bot`);
             }
