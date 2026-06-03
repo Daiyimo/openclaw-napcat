@@ -256,7 +256,9 @@ export function installMessageHandler(
         }
       }
 
-      const isAdmin = config.admins?.includes(userId!) ?? false;
+      const isAdmin =
+        (config.admins?.includes(userId!) ?? false) ||
+        (config.sharedAdmins?.includes(userId!) ?? false);
       const effectiveSelfId = client.getSelfId() ?? event.self_id;
 
       // ── 级联阻断：守卫拒绝消息（含 [SYS:GUARD] 标记）直接丢弃 ──────

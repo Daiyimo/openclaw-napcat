@@ -9,7 +9,9 @@ export const QQConfigSchema = z.object({
   httpUrl: z.string().url().optional().describe("The HTTP API URL of the OneBot v11 server (e.g. http://localhost:3000) for outbound message sending"),
   reverseWsPort: z.number().int().min(1).max(65535).optional().describe("Port to start a reverse WebSocket server on, for NapCat to connect to (e.g. 3002)"),
   accessToken: z.string().optional().describe("The access token for the OneBot server"),
-  admins: z.array(z.number().int().positive()).optional().describe("List of admin QQ numbers"),
+  admins: z.array(z.number().int().positive()).optional().describe("List of admin QQ numbers for this specific bot account. Combined with sharedAdmins for the effective admin check."),
+  /** @deprecated Use sharedAdmins instead — this field is per-account; sharedAdmins applies to all accounts */
+  sharedAdmins: z.array(z.number().int().positive()).optional().describe("Admin QQ numbers shared across ALL bot accounts in this deployment. Users in this list are treated as admins by every bot, regardless of which account's admins list they appear in. Use this when multiple bots share a common admin group (e.g. 戴以沫 managing both 爱弥斯 and 云崽)."),
   requireMention: z.boolean().optional().default(true).describe("Require @mention or reply to bot in group chats"),
   systemPrompt: z.string().optional().describe("Custom system prompt to inject into the context"),
   /**
