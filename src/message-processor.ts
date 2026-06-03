@@ -195,6 +195,7 @@ export function hasMentionOtherUser(
 ): boolean {
   if (!Array.isArray(event.message)) {
     if (typeof event.message === "string") {
+      console.log(`[napcat-QQ][debug-mention-other] string message format: type=${typeof event.message} len=${event.message.length} preview="${event.message.slice(0, 80)}" selfId=${selfId}`);
       const selfIdStr = String(selfId);
       const atRegex = /\[CQ:at,qq=(\d+)\]/g;
       let m;
