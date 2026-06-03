@@ -450,6 +450,9 @@ export function installMessageHandler(
       // ── @其他人检测：仅在 bot 自身未被 @/回复 时跳过 ──────────────────
       // 如果消息 @了其他用户但 bot 也被 @，bot 仍应响应
       if (isGroup || isGuild) {
+        if (config.debug) {
+          console.log(`[napcat-QQ][debug-mention-other] pre-check: effectiveSelfId=${effectiveSelfId} isArray=${Array.isArray(event.message)} msgType=${typeof event.message} msgPreview="${typeof event.message === 'string' ? event.message.slice(0, 100) : JSON.stringify(event.message).slice(0, 100)}"`);
+        }
         if (effectiveSelfId && !detectMention(event, effectiveSelfId, text, null, config.debug)) {
           if (hasMentionOtherUser(event, effectiveSelfId)) {
             if (config.debug) {
