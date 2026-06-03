@@ -193,7 +193,7 @@ async function flush(): Promise<void> {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe("installMessageHandler — inbound pipeline integration (24 cases)", () => {
+describe("installMessageHandler — inbound pipeline integration (28 cases)", () => {
   beforeEach(() => {
     resetDialogState();
   });
@@ -1081,5 +1081,113 @@ describe("installMessageHandler — sensitive file guard (v1.10+)", () => {
     });
     // 没有拒绝消息发出
     expect(client.sendPrivateMsg).not.toHaveBeenCalled();
+  });
+});
+
+// ── sharedAdmins：跨 bot 共享管理员（v1.11+）───────────────────────────
+// 解决多 bot 部署中"用户是 bot A 的 admin 但不是 bot B 的 admin"导致
+// 重复拒绝的问题。sharedAdmins 中的用户被所有 bot 视为 admin。
+
+describe("installMessageHandler — sharedAdmins cross-bot admin", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("test_shared_admin_can_modify_soul_md_even_without_per_bot_admins", async () => {
+    // 戴以沫(USER_ID) 不在 admins 里，但在 sharedAdmins 里
+    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+      requireMention: false,
+      admins: [],  // 空 per-bot admins
+      sharedAdmins: [USER_ID],  // 通过 sharedAdmins 成为 admin
+    });
+    installMessageHandler(client, ctx);
+
+    client.emit(
+      "message",
+      makePrivateEvent({
+        message: [{ type: "text", data: { text: "改一下你的 SOUL.md" } }],
+        raw_message: "改一下你的 SOUL.md",
+      }),
+    );
+
+    // sharedAdmins 用户应正常派发，不被守卫拦截
+    await vi.waitFor(() => expect(dispatchReplyFromConfig).toHaveBeenCalledOnce(), {
+      timeout: 2000,
+    });
+    expect(client.sendPrivateMsg).not.toHaveBeenCalledWith(
+      USER_ID,
+      expect.stringContaining("敏感操作"),
+    );
+  });
+
+  it("test_non_shared_non_per_bot_admin_is_still_blocked", async () => {
+    // USER_ID 既不在 admins 也不在 sharedAdmins → 仍然被拦截
+    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+      requireMention: false,
+      admins: [99999],
+      sharedAdmins: [88888],  // 另一个用户
+    });
+    installMessageHandler(client, ctx);
+
+    client.emit(
+      "message",
+      makePrivateEvent({
+        message: [{ type: "text", data: { text: "改一下你的 SOUL.md" } }],
+        raw_message: "改一下你的 SOUL.md",
+      }),
+    );
+    await flush();
+
+    expect(client.sendPrivateMsg).toHaveBeenCalledWith(
+      USER_ID,
+      expect.stringContaining("敏感操作"),
+    );
+    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+  });
+
+  it("test_per_bot_admins_still_work_alongside_sharedAdmins", async () => {
+    // admins + sharedAdmins 叠加：任一命中即为 admin
+    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+      requireMention: false,
+      admins: [USER_ID],       // per-bot admin
+      sharedAdmins: [88888],   // shared admin（另一个用户）
+    });
+    installMessageHandler(client, ctx);
+
+    client.emit(
+      "message",
+      makePrivateEvent({
+        message: [{ type: "text", data: { text: "改一下你的 SOUL.md" } }],
+        raw_message: "改一下你的 SOUL.md",
+      }),
+    );
+
+    await vi.waitFor(() => expect(dispatchReplyFromConfig).toHaveBeenCalledOnce(), {
+      timeout: 2000,
+    });
+  });
+
+  it("test_sharedAdmins_empty_does_not_grant_access", async () => {
+    // sharedAdmins: [] 显式空数组 → 不授予任何额外权限
+    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+      requireMention: false,
+      admins: [99999],
+      sharedAdmins: [],
+    });
+    installMessageHandler(client, ctx);
+
+    client.emit(
+      "message",
+      makePrivateEvent({
+        message: [{ type: "text", data: { text: "改一下你的 SOUL.md" } }],
+        raw_message: "改一下你的 SOUL.md",
+      }),
+    );
+    await flush();
+
+    expect(client.sendPrivateMsg).toHaveBeenCalledWith(
+      USER_ID,
+      expect.stringContaining("敏感操作"),
+    );
   });
 });
