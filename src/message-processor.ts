@@ -151,14 +151,8 @@ export function detectMention(
   repliedMsg?: { sender?: { user_id?: any } } | null,
   debug = false,
 ): boolean {
-  // ── 诊断日志：打印所有 at 段和关键字段 ──
-  if (debug && Array.isArray(event.message)) {
-    const atSegs = event.message.filter((s) => s.type === "at");
-    if (atSegs.length > 0) {
-      console.log(
-        `[napcat-QQ][debug-mention] allAtSegments=${JSON.stringify(atSegs.map((s) => s.data?.qq))} selfId=${selfId} repliedMsgSender=${repliedMsg?.sender?.user_id}`,
-      );
-    }
+  if (debug) {
+    console.log(`[napcat-QQ][debug-mention] enter: selfId=${selfId} msgType=${typeof event.message} isArray=${Array.isArray(event.message)} text="${text.slice(0, 80)}"`);
   }
   if (Array.isArray(event.message)) {
     for (const s of event.message) {
