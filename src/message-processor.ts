@@ -193,7 +193,17 @@ export function hasMentionOtherUser(
   event: OneBotEvent,
   selfId: number | string,
 ): boolean {
-  if (!Array.isArray(event.message)) return false;
+  if (!Array.isArray(event.message)) {
+    if (typeof event.message === "string") {
+      const selfIdStr = String(selfId);
+      const atRegex = /\[CQ:at,qq=(\d+)\]/g;
+      let m;
+      while ((m = atRegex.exec(event.message)) !== null) {
+        if (m[1] !== "all" && m[1] !== selfIdStr) return true;
+      }
+    }
+    return false;
+  }
   for (const s of event.message) {
     if (s.type === "at") {
       const qq = s.data?.qq;
