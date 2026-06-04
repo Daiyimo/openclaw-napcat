@@ -36,6 +36,7 @@ import {
   detectKeywordTrigger,
   detectNameTrigger,
   hasMentionOtherUser,
+  isMessageDirectedAtBot,
   buildFromId,
   buildBodyWithReply,
 } from "../message-processor.js";
@@ -256,6 +257,30 @@ export function installMessageHandler(
         }
       }
 
+      // ── 指向性门控（v1.11+）───────────────────────────────
+      // 群/频道人类消息必须指向本 bot 才继续。bot 互发旁路（受 dialog state 控制），
+      // 私聊天然通过。修复：sharedAdmins 后两 bot 都视为 admin，旧守卫内
+      // isDirectedAtMe 被 bypass 导致未被点名的 bot 越权响应。
+      if (!isBot) {
+        const otherBotNames: string[] = [];
+        if (config.knownBotIds?.length) {
+          for (const botId of config.knownBotIds) {
+            if (String(botId) === String(selfId)) continue;
+            const info = getBotInfo(account.accountId, String(botId));
+            const name = info?.card || info?.nickname;
+            if (name) otherBotNames.push(name);
+          }
+        }
+        if (!isMessageDirectedAtBot(event, selfId, text, config._selfName, otherBotNames)) {
+          if (config.debug) {
+            console.log(
+              `[napcat-QQ][debug-directed] silent drop: msg not directed at this bot, user=${maskId(userId)}`,
+            );
+          }
+          return;
+        }
+      }
+
       const isAdmin =
         (config.admins?.includes(userId!) ?? false) ||
         (config.sharedAdmins?.includes(userId!) ?? false);
@@ -293,14 +318,13 @@ export function installMessageHandler(
         };
         const check = detectSensitiveFileRequest(text, guardOpts);
         if (check.matched) {
-          // 指向性判断（群聊人类消息）：只有消息明确指向本 bot 时才发拒绝
-          // 私聊消息天然指向 bot，不检查。bot 消息已在守卫入口跳过。
-          const isDirectedAtMe =
-            !isGroup ||
-            (effectiveSelfId
-              ? detectMention(event, effectiveSelfId, text, null, false)
-                || detectNameTrigger(text, config._selfName ?? String(effectiveSelfId), false)
-              : false);
+          // 指向性判断：消息必须指向本 bot 才发拒绝。
+          // 顶层门控（v1.11+）已对人类消息做了 early return，此处保留 isDirectedAtMe
+          // 作为 defense-in-depth，防止有人从其他代码路径直接走到守卫。
+          // 私聊天然通过；bot 消息已在守卫入口（isKnownBotSender）跳过。
+          const isDirectedAtMe = isMessageDirectedAtBot(
+            event, effectiveSelfId, text, config._selfName,
+          );
 
           if (!isDirectedAtMe) {
             if (config.debug) {

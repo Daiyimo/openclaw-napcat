@@ -4,6 +4,7 @@ import {
   detectKeywordTrigger,
   detectNameTrigger,
   hasMentionOtherUser,
+  isMessageDirectedAtBot,
   buildFromId,
   buildBodyWithReply,
 } from "../message-processor.js";
@@ -128,6 +129,126 @@ describe("hasMentionOtherUser", () => {
       message: "[CQ:at,qq=99999] 帮我查一下",
     });
     expect(hasMentionOtherUser(event, selfId)).toBe(true);
+  });
+});
+
+// ============ isMessageDirectedAtBot (v1.11+) ============
+// 多 bot 共存场景下，消息路由的核心判定：这条消息是不是在叫我？
+// 群聊/频道人类消息必须 @本 bot 或含本 bot 名字才放行。
+
+describe("isMessageDirectedAtBot", () => {
+  const selfId = 12345;
+  const selfName = "爱弥斯";
+  const otherBotNames = ["云崽"];
+
+  function makeEvent(overrides: Partial<OneBotEvent> = {}): OneBotEvent {
+    return {
+      time: 0, self_id: selfId, post_type: "message",
+      message_type: "group", group_id: 99, user_id: 1001,
+      raw_message: "", message: [],
+      ...overrides,
+    } as OneBotEvent;
+  }
+
+  // ── 私聊/频道天然通过 ──
+  it("私聊消息天然通过（不要求 @/名字）", () => {
+    const event = makeEvent({ message_type: "private" });
+    expect(isMessageDirectedAtBot(event, selfId, "随便说", selfName, otherBotNames)).toBe(true);
+  });
+
+  it("guild 频道消息按群聊规则判定", () => {
+    const event = makeEvent({
+      message_type: "guild",
+      message: [{ type: "at", data: { qq: String(selfId) } }],
+    });
+    expect(isMessageDirectedAtBot(event, selfId, " @爱弥斯 帮我", selfName, otherBotNames)).toBe(true);
+  });
+
+  // ── @本 bot ──
+  it("群聊 @本 bot 放行", () => {
+    const event = makeEvent({
+      message: [{ type: "at", data: { qq: String(selfId) } }, { type: "text", data: { text: " 帮我" } }],
+    });
+    expect(isMessageDirectedAtBot(event, selfId, " @爱弥斯 帮我", selfName, otherBotNames)).toBe(true);
+  });
+
+  it("群聊 @all 放行（@all 视为对所有人说话）", () => {
+    const event = makeEvent({
+      message: [{ type: "at", data: { qq: "all" } }, { type: "text", data: { text: " 大家" } }],
+    });
+    expect(isMessageDirectedAtBot(event, selfId, " @all 大家", selfName, otherBotNames)).toBe(true);
+  });
+
+  // ── @其他已知 bot → 不放行 ──
+  it("群聊 @其他已知 bot 不放行（消息是给别人的）", () => {
+    const event = makeEvent({
+      message: [{ type: "at", data: { qq: "99999" } }, { type: "text", data: { text: " 改你的 SOUL.md" } }],
+    });
+    expect(isMessageDirectedAtBot(event, selfId, " @云崽 改你的 SOUL.md", selfName, otherBotNames)).toBe(false);
+  });
+
+  it("群聊 @其他非 bot 用户也不放行", () => {
+    const event = makeEvent({
+      message: [{ type: "at", data: { qq: "77777" } }, { type: "text", data: { text: " 你好" } }],
+    });
+    expect(isMessageDirectedAtBot(event, selfId, " @张三 你好", selfName, otherBotNames)).toBe(false);
+  });
+
+  it("群聊同时 @本 bot 和 @其他 bot → 放行（@自己优先）", () => {
+    const event = makeEvent({
+      message: [
+        { type: "at", data: { qq: "99999" } },
+        { type: "at", data: { qq: String(selfId) } },
+        { type: "text", data: { text: " 你们好" } },
+      ],
+    });
+    expect(isMessageDirectedAtBot(event, selfId, " @云崽 @爱弥斯 你们好", selfName, otherBotNames)).toBe(true);
+  });
+
+  // ── 名字触发 ──
+  it("群聊文本含本 bot 名字放行", () => {
+    const event = makeEvent({
+      message: [{ type: "text", data: { text: "爱弥斯 你的 soul.md 是什么" } }],
+    });
+    expect(isMessageDirectedAtBot(event, selfId, "爱弥斯 你的 soul.md 是什么", selfName, otherBotNames)).toBe(true);
+  });
+
+  // ── NapCat stripping：文本以其他 bot 名字开头 → 不放行 ──
+  it("NapCat stripping：文本以其他 bot 名字开头 → 不放行（消息是给别人的）", () => {
+    const event = makeEvent({
+      message: [{ type: "text", data: { text: "云崽 你的 soul.md 是什么" } }],
+    });
+    expect(isMessageDirectedAtBot(event, selfId, "云崽 你的 soul.md 是什么", selfName, otherBotNames)).toBe(false);
+  });
+
+  it("NapCat stripping：文本不以任何已知 bot 名字开头 → 按 @/名字继续判定", () => {
+    // 文本以普通字符开头，无 @，无自己名字 → 不放行
+    const event = makeEvent({
+      message: [{ type: "text", data: { text: "大家好啊" } }],
+    });
+    expect(isMessageDirectedAtBot(event, selfId, "大家好啊", selfName, otherBotNames)).toBe(false);
+  });
+
+  // ── 边界：空 selfName / 空 otherBotNames ──
+  it("selfName 为空且无 @段 → 不放行", () => {
+    const event = makeEvent({
+      message: [{ type: "text", data: { text: "你好" } }],
+    });
+    expect(isMessageDirectedAtBot(event, selfId, "你好", undefined, otherBotNames)).toBe(false);
+  });
+
+  it("otherBotNames 为空时不做 stripping 补判", () => {
+    const event = makeEvent({
+      message: [{ type: "text", data: { text: "云崽 帮我" } }],
+    });
+    // 无 otherBotNames → 不会因为以"云崽"开头而拒绝；名字也不命中自己 → 仍不放行
+    expect(isMessageDirectedAtBot(event, selfId, "云崽 帮我", selfName, [])).toBe(false);
+  });
+
+  // ── CQ 字符串格式兼容 ──
+  it("CQ 字符串格式：[CQ:at,qq=selfId] 放行", () => {
+    const event = makeEvent({ message: undefined });
+    expect(isMessageDirectedAtBot(event, selfId, `[CQ:at,qq=${selfId}] 你好`, selfName, otherBotNames)).toBe(true);
   });
 });
 
