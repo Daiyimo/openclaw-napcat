@@ -35,6 +35,8 @@ import {
   type FolderStackEntry,
 } from "./utils/group-file-cwd.js";
 
+import type { InboundRateLimiter } from "./rate-limiter.js";
+
 // ============ 上下文类型 ============
 
 export interface AdminCmdContext {
@@ -53,6 +55,8 @@ export interface AdminCmdContext {
   fullCfg?: OpenClawConfig;
   /** 群路由刷新回调，供 /groups 命令使用。返回注册的群数量 */
   refreshGroupRoutes?: () => Promise<number>;
+  /** 入站限流器，供 /ratelimit /unratelimit 命令使用 */
+  rateLimiter?: InboundRateLimiter;
 }
 
 // ============ 辅助函数 ============
@@ -868,6 +872,46 @@ export async function handleAdminCommand(
     return true;
   }
 
+  // ── /ratelimit ──────────────────────────────────────────
+  if (cmd === "/ratelimit") {
+    if (!ctx.rateLimiter) {
+      await reply(ctx, "❌ 限流器未初始化");
+      return true;
+    }
+    const limits = ctx.rateLimiter.getActiveLimits();
+    if (limits.length === 0) {
+      await reply(ctx, "✅ 当前无活跃限流");
+      return true;
+    }
+    const lines = limits.map((l) => {
+      const remaining = (l.retryAfterMs / 1000).toFixed(1);
+      const display = l.target.startsWith("user:") ? `用户 ${l.target.slice(5)}` : `群 ${l.target.slice(6)}`;
+      return `  ${display}: 冷却 ${remaining}s (窗口内 ${l.count} 条, 累计阻断 ${l.blockedTotal} 次)`;
+    });
+    await reply(ctx, `⚠️ 活跃限流 (${limits.length}):\n${lines.join("\n")}`);
+    return true;
+  }
+
+  // ── /unratelimit ────────────────────────────────────────
+  if (cmd === "/unratelimit") {
+    if (!ctx.rateLimiter) {
+      await reply(ctx, "❌ 限流器未初始化");
+      return true;
+    }
+    const target = parts[1];
+    if (!target) {
+      await reply(ctx, "用法: /unratelimit <用户QQ号或群号>\n例: /unratelimit 123456789");
+      return true;
+    }
+    const cleared = ctx.rateLimiter.clear(target);
+    if (cleared) {
+      await reply(ctx, `✅ 已解除 ${target} 的限流`);
+    } else {
+      await reply(ctx, `ℹ️ ${target} 当前未被限流`);
+    }
+    return true;
+  }
+
   return false;
 }
 
@@ -883,6 +927,8 @@ const HELP_TEXT =
   `  /logs [N]            最近 N 条日志（默认 20）\n` +
   `  /reload              热重载配置\n` +
   `  /groups              刷新群路由（解决 cron 投递问题）\n` +
+  `  /ratelimit           查看当前活跃限流列表\n` +
+  `  /unratelimit <目标>   解除指定用户/群的限流\n` +
   `  /sendto <目标> <内容>  跨会话发送\n` +
   `\n` +
   `👥 群成员\n` +

@@ -43,6 +43,7 @@ import {
 import { MessageSender } from "../message-sender.js";
 import { parseBotHandshake } from "../utils/bot-handshake.js";
 import { BOT_SIGNATURE_PATTERN, BOT_SIGNATURE_ZW_PATTERN, ERROR_NOTIFY_SLEEP_MS, BOT_STOPPED_SUPPRESS_MS, DEFAULT_STOP_KEYWORDS } from "../constants.js";
+import { InboundRateLimiter } from "../rate-limiter.js";
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -380,6 +381,7 @@ export function installMessageHandler(
             text,
             message: event.message,
             eventTime: event.time ? event.time * 1000 : undefined,
+            rateLimiter: inboundStore.rateLimiter,
             refreshGroupRoutes: async () => {
               const groups = await client.getGroupList();
               const storePath = channelRuntime.session.resolveStorePath(
@@ -694,30 +696,28 @@ export function installMessageHandler(
         }
       }
 
-      // ── 入站频控 & 静默关键词过滤 ────────────────────
+      // ── 入站频控（滑动窗口）& 静默关键词过滤 ────────────
       {
         const store = inboundStore;
         const { config: storeConfig } = store;
+        const rateLimiter = store.rateLimiter;
 
-        if (storeConfig.inboundRateLimitMs > 0 && fromId) {
-          const key = `${account.accountId}:${fromId}`;
-          const now = Date.now();
-          const last = store.lastTrigger.get(key) ?? 0;
-          if (now - last < storeConfig.inboundRateLimitMs) {
-            console.log(
-              `[napcat-QQ][rate_limit] rate limited: ${key} (${now - last}ms < ${storeConfig.inboundRateLimitMs}ms)`,
-            );
+        // 滑动窗口限流（管理员豁免）
+        if (rateLimiter && storeConfig.inboundRateLimitMs > 0) {
+          const result = rateLimiter.check(userId, isGroup ? groupId : undefined, isAdmin);
+          if (!result.allowed) {
+            if (config.debug) {
+              console.log(
+                `[napcat-QQ][rate_limit] rate limited: user=${maskId(userId)} group=${groupId} ` +
+                  `retryAfter=${result.retryAfterMs}ms count=${result.currentCount}`,
+              );
+            }
             return;
           }
-          // 按时间戳排序清理最不活跃的条目（非 FIFO），防止高频用户被误淘汰
-          if (store.lastTrigger.size > 5000) {
-            const entries = [...store.lastTrigger.entries()];
-            entries.sort((a, b) => a[1] - b[1]);
-            for (let i = 0; i < 1000 && i < entries.length; i++) {
-              store.lastTrigger.delete(entries[i][0]);
-            }
+          // 放行时记录（仅在非管理员时记录）
+          if (!isAdmin) {
+            rateLimiter.record(userId, isGroup ? groupId : undefined);
           }
-          store.lastTrigger.set(key, now);
         }
 
         if (storeConfig.silentKeywords?.length) {
