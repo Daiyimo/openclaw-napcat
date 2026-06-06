@@ -6,3 +6,4 @@ package-lock.json
 compile_errors.txt
 coverage/
 docs/superpowers/
+.claude/

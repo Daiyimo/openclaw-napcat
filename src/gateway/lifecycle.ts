@@ -31,6 +31,7 @@ import { installConnectHandler } from "./connection.js";
 import { installMessageHandler } from "./inbound.js";
 import { initKnownBotsStore, flushKnownBotsStore } from "../known-bots-store.js";
 import { cleanupDialogState } from "../dialog-state.js";
+import { InboundRateLimiter } from "../rate-limiter.js";
 
 /**
  * 启动单个 QQ 账号的完整生命周期。
@@ -56,7 +57,14 @@ export async function startAccount(
 
   // ── 注册入站频控状态 ────────────────────────────────
   const lastTrigger = new Map<string, number>();
-  const inboundStore: InboundRateLimitStore = { lastTrigger, config };
+  const rateLimiter = new InboundRateLimiter(
+    {
+      windowMs: config.inboundRateLimitMs ?? 0,
+      maxMessages: 5, // 默认每窗口 5 条
+    },
+    config.admins ?? [],
+  );
+  const inboundStore: InboundRateLimitStore = { lastTrigger, rateLimiter, config };
   shared.inboundStores.set(account.accountId, inboundStore);
 
   // ── 版本检查 ────────────────────────────────────────

@@ -30,8 +30,13 @@ export interface SendResult {
   error?: string;
 }
 
+import type { InboundRateLimiter } from "../rate-limiter.js";
+
 export interface InboundRateLimitStore {
+  /** @deprecated Replaced by rateLimiter for sliding window support */
   lastTrigger: Map<string, number>;
+  /** 滑动窗口限流器 */
+  rateLimiter?: InboundRateLimiter;
   config: QQConfig;
 }
 

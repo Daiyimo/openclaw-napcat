@@ -13,6 +13,7 @@ import type { InboundContext, PluginRuntimeChannel } from "../types/channel-type
 import type { QQConfig } from "../config.js";
 import { UploadCache } from "../upload-cache.js";
 import { PassiveModeManager } from "../passive-mode.js";
+import { InboundRateLimiter } from "../rate-limiter.js";
 
 // ── Module mocks (must precede the module-under-test import) ────────────────
 
@@ -136,6 +137,10 @@ function makeCtx(configOverrides: Partial<QQConfig> = {}): {
 
   const config = makeConfig(configOverrides);
 
+  const rateLimiter = config.inboundRateLimitMs > 0
+    ? new InboundRateLimiter({ windowMs: config.inboundRateLimitMs, maxMessages: 5 })
+    : undefined;
+
   const ctx: InboundContext = {
     client,
     account: { accountId: ACCOUNT_ID, config },
@@ -143,7 +148,7 @@ function makeCtx(configOverrides: Partial<QQConfig> = {}): {
     cfg: {} as any,
     channelRuntime,
     uploadCache: new UploadCache(),
-    inboundStore: { lastTrigger: new Map(), config },
+    inboundStore: { lastTrigger: new Map(), rateLimiter, config },
     processedMsgIds: new Set(),
     knownGroupIds: new Set(),
     passiveMode: new PassiveModeManager(),
@@ -606,14 +611,18 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
     expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
   });
 
-  // 8. Inbound rate limiting — pre-seed lastTrigger to simulate a recent event
+  // 8. Inbound rate limiting — pre-seed rate limiter to simulate a recent event
   it("8. message within rate-limit window is dropped", async () => {
     const { client, ctx, dispatchReplyFromConfig } = makeCtx({ inboundRateLimitMs: 5000 });
     installMessageHandler(client, ctx);
 
-    // Simulate that this user/conversation just triggered (0 ms ago)
-    const fromId = String(USER_ID); // private → userId string
-    ctx.inboundStore.lastTrigger.set(`${ACCOUNT_ID}:${fromId}`, Date.now());
+    // Simulate that this user just triggered (record 3 messages to fill window)
+    if (ctx.inboundStore.rateLimiter) {
+      for (let i = 0; i < 5; i++) {
+        ctx.inboundStore.rateLimiter.check(USER_ID, undefined);
+        ctx.inboundStore.rateLimiter.record(USER_ID, undefined);
+      }
+    }
 
     client.emit("message", makePrivateEvent());
     await flush();
