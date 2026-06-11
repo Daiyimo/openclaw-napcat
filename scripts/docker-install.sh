@@ -37,15 +37,6 @@ set -e
 BRANCH="${OPENCLAW_NAPCAT_BRANCH:-main}"
 EXT_DIR="${HOME:-/home/node}/.openclaw/extensions/napcat"
 TEMP_DIR="/tmp/openclaw-napcat-install-$$"
-# 检测运行方式：docker-compose 还是 docker run
-COMPOSE_FILE=""
-if [ -f "docker-compose.yml" ] || [ -f "compose.yml" ]; then
-  COMPOSE_CMD="docker compose"
-elif [ -n "$(docker ps --filter "name=openclaw" --format "{{.Names}}" 2>/dev/null)" ]; then
-  COMPOSE_CMD="docker compose"
-else
-  COMPOSE_CMD=""
-fi
 
 echo "=== OpenClaw NapCat 插件安装 ==="
 echo "分支: $BRANCH"
@@ -273,19 +264,15 @@ echo "✓ 配置写入完成"
 echo ""
 echo "[5/5] 重启 OpenClaw 容器..."
 
-# 查找容器名称
-CONTAINER_NAME=$(docker ps --filter "name=openclaw" --format "{{.Names}}" 2>/dev/null | head -n 1)
+# 查找容器（包含已停止的，避免漏检导致 docker compose up -d 重建容器）
+CONTAINER_NAME=$(docker ps -a --filter "name=openclaw" --format "{{.Names}}" 2>/dev/null | head -n 1)
 
-if [ -n "$CONTAINER_NAME" ] && [ -n "$COMPOSE_CMD" ]; then
-  # docker-compose 方式：静默重启
-  $COMPOSE_CMD restart openclaw 2>/dev/null || true
-  echo "✓ 容器已重启，群路由将在 connect handler 中自动注册"
-elif [ -n "$CONTAINER_NAME" ]; then
-  # docker run 方式：直接 restart
+if [ -n "$CONTAINER_NAME" ]; then
+  # 容器存在（运行中或已停止）：docker restart 安全重启，不重建、不丢数据
   docker restart "$CONTAINER_NAME" 2>/dev/null || true
   echo "✓ 容器已重启，群路由将在 connect handler 中自动注册"
 else
-  echo "⚠ 未检测到运行中的 openclaw 容器，请手动启动："
+  echo "⚠ 未检测到 openclaw 容器，请先启动："
   echo "   docker compose up -d"
 fi
 
