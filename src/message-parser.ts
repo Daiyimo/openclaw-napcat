@@ -8,6 +8,7 @@ import { promises as fs } from "node:fs";
 import * as fsSync from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import * as os from "node:os";
 import type { OneBotMessage } from "./types.js";
 import type { OneBotClient } from "./client.js";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
@@ -261,10 +262,35 @@ export function processAntiRisk(text: string): string {
 
 // ============ 媒体 URL 解析 ============
 
+/** 允许访问的本地文件目录白名单（防止路径遍历） */
+const ALLOWED_LOCAL_DIRS: string[] = (() => {
+  const dirs: string[] = [];
+  try { dirs.push(path.resolve(os.homedir())); } catch { /* ignore */ }
+  try { dirs.push(path.resolve(os.tmpdir())); } catch { /* ignore */ }
+  try { dirs.push(path.resolve(process.cwd())); } catch { /* ignore */ }
+  // 去重并统一 trailing separator
+  return [...new Set(dirs.map((d) => d + path.sep))];
+})();
+
+/**
+ * 检查路径是否在允许的目录白名单内。
+ * 使用 path.resolve 解析后比对，防止 ../ 路径遍历。
+ */
+function isPathAllowed(filePath: string): boolean {
+  const resolved = path.resolve(filePath) + path.sep;
+  return ALLOWED_LOCAL_DIRS.some((dir) => resolved.startsWith(dir));
+}
+
 export async function resolveMediaUrl(url: string): Promise<string> {
+  // file: 协议 → 解码为本地路径
   if (url.startsWith("file:")) {
     try {
       const filePath = fileURLToPath(url);
+      // 路径遍历防护：仅允许访问白名单目录
+      if (!isPathAllowed(filePath)) {
+        console.warn(`[napcat-QQ] Path traversal blocked: ${url} not in allowed directories`);
+        return url;
+      }
       const stat = await fs.stat(filePath);
       if (stat.size > MAX_LOCAL_FILE_SIZE) {
         console.warn(`[napcat-QQ] File too large to base64 encode (${stat.size} bytes), passing as-is: ${url}`);
@@ -280,6 +306,11 @@ export async function resolveMediaUrl(url: string): Promise<string> {
   // 裸本地路径，NapCat 运行在远端时无法访问，转为 base64
   if (url.startsWith("/") || /^[a-zA-Z]:[/\\]/.test(url)) {
     try {
+      // 路径遍历防护
+      if (!isPathAllowed(url)) {
+        console.warn(`[napcat-QQ] Path traversal blocked: ${url} not in allowed directories`);
+        return url;
+      }
       const stat = await fs.stat(url);
       if (stat.size > MAX_LOCAL_FILE_SIZE) {
         console.warn(`[napcat-QQ] File too large to base64 encode (${stat.size} bytes), passing as-is: ${url}`);

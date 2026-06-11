@@ -221,28 +221,28 @@ describe("isMessageDirectedAtBot", () => {
     expect(isMessageDirectedAtBot(event, selfId, "云崽 你的 soul.md 是什么", selfName, otherBotNames)).toBe(false);
   });
 
-  it("NapCat stripping：文本不以任何已知 bot 名字开头 → 按 @/名字继续判定", () => {
-    // 文本以普通字符开头，无 @，无自己名字 → 不放行
+  it("NapCat stripping：文本不以任何已知 bot 名字开头 → 中性消息放行至被动模式", () => {
+    // 无 @，无 bot 名字匹配 → 中性消息，门控放行，由被动模式策略决定
     const event = makeEvent({
       message: [{ type: "text", data: { text: "大家好啊" } }],
     });
-    expect(isMessageDirectedAtBot(event, selfId, "大家好啊", selfName, otherBotNames)).toBe(false);
+    expect(isMessageDirectedAtBot(event, selfId, "大家好啊", selfName, otherBotNames)).toBe(true);
   });
 
   // ── 边界：空 selfName / 空 otherBotNames ──
-  it("selfName 为空且无 @段 → 不放行", () => {
+  it("selfName 为空且无 @段 → 中性消息放行（门控不过滤）", () => {
     const event = makeEvent({
       message: [{ type: "text", data: { text: "你好" } }],
     });
-    expect(isMessageDirectedAtBot(event, selfId, "你好", undefined, otherBotNames)).toBe(false);
+    expect(isMessageDirectedAtBot(event, selfId, "你好", undefined, otherBotNames)).toBe(true);
   });
 
-  it("otherBotNames 为空时不做 stripping 补判", () => {
+  it("otherBotNames 为空时不做 stripping 补判 → 中性消息放行", () => {
     const event = makeEvent({
       message: [{ type: "text", data: { text: "云崽 帮我" } }],
     });
-    // 无 otherBotNames → 不会因为以"云崽"开头而拒绝；名字也不命中自己 → 仍不放行
-    expect(isMessageDirectedAtBot(event, selfId, "云崽 帮我", selfName, [])).toBe(false);
+    // 无 otherBotNames → 不会因为以"云崽"开头而拒绝；无 @ 自己 → 中性消息放行
+    expect(isMessageDirectedAtBot(event, selfId, "云崽 帮我", selfName, [])).toBe(true);
   });
 
   // ── CQ 字符串格式兼容 ──

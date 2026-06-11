@@ -28,6 +28,11 @@
         "items": { "type": "number" },
         "description": "Admin QQ numbers"
       },
+      "sharedAdmins": {
+        "type": "array",
+        "items": { "type": "number" },
+        "description": "Admin QQ numbers shared across all bot accounts"
+      },
       "requireMention": {
         "type": "boolean",
         "description": "Require @mention to trigger"
