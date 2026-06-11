@@ -942,7 +942,7 @@ export async function handleAdminCommand(
     if (!matchedCmd) return false;
 
     context = {
-      client: ctx.client,
+      client: ctx.client!,
       isGroup: ctx.isGroup ?? false,
       groupId: ctx.groupId,
       userId: ctx.userId,
