@@ -56,6 +56,9 @@ if (env.QQ_REVERSE_WS_PORT)  qqEnv.reverseWsPort   = parseIntOpt(env.QQ_REVERSE_
 const admins = parseIntList(env.QQ_ADMINS);
 if (admins)                  qqEnv.admins          = admins;
 
+const sharedAdmins = parseIntList(env.QQ_SHARED_ADMINS);
+if (sharedAdmins)            qqEnv.sharedAdmins    = sharedAdmins;
+
 const allowedGroups = parseIntList(env.QQ_ALLOWED_GROUPS);
 if (allowedGroups)           qqEnv.allowedGroups   = allowedGroups;
 

@@ -40,6 +40,7 @@ services:
       QQ_ACCESS_TOKEN: ${QQ_ACCESS_TOKEN:-}
       # ── 权限与触发 ─────────────────────────────────────────────────────────
       QQ_ADMINS: ${QQ_ADMINS:-}
+      QQ_SHARED_ADMINS: ${QQ_SHARED_ADMINS:-}
       QQ_REQUIRE_MENTION: ${QQ_REQUIRE_MENTION:-true}
       QQ_ALLOWED_GROUPS: ${QQ_ALLOWED_GROUPS:-}
       QQ_BLOCKED_USERS: ${QQ_BLOCKED_USERS:-}
