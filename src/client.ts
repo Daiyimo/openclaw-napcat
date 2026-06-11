@@ -2,8 +2,55 @@ import WebSocket, { WebSocketServer } from "ws";
 import EventEmitter from "events";
 import type { OneBotEvent, OneBotMessage } from "./types.js";
 import type { IncomingMessage } from "http";
-import { withRetry, HttpApiError, isRetryableError } from "./utils/retry.js";
-import { maskUrl } from "./utils/log-sanitize.js";
+/**
+ * OneBot API 统一错误类型。
+ *
+ * 覆盖 HTTP API 错误（含 retry 模块抛出的 HttpApiError）和 WebSocket 错误，
+ * 供外部调用方统一 catch 和处理。
+ */
+export class NapcatApiError extends Error {
+  public readonly name = "NapcatApiError";
+  /** HTTP 状态码（HTTP 错误）；WebSocket 错误为 0 */
+  public readonly statusCode: number;
+  /** 触发的 API action 名称 */
+  public readonly action: string;
+  /** HTTP 状态描述；WS 错误为空 */
+  public readonly statusText: string;
+
+  constructor(
+    statusCode: number,
+    statusText: string,
+    action: string,
+    message?: string,
+  ) {
+    super(message ?? `HTTP ${statusCode} ${statusText} for action ${action}`);
+    this.statusCode = statusCode;
+    this.statusText = statusText;
+    this.action = action;
+  }
+
+  /** 是否为服务端错误（5xx） */
+  get isServerError(): boolean {
+    return this.statusCode >= 500;
+  }
+
+  /** 是否为客户端错误（4xx） */
+  get isClientError(): boolean {
+    return this.statusCode >= 400 && this.statusCode < 500;
+  }
+
+  /** 是否为连接层错误（WebSocket 断开、超时等） */
+  get isConnectionError(): boolean {
+    return this.statusCode === 0;
+  }
+
+  /** 从 retry 模块的 HttpApiError 转换 */
+  static fromHttpApiError(err: { statusCode: number; statusText: string; action: string }): NapcatApiError {
+    return new NapcatApiError(err.statusCode, err.statusText, err.action);
+  }
+}
+import { maskUrl, maskBearerToken } from "./utils/log-sanitize.js";
+import { withRetry, isRetryableError } from "./utils/retry.js";
 import {
   WS_HEARTBEAT_INTERVAL_MS,
   WS_RESPONSE_TIMEOUT_MS,
@@ -145,7 +192,7 @@ export class OneBotClient extends EventEmitter {
     // 拒绝所有等待中的请求
     for (const [echo, pending] of this.pendingRequests) {
       clearTimeout(pending.timer);
-      pending.reject(new Error("WebSocket disconnected"));
+      pending.reject(new NapcatApiError(0, "Disconnected", "unknown", "WebSocket disconnected"));
     }
     this.pendingRequests.clear();
     console.log("[napcat-QQ] Disconnected from OneBot server");
@@ -508,7 +555,8 @@ export class OneBotClient extends EventEmitter {
         console.log(`[napcat-QQ][sendAction] HTTP success: ${action}`);
         return;
       } catch (err: any) {
-        console.warn(`[napcat-QQ][sendAction] HTTP failed for ${action}:`, err.message);
+        const errMsg = maskBearerToken(err.message ?? String(err));
+        console.warn(`[napcat-QQ][sendAction] HTTP failed for ${action}:`, errMsg);
       }
     }
     const activeWs = this.getActiveWs();
@@ -529,11 +577,15 @@ export class OneBotClient extends EventEmitter {
         body: JSON.stringify(params),
       });
       if (!resp.ok) {
-        throw new HttpApiError(resp.status, resp.statusText, action);
+        throw new NapcatApiError(resp.status, resp.statusText, action);
       }
       const data = await resp.json() as any;
       if (data.status !== "ok" && data.retcode !== 0) {
-        throw new Error(data.msg || data.wording || "HTTP API request failed");
+        throw new NapcatApiError(
+          data.retcode ?? resp.status,
+          data.msg || data.wording || resp.statusText,
+          action,
+        );
       }
       return data.data;
     }, {
@@ -651,7 +703,7 @@ export class OneBotClient extends EventEmitter {
     return new Promise((resolve, reject) => {
       const activeWs = this.getActiveWs();
       if (!activeWs) {
-        reject(new Error("WebSocket not open"));
+        reject(new NapcatApiError(0, "No connection", action, "WebSocket not open"));
         return;
       }
 
@@ -659,7 +711,7 @@ export class OneBotClient extends EventEmitter {
 
       const timer = setTimeout(() => {
         this.pendingRequests.delete(echo);
-        reject(new Error("Request timeout"));
+        reject(new NapcatApiError(0, "Timeout", action, "Request timeout"));
       }, WS_RESPONSE_TIMEOUT_MS);
 
       // 注册 close 监听，WS 断连时立即 reject 而非等待超时
@@ -667,7 +719,7 @@ export class OneBotClient extends EventEmitter {
         if (this.pendingRequests.has(echo)) {
           this.pendingRequests.delete(echo);
           clearTimeout(timer);
-          reject(new Error("WebSocket closed while waiting for response"));
+          reject(new NapcatApiError(0, "Connection closed", action, "WebSocket closed while waiting for response"));
         }
       };
       activeWs.once("close", closeHandler);
@@ -691,7 +743,7 @@ export class OneBotClient extends EventEmitter {
         this.pendingRequests.delete(echo);
         activeWs.off("close", closeHandler);
         clearTimeout(timer);
-        reject(err);
+        reject(new NapcatApiError(0, "Send failed", action, err instanceof Error ? err.message : String(err)));
       }
     });
   }
@@ -701,7 +753,7 @@ export class OneBotClient extends EventEmitter {
     if (activeWs) {
       activeWs.send(JSON.stringify({ action, params }));
     } else {
-      throw new Error("No WebSocket connection available");
+      throw new NapcatApiError(0, "No connection", action, "No WebSocket connection available");
     }
   }
 
@@ -722,7 +774,11 @@ export class OneBotClient extends EventEmitter {
         if (payload.status === "ok") {
           pending.resolve(payload.data);
         } else {
-          pending.reject(new Error(payload.msg || "API request failed"));
+          pending.reject(new NapcatApiError(
+            payload.retcode ?? 0,
+            payload.msg || payload.wording || "API request failed",
+            payload.action || "unknown",
+          ));
         }
         return null;
       }

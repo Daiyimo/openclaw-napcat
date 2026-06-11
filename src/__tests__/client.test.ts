@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import EventEmitter from "events";
+import { WS_HEARTBEAT_INTERVAL_MS } from "../constants.js";
 
 // ── Mock WebSocket ──────────────────────────────────────────────────────────
 
@@ -42,19 +43,16 @@ vi.mock("ws", () => {
 
 vi.mock("../utils/retry.js", () => ({
   withRetry: vi.fn((fn: Function) => fn()),
-  HttpApiError: class HttpApiError extends Error {
-    constructor(public status: number, public statusText: string, public action: string) {
-      super(`HTTP ${status}: ${statusText}`);
-    }
-  },
   isRetryableError: vi.fn(() => false),
+  isNapcatApiErrorRetryable: vi.fn(() => false),
 }));
 
 vi.mock("../utils/log-sanitize.js", () => ({
   maskUrl: vi.fn((url: string) => url),
+  maskBearerToken: vi.fn((text: string) => text),
 }));
 
-import { OneBotClient } from "../client.js";
+import { OneBotClient, NapcatApiError } from "../client.js";
 
 describe("OneBotClient", () => {
   let client: OneBotClient;
@@ -200,6 +198,48 @@ describe("OneBotClient", () => {
     it("does nothing when wsUrl is not set", () => {
       const noWsClient = new OneBotClient({ httpUrl: "http://localhost:3000" });
       expect(() => noWsClient.connect()).not.toThrow();
+    });
+  });
+
+  describe("heartbeat", () => {
+    beforeEach(() => { vi.useFakeTimers(); });
+    afterEach(() => { vi.useRealTimers(); });
+
+    it("calls handleDisconnect after heartbeat timeout (2 intervals)", async () => {
+      const mockWs = new MockWebSocket();
+      (client as any).ws = mockWs;
+      (client as any).isAlive = true;
+
+      // Simulate connect → startHeartbeat
+      (client as any).startHeartbeat();
+
+      // 1st tick: isAlive set to false, ws.ping() called
+      await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS);
+      expect(mockWs.ping).toHaveBeenCalled();
+      expect((client as any).isAlive).toBe(false);
+
+      // 2nd tick: isAlive is false → handleDisconnect → terminate
+      await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS);
+      expect(mockWs.terminate).toHaveBeenCalled();
+    });
+
+    it("resets isAlive when message received between heartbeats", async () => {
+      const mockWs = new MockWebSocket();
+      (client as any).ws = mockWs;
+      (client as any).isAlive = true;
+
+      (client as any).startHeartbeat();
+
+      // 1st tick: isAlive → false
+      await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS);
+      expect((client as any).isAlive).toBe(false);
+
+      // Simulate receiving a message: directly set isAlive = true (message handler does this)
+      (client as any).isAlive = true;
+
+      // 2nd tick: isAlive is true → just ping, no disconnect
+      await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS);
+      expect(mockWs.terminate).not.toHaveBeenCalled();
     });
   });
 
@@ -445,14 +485,14 @@ describe("OneBotClient", () => {
       vi.unstubAllGlobals();
     });
 
-    it("throws HttpApiError on non-ok response", async () => {
+    it("throws NapcatApiError on non-ok response", async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: false,
         status: 500,
         statusText: "Internal Server Error",
       });
       vi.stubGlobal("fetch", mockFetch);
-      await expect((client as any).sendViaHttp("test_action", {})).rejects.toThrow();
+      await expect((client as any).sendViaHttp("test_action", {})).rejects.toThrow(/500/);
       vi.unstubAllGlobals();
     });
 
@@ -584,9 +624,14 @@ describe("OneBotClient", () => {
         timer: setTimeout(() => {}, 1000),
       });
       (client as any).parseIncomingMessage(
-        Buffer.from(JSON.stringify({ echo, status: "failed", msg: "error msg" }))
+        Buffer.from(JSON.stringify({ echo, status: "failed", msg: "error msg", retcode: 100 }))
       );
-      expect(reject).toHaveBeenCalledWith(expect.objectContaining({ message: "error msg" }));
+      expect(reject).toHaveBeenCalledWith(expect.objectContaining({
+        name: "NapcatApiError",
+        statusCode: 100,
+        statusText: "error msg",
+        action: "unknown",
+      }));
     });
   });
 });

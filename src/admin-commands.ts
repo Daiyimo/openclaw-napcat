@@ -207,8 +207,12 @@ export async function handleMute(ctx: AdminCmdContext, parts: string[]): Promise
   if (targetId && targetId > 0) {
     const rawMin = parts[1] ? parseInt(parts[1], 10) : 30;
     const minutes = isNaN(rawMin) ? 30 : Math.max(1, Math.min(rawMin, 43200));
-    ctx.client.setGroupBan(ctx.groupId!, targetId, minutes * 60);
-    return `已禁言 ${targetId} ${minutes} 分钟。`;
+    try {
+      ctx.client.setGroupBan(ctx.groupId!, targetId, minutes * 60);
+      return `已禁言 ${targetId} ${minutes} 分钟。`;
+    } catch (err) {
+      return `❌ 禁言失败：${fmtError(err)}`;
+    }
   }
   return "用法：/mute @用户 [分钟数]";
 }
@@ -217,8 +221,12 @@ export async function handleUnmute(ctx: AdminCmdContext, parts: string[]): Promi
   if (!(await requireGroup(ctx))) return null;
   const targetId = extractAtTarget(ctx.message, ctx.text) ?? (parts[0] ? parseInt(parts[0], 10) : null);
   if (targetId && targetId > 0) {
-    ctx.client.setGroupBan(ctx.groupId!, targetId, 0);
-    return `已解除禁言 ${targetId}。`;
+    try {
+      ctx.client.setGroupBan(ctx.groupId!, targetId, 0);
+      return `已解除禁言 ${targetId}。`;
+    } catch (err) {
+      return `❌ 解除禁言失败：${fmtError(err)}`;
+    }
   }
   return "用法：/unmute @用户";
 }
@@ -229,8 +237,12 @@ export async function handleBan(ctx: AdminCmdContext, parts: string[]): Promise<
   if (targetId && targetId > 0) {
     const rawMin = parts[1] ? parseInt(parts[1], 10) : 30;
     const minutes = isNaN(rawMin) ? 30 : Math.max(1, Math.min(rawMin, 43200));
-    ctx.client.setGroupBan(ctx.groupId!, targetId, minutes * 60);
-    return `已禁言 ${targetId} ${minutes} 分钟。`;
+    try {
+      ctx.client.setGroupBan(ctx.groupId!, targetId, minutes * 60);
+      return `已禁言 ${targetId} ${minutes} 分钟。`;
+    } catch (err) {
+      return `❌ 禁言失败：${fmtError(err)}`;
+    }
   }
   return "用法：/ban @用户 [分钟数]";
 }
@@ -239,8 +251,12 @@ export async function handleKick(ctx: AdminCmdContext, parts: string[]): Promise
   if (!(await requireGroup(ctx))) return null;
   const targetId = extractAtTarget(ctx.message, ctx.text) ?? (parts[0] ? parseInt(parts[0], 10) : null);
   if (targetId && targetId > 0) {
-    ctx.client.setGroupKick(ctx.groupId!, targetId);
-    return `已踢出 ${targetId}。`;
+    try {
+      ctx.client.setGroupKick(ctx.groupId!, targetId);
+      return `已踢出 ${targetId}。`;
+    } catch (err) {
+      return `❌ 踢人失败：${fmtError(err)}`;
+    }
   }
   return "用法：/kick @用户";
 }

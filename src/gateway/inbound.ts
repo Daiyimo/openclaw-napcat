@@ -29,6 +29,7 @@ import { createDeliverDebouncer, type DeliverPayload, type DeliverInfo } from ".
 import { TypingKeepAlive } from "../typing-keepalive.js";
 import { recordRef, lookupRef } from "../ref-index-store.js";
 import { handleAdminCommand } from "../admin-commands.js";
+import { registerGroupRoute } from "./group-route-registry.js";
 import { maskId } from "../utils/log-sanitize.js";
 import {
   resolveMessageText,
@@ -39,14 +40,13 @@ import {
   isMessageDirectedAtBot,
   buildFromId,
   buildBodyWithReply,
+  buildOtherBotNames,
 } from "../message-processor.js";
 import { MessageSender } from "../message-sender.js";
 import { parseBotHandshake } from "../utils/bot-handshake.js";
+import { sleep } from "../utils/sleep.js";
 import { BOT_SIGNATURE_PATTERN, BOT_SIGNATURE_ZW_PATTERN, ERROR_NOTIFY_SLEEP_MS, BOT_STOPPED_SUPPRESS_MS, DEFAULT_STOP_KEYWORDS } from "../constants.js";
 import { InboundRateLimiter } from "../rate-limiter.js";
-
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
 
 /** 友军抑制随机延迟上限（ms），提取为常量便于测试控制 */
 const BOT_SUPPRESSION_JITTER_MS = 2000;
@@ -143,6 +143,13 @@ export function installMessageHandler(
         return;
       }
 
+      // ── 快速过滤（不依赖文本解析，避免对 blocked/allowed 用户做无效 I/O）──
+      // blockedUsers / allowedGroups 仅需 userId/groupId，比 resolveMessageText（可能调 LLM）
+      // 和 populateGroupMemberCache（HTTP 请求）廉价得多。
+      if (config.blockedUsers?.includes(userId!)) return;
+      if (isGroup && config.allowedGroups?.length && !config.allowedGroups.includes(groupId!))
+        return;
+
       // 消息去重
       if (config.enableDeduplication !== false && event.message_id) {
         const msgIdKey = String(event.message_id);
@@ -159,18 +166,13 @@ export function installMessageHandler(
         }
       }
 
-      // 批量预热群成员缓存
+      // 批量预热群成员缓存（仅当消息已通过 blocked/allowed 过滤后）
       if (isGroup && groupId) {
         await populateGroupMemberCache(client, groupId);
       }
 
       // ── 消息文本提取 ────────────────────────────────
       const text = await resolveMessageText(event, client, config, cfg as Record<string, unknown>);
-
-      // ── 过滤规则 ─────────────────────────────────────
-      if (config.blockedUsers?.includes(userId!)) return;
-      if (isGroup && config.allowedGroups?.length && !config.allowedGroups.includes(groupId!))
-        return;
 
       // 友军识别：bot 消息记录活跃时间后跳过
       // 五层检测：白名单 → sender.bot 字段 → 自维护 bot ID 缓存 → 签名（可见/零宽）→ 协议层握手
@@ -258,20 +260,16 @@ export function installMessageHandler(
         }
       }
 
+      // 单次构建 otherBotNames + knownBotIdSet（供后续 isMessageDirectedAtBot、isKnownBotSender、passive mode 共用）
+      const { names: otherBotNames, idSet: knownBotIdSet } = buildOtherBotNames(
+        account.accountId, config.knownBotIds, String(selfId),
+      );
+
       // ── 指向性门控（v1.11+）───────────────────────────────
       // 群/频道人类消息必须指向本 bot 才继续。bot 互发旁路（受 dialog state 控制），
       // 私聊天然通过。修复：sharedAdmins 后两 bot 都视为 admin，旧守卫内
       // isDirectedAtMe 被 bypass 导致未被点名的 bot 越权响应。
       if (!isBot) {
-        const otherBotNames: string[] = [];
-        if (config.knownBotIds?.length) {
-          for (const botId of config.knownBotIds) {
-            if (String(botId) === String(selfId)) continue;
-            const info = getBotInfo(account.accountId, String(botId));
-            const name = info?.card || info?.nickname;
-            if (name) otherBotNames.push(name);
-          }
-        }
         if (!isMessageDirectedAtBot(event, selfId, text, config._selfName, otherBotNames)) {
           if (config.debug) {
             console.log(
@@ -307,7 +305,7 @@ export function installMessageHandler(
       // 仅群聊场景需要判断（私聊不存在 bot 间消息）。
       const isKnownBotSender =
         isGroup &&
-        ((config.knownBotIds?.some(id => String(id) === String(userId)) ?? false) ||
+        (knownBotIdSet.has(String(userId)) ||
           event.sender?.bot === true ||
           (userId != null && isKnownBot(account.accountId, String(userId))) ||
           (BOT_SIGNATURE_PATTERN.test(text) || BOT_SIGNATURE_ZW_PATTERN.test(text)));
@@ -384,58 +382,19 @@ export function installMessageHandler(
             rateLimiter: inboundStore.rateLimiter,
             refreshGroupRoutes: async () => {
               const groups = await client.getGroupList();
-              const storePath = channelRuntime.session.resolveStorePath(
-                (cfg as OpenClawConfig).session?.store,
-                { agentId: "default" },
-              );
-              await Promise.allSettled(groups.map(async (g) => {
-                const gid = String(g.group_id);
-                const groupFromId = `group:${gid}`;
-                const routeCtx = {
-                  Provider: "napcat",
-                  Channel: "napcat",
-                  From: groupFromId,
-                  To: "napcat:bot",
-                  Body: "",
-                  RawBody: "",
-                  AccountId: account.accountId,
-                  ChatType: "group",
-                  Timestamp: Date.now(),
-                  OriginatingChannel: "napcat",
-                  OriginatingTo: groupFromId,
-                  SenderName: "",
-                  SenderId: "",
-                  ConversationLabel: `QQ Group ${gid}`,
-                };
-
-                let sessionKey: string | undefined;
-                try {
-                  const route = (channelRuntime as any)?.routing?.resolveAgentRoute?.({
+              await Promise.allSettled(
+                groups.map((g) =>
+                  registerGroupRoute({
+                    client,
                     cfg: cfg as OpenClawConfig,
-                    channel: "napcat",
                     accountId: account.accountId,
-                    peer: { kind: "group", id: gid },
-                  });
-                  sessionKey = route?.sessionKey;
-                } catch {
-                  // routing unavailable, skip this group
-                }
-
-                if (!sessionKey) {
-                  console.warn(`[napcat-QQ] Cannot resolve session key for group ${gid}, skipping`);
-                  knownGroupIds.add(gid);
-                  return;
-                }
-
-                await channelRuntime.session.recordInboundSession({
-                  storePath,
-                  sessionKey,
-                  ctx: { ...routeCtx, SessionKey: sessionKey },
-                  updateLastRoute: { sessionKey, channel: "napcat", to: groupFromId, accountId: account.accountId },
-                  onRecordError: () => {},
-                });
-                knownGroupIds.add(gid);
-              }));
+                    groupId: g.group_id,
+                    channelRuntime,
+                    knownGroupIds,
+                    log,
+                  }),
+                ),
+              );
               log.info(`[napcat-QQ] /groups: refreshed ${groups.length} group routes`);
               return groups.length;
             },
@@ -486,16 +445,6 @@ export function installMessageHandler(
 
       // ── @其他人检测：仅在 bot 自身未被 @/回复 时跳过 ──────────────────
       // 如果消息 @了其他用户但 bot 也被 @，bot 仍应响应
-      // NapCat 可能 stripping @ 段，只保留纯文本昵称，需要 nickname 补判
-      const otherBotNames: string[] = [];
-      if (config.knownBotIds?.length) {
-        for (const botId of config.knownBotIds) {
-          if (String(botId) === String(effectiveSelfId)) continue;
-          const info = getBotInfo(account.accountId, String(botId));
-          const name = info?.card || info?.nickname;
-          if (name) otherBotNames.push(name);
-        }
-      }
       if (isGroup || isGuild) {
         if (effectiveSelfId && !detectMention(event, effectiveSelfId, text, null, config.debug)) {
           if (hasMentionOtherUser(event, effectiveSelfId, otherBotNames)) {

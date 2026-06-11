@@ -23,8 +23,7 @@ import { appendBotSignature } from "./utils/bot-signature.js";
 import { markStopped } from "./dialog-state.js";
 import { DEFAULT_BOT_SIGNATURE_STYLE } from "./constants.js";
 
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
+import { sleep } from "./utils/sleep.js";
 
 /**
  * 按 isGroup/isGuild 分发消息段到正确的 OneBot API。

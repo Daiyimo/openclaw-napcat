@@ -39,3 +39,14 @@ export function maskUrl(url: string, maxPathLength = 40): string {
 export function maskIdsInText(text: string): string {
   return text.replace(/\b\d{5,12}\b/g, (match) => maskId(match));
 }
+
+/**
+ * 脱敏 Bearer Token。
+ * 将 "Bearer <token>" 替换为 "Bearer [REDACTED]"。
+ * 同时处理 JSON 中的 "Authorization": "Bearer <token>" 格式。
+ */
+export function maskBearerToken(text: string): string {
+  return text
+    .replace(/"Authorization"\s*:\s*"Bearer\s+[^"]*"/gi, '"Authorization": "Bearer [REDACTED]"')
+    .replace(/Bearer\s+[A-Za-z0-9\-._~+/]+=*/gi, "Bearer [REDACTED]");
+}

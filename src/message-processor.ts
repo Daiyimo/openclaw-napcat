@@ -13,6 +13,7 @@ import type { OneBotClient } from "./client.js";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { QQConfig } from "./config.js";
 import { getCachedMemberName } from "./member-cache.js";
+import { getBotInfo } from "./known-bots-store.js";
 import { cleanCQCodes } from "./message-parser.js";
 import { convertSilkToWav } from "./utils/audio-convert.js";
 import { transcribeAudioForNapcat } from "./message-parser.js";
@@ -63,7 +64,7 @@ export async function resolveMessageText(
         let wavPath: string | null = null;
         try {
           const voiceUrl = seg.data.url;
-          const voiceResp = await fetch(voiceUrl);
+          const voiceResp = await fetch(voiceUrl, { signal: AbortSignal.timeout(30_000) });
           if (voiceResp.ok) {
             const buf = await voiceResp.arrayBuffer();
             fsSync.writeFileSync(tmpFile, Buffer.from(buf));
@@ -87,8 +88,8 @@ export async function resolveMessageText(
           console.warn(`[message-processor] STT failed: ${sttErr}`);
           resolvedText += ` [语音消息: 转写失败]`;
         } finally {
-          try { fsSync.unlinkSync(tmpFile); } catch {}
-          if (wavPath) { try { fsSync.unlinkSync(wavPath); } catch {} }
+          try { fsSync.unlinkSync(tmpFile); } catch (e) { console.debug(`[message-processor] cleanup tmpFile failed: ${e}`); }
+          if (wavPath) { try { fsSync.unlinkSync(wavPath); } catch (e) { console.debug(`[message-processor] cleanup wav failed: ${e}`); } }
         }
       } else {
         const textData = seg.data?.text;
@@ -112,7 +113,9 @@ export async function resolveMessageText(
             resolvedText += `\n${m.sender?.nickname || m.user_id}: ${preview}`;
           }
         }
-      } catch {}
+      } catch (e) {
+        console.debug(`[message-processor] forward msg fetch failed: ${e}`);
+      }
     } else if (seg.type === "file") {
       let fileSeg = seg;
       if (!fileSeg.data?.url && isGroup && groupId) {
@@ -123,7 +126,9 @@ export async function resolveMessageText(
             busid: fileSeg.data?.busid,
           });
           if (info?.url) fileSeg = { ...fileSeg, data: { ...fileSeg.data, url: info.url } };
-        } catch {}
+        } catch (e) {
+          console.debug(`[message-processor] file URL fetch failed: ${e}`);
+        }
       }
       resolvedText += ` [文件: ${fileSeg.data?.file || "未命名"}]`;
     }
@@ -357,7 +362,33 @@ export function isMessageDirectedAtBot(
     }
   }
 
-  return false;
+  // 未 @ 任何人 → 中性消息，放行至被动模式由冷却/间隔策略决定
+  return true;
+}
+
+/**
+ * 根据配置中的 knownBotIds 构建其他 bot 的昵称列表和 ID 集合。
+ * 一次性返回 names（用于 isMessageDirectedAtBot / hasMentionOtherUser 的补判）
+ * 和 idSet（用于 O(1) 白名单检测，替代 .some() 线性扫描）。
+ */
+export function buildOtherBotNames(
+  accountId: string,
+  knownBotIds: (number | string)[] | undefined,
+  selfId: string,
+): { names: string[]; idSet: Set<string> } {
+  const names: string[] = [];
+  const idSet = new Set<string>();
+  if (knownBotIds?.length) {
+    for (const botId of knownBotIds) {
+      const idStr = String(botId);
+      if (idStr === selfId) continue;
+      idSet.add(idStr);
+      const info = getBotInfo(accountId, idStr);
+      const name = info?.card || info?.nickname;
+      if (name) names.push(name);
+    }
+  }
+  return { names, idSet };
 }
 
 // ============ 上下文构建 ============

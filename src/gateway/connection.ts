@@ -13,6 +13,7 @@ import {
   GROUP_ROUTE_REFRESH_INTERVAL_MS,
 } from "../constants.js";
 import { runHandshakeBackfill } from "../utils/bot-handshake.js";
+import { registerGroupRoute } from "./group-route-registry.js";
 
 export interface ConnectionResult {
   groupRouteRefreshTimer: ReturnType<typeof setInterval> | null;
@@ -61,66 +62,20 @@ export function installConnectHandler(
         connected: true,
       });
 
-      // 预注册群路由的局部函数
-      // 使用框架 resolveAgentRoute 生成正确的 session key 格式，
-      // 避免手写格式（如 "qq:group:xxx"）与框架内部格式不匹配导致系统无法发现
-      const registerGroupRoute = async (groupId: string | number) => {
-        const storePath = ctx.channelRuntime.session.resolveStorePath(
-          ctx.cfg.session?.store,
-          { agentId: "default" },
-        );
-        const groupFromId = `group:${groupId}`;
-        const routeCtx = {
-          Provider: "napcat",
-          Channel: "napcat",
-          From: groupFromId,
-          To: "napcat:bot",
-          Body: "",
-          RawBody: "",
-          AccountId: ctx.account.accountId,
-          ChatType: "group",
-          Timestamp: Date.now(),
-          OriginatingChannel: "napcat",
-          OriginatingTo: groupFromId,
-          SenderName: "",
-          SenderId: "",
-          ConversationLabel: `QQ Group ${groupId}`,
-        };
-
-        // 通过框架路由解析获取正确的 session key
-        let sessionKey: string | undefined;
-        try {
-          const route = (ctx.channelRuntime as any)?.routing?.resolveAgentRoute?.({
-            cfg: ctx.cfg,
-            channel: "napcat",
-            accountId: ctx.account.accountId,
-            peer: { kind: "group", id: String(groupId) },
-          });
-          sessionKey = route?.sessionKey;
-        } catch {
-          // resolveAgentRoute 不可用时静默降级（不影响其他群）
-        }
-
-        if (!sessionKey) {
-          console.warn(`[napcat-QQ] Cannot resolve session key for group ${groupId}, skipping route registration`);
-          ctx.knownGroupIds.add(String(groupId));
-          return;
-        }
-
-        await ctx.channelRuntime.session.recordInboundSession({
-          storePath,
-          sessionKey,
-          ctx: { ...routeCtx, SessionKey: sessionKey },
-          updateLastRoute: { sessionKey, channel: "napcat", to: groupFromId, accountId: ctx.account.accountId },
-          onRecordError: () => {},
-        });
-        ctx.knownGroupIds.add(String(groupId));
-      };
-
       try {
         const groups = await client.getGroupList();
-        // 并行注册群路由，用 allSettled 避免单个失败阻塞全部
-        await Promise.allSettled(groups.map((g) => registerGroupRoute(g.group_id)));
+        await Promise.allSettled(
+          groups.map((g) =>
+            registerGroupRoute({
+              client,
+              cfg: ctx.cfg,
+              accountId: ctx.account.accountId,
+              groupId: g.group_id,
+              channelRuntime: ctx.channelRuntime,
+              knownGroupIds: ctx.knownGroupIds,
+            }),
+          ),
+        );
         console.log(
           `[napcat-QQ] Pre-registered ${groups.length} group session routes for cron delivery`,
         );
@@ -158,7 +113,18 @@ export function installConnectHandler(
         result.groupRouteRefreshTimer = setInterval(async () => {
           try {
             const groups = await client.getGroupList();
-            await Promise.allSettled(groups.map((g) => registerGroupRoute(g.group_id)));
+            await Promise.allSettled(
+              groups.map((g) =>
+                registerGroupRoute({
+                  client,
+                  cfg: ctx.cfg,
+                  accountId: ctx.account.accountId,
+                  groupId: g.group_id,
+                  channelRuntime: ctx.channelRuntime,
+                  knownGroupIds: ctx.knownGroupIds,
+                }),
+              ),
+            );
             console.log(`[napcat-QQ] Refreshed ${groups.length} group session routes`);
           } catch (err) {
             console.warn(`[napcat-QQ] Group route refresh failed: ${err}`);

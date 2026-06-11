@@ -501,16 +501,17 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
     );
   });
 
-  // 3i. 群聊人类消息 @ + 名字都不命中 → 本 bot 静默
-  it("3i. group msg with no @ and no bot name is silently dropped", async () => {
+  // 3i. 群聊人类消息 @ + 名字都不命中 → 中性消息放行至被动模式（不再被门控拦截）
+  it("3i. group msg with no @ and no bot name passes through gate (reaches passive mode)", async () => {
     const { client, ctx, dispatchReplyFromConfig } = makeCtx({
-      requireMention: false,
+      requireMention: true,
       _selfName: "爱弥斯",
       knownBotIds: [99999],
+      passiveMode: { enabled: true, cooldownMs: 0, minIntervalMs: 0 },
     });
     installMessageHandler(client, ctx);
 
-    // 纯文本"大家好啊"：无 @ 段，无 "爱弥斯" 名字，无 knownBot 名前缀 → 静默
+    // 纯文本"大家好啊"：无 @ 段，无 bot 名字 → 中性消息，门控放行
     client.emit(
       "message",
       makeGroupEvent({
@@ -520,7 +521,8 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
     );
     await flush();
 
-    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+    // 消息到达框架，由被动模式的冷却/间隔策略决定是否回复
+    expect(dispatchReplyFromConfig).toHaveBeenCalled();
   });
 
   // 3j. 群聊人类消息 @本 bot → 放行（保持现有行为）

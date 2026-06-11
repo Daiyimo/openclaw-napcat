@@ -19,7 +19,9 @@ const _realSchedule: (fn: () => void) => void =
     ? (fn) => _realSetImmediate(fn)
     : (fn) => void Promise.resolve().then(fn);
 
-/** OneBot HTTP API 调用失败时抛出的错误 */
+/**
+ * @deprecated 兼容旧测试和外部调用者。新代码请使用 client.ts 的 NapcatApiError。
+ */
 export class HttpApiError extends Error {
   public readonly name = "HttpApiError";
 
@@ -63,12 +65,13 @@ const NETWORK_ERROR_PATTERNS = [
 
 /**
  * 判断错误是否值得重试。
- * 可重试：HttpApiError 5xx，网络错误。
+ * 可重试：5xx 服务端错误（通过 statusCode 鸭子类型兼容 NapcatApiError），网络错误。
  * 不重试：4xx，其他未知错误。
  */
 export function isRetryableError(error: unknown): boolean {
-  if (error instanceof HttpApiError) {
-    return error.isServerError;
+  // 鸭子类型：兼容 NapcatApiError（client.ts）等带 statusCode 的错误
+  if (typeof error === "object" && error !== null && (error as any).statusCode >= 500) {
+    return true;
   }
   if (error instanceof Error) {
     const msg = error.message.toLowerCase();
