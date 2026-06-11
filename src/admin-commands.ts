@@ -1,29 +1,16 @@
 /**
- * 管理命令处理模块
+ * 管理命令处理器集合
  *
- * 入口：handleAdminCommand(cmd, parts, ctx)
- * 已在 gateway/inbound.ts 的 admin gate 之后调用，所有命令默认 admin 权限。
- *
- * 命令分组：
- *   - 基础：/ping /version /logs /status /help /sendto /reload /groups
- *   - 群成员管理：/mute /unmute /ban /kick /kickbatch* /admin* /unadmin* /card /title /shutlist
- *   - 群禁言/全员：/banall /unbanall
- *   - 群资料：/setname* /setremark* /setportrait* /leave* /dismiss*
- *   - 精华消息：/essence /deessence /essencelist
- *   - 查询：/honor /atallremain /groupinfo
- *   - 群文件：/files /cd /cdup /pwd /dl /delfile /mkdir /rmdir /mvfile /renamefile /upload
- *   - NapCat 扩展：/poke /sign /todo /donetodo /canceltodo
- *
- * 带 * 的命令为"高代价/不可逆"，走二次确认（utils/confirm-pending）。
+ * 每个命令是独立函数，接收 AdminCmdContext 和 parts，
+ * 返回回复字符串或 null（未处理）。
+ * 由 admin-registry.ts 的 CommandRegistry 统一管理。
  */
 
-import type { OpenClawConfig } from "openclaw/plugin-sdk";
-import type { OneBotClient } from "./client.js";
-import type { OneBotMessage } from "./types.js";
+import type { AdminCmdContext } from "./admin-registry.js";
 import { getUpdateInfo } from "./update-checker.js";
 import { getRecentLogs, formatLogEntry } from "./log-buffer.js";
 import { getPackageVersion } from "./utils/pkg-version.js";
-import { updateConfigRef, type ConfigRef } from "./config-watcher.js";
+import { updateConfigRef } from "./config-watcher.js";
 import { requireConfirm } from "./utils/confirm-pending.js";
 import {
   getCwd,
@@ -34,35 +21,13 @@ import {
   currentFolderId,
   type FolderStackEntry,
 } from "./utils/group-file-cwd.js";
+import type { ActiveRateLimit } from "./rate-limiter.js";
+import { sendProactive } from "./proactive.js";
 
-import type { InboundRateLimiter } from "./rate-limiter.js";
-
-// ============ 上下文类型 ============
-
-export interface AdminCmdContext {
-  client: OneBotClient;
-  isGroup: boolean;
-  groupId?: number;
-  userId?: number;
-  text: string;
-  /** 原始消息段数组，用于解析 @目标 / 回复消息 */
-  message?: OneBotMessage | string;
-  /** 发送时间戳（ms），用于 /ping 延迟计算 */
-  eventTime?: number;
-  /** 配置引用，供 /reload 命令使用 */
-  configRef?: ConfigRef;
-  /** 完整 OpenClaw 配置，供 /reload 读取最新值 */
-  fullCfg?: OpenClawConfig;
-  /** 群路由刷新回调，供 /groups 命令使用。返回注册的群数量 */
-  refreshGroupRoutes?: () => Promise<number>;
-  /** 入站限流器，供 /ratelimit /unratelimit 命令使用 */
-  rateLimiter?: InboundRateLimiter;
-}
-
-// ============ 辅助函数 ============
+// ============ 共享辅助函数 ============
 
 /** 从消息段数组（或 CQ 码字符串回退）中提取第一个被 @ 的 QQ 号 */
-function extractAtTarget(message: OneBotMessage | string | undefined, text: string): number | null {
+export function extractAtTarget(message: AdminCmdContext["message"], text: string): number | null {
   if (Array.isArray(message)) {
     for (const seg of message) {
       if (seg.type === "at" && seg.data?.qq && /^\d+$/.test(String(seg.data.qq))) {
@@ -70,16 +35,12 @@ function extractAtTarget(message: OneBotMessage | string | undefined, text: stri
       }
     }
   }
-  // 回退：从纯文本中匹配（兼容字符串格式消息）
   const m = text.match(/\[CQ:at,qq=(\d+)\]/);
   return m ? parseInt(m[1], 10) : null;
 }
 
-/**
- * 从消息段数组中提取所有被 @ 的 QQ 号（按出现顺序去重）。
- * 用于 /kickbatch 等多目标命令。CQ 码回退也支持多 @。
- */
-function extractAtTargets(message: OneBotMessage | string | undefined, text: string): number[] {
+/** 从消息段数组中提取所有被 @ 的 QQ 号（按出现顺序去重） */
+export function extractAtTargets(message: AdminCmdContext["message"], text: string): number[] {
   const seen = new Set<number>();
   const out: number[] = [];
   if (Array.isArray(message)) {
@@ -90,7 +51,6 @@ function extractAtTargets(message: OneBotMessage | string | undefined, text: str
       }
     }
   }
-  // CQ 码全局匹配兜底
   const re = /\[CQ:at,qq=(\d+)\]/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
@@ -100,11 +60,8 @@ function extractAtTargets(message: OneBotMessage | string | undefined, text: str
   return out;
 }
 
-/**
- * 从消息段数组中提取回复目标消息 ID。OneBot reply 段格式：
- * { type: "reply", data: { id: "<msg_id>" } }
- */
-function extractReplyMsgId(message: OneBotMessage | string | undefined): string | null {
+/** 从消息段数组中提取回复目标消息 ID */
+export function extractReplyMsgId(message: AdminCmdContext["message"]): string | null {
   if (Array.isArray(message)) {
     for (const seg of message) {
       if (seg.type === "reply" && seg.data?.id) return String(seg.data.id);
@@ -113,10 +70,8 @@ function extractReplyMsgId(message: OneBotMessage | string | undefined): string 
   return null;
 }
 
-/**
- * 从消息段提取第一个 image 段的 file（用于 /setportrait）。
- */
-function extractImageFile(message: OneBotMessage | string | undefined): string | null {
+/** 从消息段提取第一个 image 段的 file（用于 /setportrait） */
+export function extractImageFile(message: AdminCmdContext["message"]): string | null {
   if (Array.isArray(message)) {
     for (const seg of message) {
       if (seg.type === "image" && (seg.data?.file || seg.data?.url)) {
@@ -127,23 +82,20 @@ function extractImageFile(message: OneBotMessage | string | undefined): string |
   return null;
 }
 
-async function reply(ctx: AdminCmdContext, msg: string): Promise<void> {
-  const { client, isGroup, groupId, userId } = ctx;
-  if (isGroup && groupId) {
-    await client.sendGroupMsg(groupId, msg);
-  } else if (userId) {
-    await client.sendPrivateMsg(userId, msg);
+/** 发送回复（群发群消息，私聊发私聊） */
+export async function reply(ctx: AdminCmdContext, msg: string): Promise<void> {
+  if (ctx.isGroup && ctx.groupId) {
+    await ctx.client.sendGroupMsg(ctx.groupId, msg);
+  } else if (ctx.userId) {
+    await ctx.client.sendPrivateMsg(ctx.userId, msg);
   }
 }
 
 /**
- * 二次确认壳。pending 时 reply 提示后返回 true（已处理）；confirmed 时返回 false（调用方继续真正执行）。
- *
- * 调用样板：
- *   if (await needConfirm(ctx, "dismiss", String(groupId), "解散本群")) return true;
- *   // 执行真正的 dismiss 动作
+ * 二次确认壳。
+ * pending → 发送提示后返回 true（已处理）；confirmed → 返回 false（调用方继续执行）。
  */
-async function needConfirm(
+export async function needConfirm(
   ctx: AdminCmdContext,
   cmd: string,
   scope: string,
@@ -153,22 +105,19 @@ async function needConfirm(
   const action = `${cmd}:${scope}`;
   const state = requireConfirm(ctx.userId, action);
   if (state === "pending") {
-    await reply(
-      ctx,
-      `⚠️ 高代价操作：${description}\n请在 30 秒内再发一次同样的命令以确认。`,
-    );
+    await reply(ctx, `⚠️ 高代价操作：${description}\n请在 30 秒内再发一次同样的命令以确认。`);
     return true;
   }
   return false;
 }
 
 /** 把 OneBot 抛出的 Error 包成统一文案 */
-function fmtError(err: unknown): string {
+export function fmtError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
 /** 必须在群里执行的命令的统一提示 */
-async function requireGroup(ctx: AdminCmdContext): Promise<boolean> {
+export async function requireGroup(ctx: AdminCmdContext): Promise<boolean> {
   if (!ctx.isGroup || !ctx.groupId) {
     await reply(ctx, "该命令仅限群聊使用。");
     return false;
@@ -177,7 +126,7 @@ async function requireGroup(ctx: AdminCmdContext): Promise<boolean> {
 }
 
 /** 解析 message_id（优先 reply 段，回退 parts 第 n 项） */
-function resolveMsgId(ctx: AdminCmdContext, parts: string[], idx: number = 1): string | null {
+export function resolveMsgId(ctx: AdminCmdContext, parts: string[], idx = 0): string | null {
   const fromReply = extractReplyMsgId(ctx.message);
   if (fromReply) return fromReply;
   const raw = parts[idx];
@@ -185,737 +134,637 @@ function resolveMsgId(ctx: AdminCmdContext, parts: string[], idx: number = 1): s
   return null;
 }
 
-// ============ 命令处理器 ============
-
-/**
- * 处理管理员命令。
- * @returns true 表示已处理，调用方应 return；false 表示未识别，继续正常流程。
- */
-export async function handleAdminCommand(
-  cmd: string,
-  parts: string[],
-  ctx: AdminCmdContext,
-): Promise<boolean> {
-  const { client, isGroup, groupId, userId, text, eventTime } = ctx;
-
-  // ── /ping ───────────────────────────────────────────────
-  if (cmd === "/ping") {
-    const now = Date.now();
-    const latency = eventTime ? now - eventTime : -1;
-    const latencyStr = latency >= 0 ? `${latency}ms` : "未知";
-    await reply(ctx, `🏓 Pong! 延迟: ${latencyStr}`);
-    return true;
-  }
-
-  // ── /version ────────────────────────────────────────────
-  if (cmd === "/version") {
-    const version = getPackageVersion(import.meta.url);
-    const nodeVer = process.version;
-    let msg = `[OpenClaw QQ] v${version}\nNode.js: ${nodeVer}`;
-
-    try {
-      const info = await getUpdateInfo();
-      if (info.hasUpdate) {
-        msg += `\n更新状态: ✨ 有新版本 v${info.latest} 可用（npm i @openclaw/qq@latest）`;
-      } else if (info.error) {
-        msg += `\n更新状态: ⚠️ 检查失败（${info.error}）`;
-      } else {
-        msg += `\n更新状态: ✅ 已是最新版本`;
-      }
-    } catch (e) {
-      console.debug(`[napcat-QQ] Update check failed in /status:`, e);
-      msg += `\n更新状态: 检查失败`;
-    }
-
-    await reply(ctx, msg);
-    return true;
-  }
-
-  // ── /logs ────────────────────────────────────────────────
-  if (cmd === "/logs") {
-    const n = parts[1] ? parseInt(parts[1], 10) : 20;
-    const count = isNaN(n) || n <= 0 ? 20 : Math.min(n, 100);
-    const logs = getRecentLogs(count);
-    if (logs.length === 0) {
-      await reply(ctx, "[logs] 暂无日志");
-    } else {
-      const formatted = logs.map(formatLogEntry).join("\n");
-      await reply(ctx, `[最近 ${logs.length} 条日志]\n${formatted}`);
-    }
-    return true;
-  }
-
-  // ── /status ──────────────────────────────────────────────
-  if (cmd === "/status") {
-    const version = getPackageVersion(import.meta.url);
-    const mem = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
-    const uptime = formatUptime(process.uptime());
-    const statusMsg =
-      `[OpenClaw QQ] v${version}\n` +
-      `状态: 已连接\n` +
-      `Self ID: ${client.getSelfId()}\n` +
-      `内存: ${mem} MB\n` +
-      `运行时间: ${uptime}`;
-    await reply(ctx, statusMsg);
-    return true;
-  }
-
-  // ── /help ────────────────────────────────────────────────
-  if (cmd === "/help") {
-    await reply(ctx, HELP_TEXT);
-    return true;
-  }
-
-  // ── /mute /ban /unmute /kick ─────────────────────────────
-  if (isGroup && groupId && (cmd === "/mute" || cmd === "/ban")) {
-    const targetId = extractAtTarget(ctx.message, text) ?? (parts[1] ? parseInt(parts[1], 10) : null);
-    if (targetId && targetId > 0) {
-      const rawMin = parts[2] ? parseInt(parts[2], 10) : 30;
-      const minutes = isNaN(rawMin) ? 30 : Math.max(1, Math.min(rawMin, 43200)); // 1 min ~ 30 days
-      client.setGroupBan(groupId, targetId, minutes * 60);
-      await reply(ctx, `已禁言 ${targetId} ${minutes} 分钟。`);
-    } else {
-      await reply(ctx, `用法：/mute @用户 [分钟数]`);
-    }
-    return true;
-  }
-
-  if (isGroup && groupId && cmd === "/unmute") {
-    const targetId = extractAtTarget(ctx.message, text) ?? (parts[1] ? parseInt(parts[1], 10) : null);
-    if (targetId && targetId > 0) {
-      client.setGroupBan(groupId, targetId, 0);
-      await reply(ctx, `已解除禁言 ${targetId}。`);
-    } else {
-      await reply(ctx, `用法：/unmute @用户`);
-    }
-    return true;
-  }
-
-  if (isGroup && groupId && cmd === "/kick") {
-    const targetId = extractAtTarget(ctx.message, text) ?? (parts[1] ? parseInt(parts[1], 10) : null);
-    if (targetId && targetId > 0) {
-      client.setGroupKick(groupId, targetId);
-      await reply(ctx, `已踢出 ${targetId}。`);
-    } else {
-      await reply(ctx, `用法：/kick @用户`);
-    }
-    return true;
-  }
-
-  // ── /kickbatch（二次确认）─────────────────────────────────
-  if (cmd === "/kickbatch") {
-    if (!(await requireGroup(ctx))) return true;
-    const targets = extractAtTargets(ctx.message, text);
-    if (targets.length === 0) {
-      await reply(ctx, "用法：/kickbatch @a @b @c（至少一个 @ 目标）");
-      return true;
-    }
-    if (await needConfirm(ctx, "kickbatch", `${groupId}:${targets.join(",")}`, `批量踢出 ${targets.length} 人`)) return true;
-    try {
-      client.setGroupKickMembers(groupId!, targets);
-      await reply(ctx, `✅ 已批量踢出 ${targets.length} 人：${targets.join(", ")}`);
-    } catch (err) {
-      await reply(ctx, `❌ 批量踢人失败：${fmtError(err)}`);
-    }
-    return true;
-  }
-
-  // ── /admin /unadmin（二次确认）────────────────────────────
-  if (cmd === "/admin" || cmd === "/unadmin") {
-    if (!(await requireGroup(ctx))) return true;
-    const enable = cmd === "/admin";
-    const targetId = extractAtTarget(ctx.message, text) ?? (parts[1] ? parseInt(parts[1], 10) : null);
-    if (!targetId || targetId <= 0) {
-      await reply(ctx, `用法：${cmd} @用户`);
-      return true;
-    }
-    if (await needConfirm(ctx, cmd, `${groupId}:${targetId}`, `${enable ? "任命" : "撤销"}管理员 ${targetId}`)) return true;
-    try {
-      client.setGroupAdmin(groupId!, targetId, enable);
-      await reply(ctx, `✅ 已${enable ? "任命" : "撤销"} ${targetId} 为群管理员。`);
-    } catch (err) {
-      await reply(ctx, `❌ ${enable ? "任命" : "撤销"}管理员失败：${fmtError(err)}（需 bot 为群主）`);
-    }
-    return true;
-  }
-
-  // ── /card ─────────────────────────────────────────────────
-  if (cmd === "/card") {
-    if (!(await requireGroup(ctx))) return true;
-    const targetId = extractAtTarget(ctx.message, text);
-    if (!targetId) {
-      await reply(ctx, "用法：/card @用户 [新名片]（空 = 清除）");
-      return true;
-    }
-    // 找到 @ 之后的剩余文本作为新 card；parts[0]=/card，@ 段不在 parts 里，取 parts[1+] 拼回
-    const newCard = parts.slice(1).join(" ").replace(/\[CQ:at,qq=\d+\]\s*/g, "").trim();
-    try {
-      client.setGroupCard(groupId!, targetId, newCard);
-      await reply(ctx, newCard ? `✅ 已将 ${targetId} 的名片改为「${newCard}」` : `✅ 已清除 ${targetId} 的名片`);
-    } catch (err) {
-      await reply(ctx, `❌ 修改名片失败：${fmtError(err)}`);
-    }
-    return true;
-  }
-
-  // ── /title ────────────────────────────────────────────────
-  if (cmd === "/title") {
-    if (!(await requireGroup(ctx))) return true;
-    const targetId = extractAtTarget(ctx.message, text);
-    if (!targetId) {
-      await reply(ctx, "用法：/title @用户 <头衔>（需 bot 为群主）");
-      return true;
-    }
-    const title = parts.slice(1).join(" ").replace(/\[CQ:at,qq=\d+\]\s*/g, "").trim();
-    if (!title) {
-      await reply(ctx, "用法：/title @用户 <头衔>");
-      return true;
-    }
-    try {
-      client.setGroupSpecialTitle(groupId!, targetId, title);
-      await reply(ctx, `✅ 已为 ${targetId} 设置头衔「${title}」`);
-    } catch (err) {
-      await reply(ctx, `❌ 设置头衔失败：${fmtError(err)}（需 bot 为群主）`);
-    }
-    return true;
-  }
-
-  // ── /shutlist ─────────────────────────────────────────────
-  if (cmd === "/shutlist") {
-    if (!(await requireGroup(ctx))) return true;
-    const list = await client.getGroupShutList(groupId!);
-    if (!list || list.length === 0) {
-      await reply(ctx, "当前无人被禁言。");
-    } else {
-      const lines = list.slice(0, 30).map((m: any) => {
-        const id = m.user_id ?? m.uid ?? "?";
-        const nick = m.nickname ?? m.card ?? "";
-        const until = m.shut_up_timestamp ?? m.shutuptime ?? 0;
-        const remain = Math.max(0, until * 1000 - Date.now());
-        const min = Math.ceil(remain / 60000);
-        return `  ${id}${nick ? `（${nick}）` : ""}：剩余 ${min} 分钟`;
-      });
-      const more = list.length > 30 ? `\n（共 ${list.length} 人，仅显示前 30）` : "";
-      await reply(ctx, `当前禁言名单：\n${lines.join("\n")}${more}`);
-    }
-    return true;
-  }
-
-  // ── /banall /unbanall ─────────────────────────────────────
-  if (cmd === "/banall" || cmd === "/unbanall") {
-    if (!(await requireGroup(ctx))) return true;
-    const enable = cmd === "/banall";
-    try {
-      client.setGroupWholeBan(groupId!, enable);
-      await reply(ctx, enable ? "✅ 已开启全员禁言。" : "✅ 已关闭全员禁言。");
-    } catch (err) {
-      await reply(ctx, `❌ 设置全员禁言失败：${fmtError(err)}`);
-    }
-    return true;
-  }
-
-  // ── /setname（二次确认）──────────────────────────────────
-  if (cmd === "/setname") {
-    if (!(await requireGroup(ctx))) return true;
-    const newName = parts.slice(1).join(" ").trim();
-    if (!newName) {
-      await reply(ctx, "用法：/setname <新群名>");
-      return true;
-    }
-    if (await needConfirm(ctx, "setname", `${groupId}:${newName}`, `修改群名为「${newName}」`)) return true;
-    try {
-      client.setGroupName(groupId!, newName);
-      await reply(ctx, `✅ 已修改群名为「${newName}」`);
-    } catch (err) {
-      await reply(ctx, `❌ 修改群名失败：${fmtError(err)}`);
-    }
-    return true;
-  }
-
-  // ── /setremark（二次确认）─────────────────────────────────
-  if (cmd === "/setremark") {
-    if (!(await requireGroup(ctx))) return true;
-    const remark = parts.slice(1).join(" ").trim();
-    if (!remark) {
-      await reply(ctx, "用法：/setremark <备注>（备注仅 bot 自己可见）");
-      return true;
-    }
-    if (await needConfirm(ctx, "setremark", `${groupId}`, `设置群备注为「${remark}」`)) return true;
-    try {
-      await client.setGroupRemark(groupId!, remark);
-      await reply(ctx, `✅ 已设置群备注为「${remark}」`);
-    } catch (err) {
-      await reply(ctx, `❌ 设置群备注失败：${fmtError(err)}`);
-    }
-    return true;
-  }
-
-  // ── /setportrait（二次确认 + 必须回复图片）───────────────
-  if (cmd === "/setportrait") {
-    if (!(await requireGroup(ctx))) return true;
-    const file = extractImageFile(ctx.message);
-    if (!file) {
-      await reply(ctx, "用法：回复一张图片，并发送 /setportrait");
-      return true;
-    }
-    if (await needConfirm(ctx, "setportrait", `${groupId}`, "修改群头像")) return true;
-    try {
-      await client.setGroupPortrait(groupId!, file);
-      await reply(ctx, "✅ 已修改群头像。");
-    } catch (err) {
-      await reply(ctx, `❌ 修改群头像失败：${fmtError(err)}`);
-    }
-    return true;
-  }
-
-  // ── /leave（二次确认，退群）─────────────────────────────
-  if (cmd === "/leave") {
-    if (!(await requireGroup(ctx))) return true;
-    if (await needConfirm(ctx, "leave", `${groupId}`, "bot 退出本群")) return true;
-    try {
-      client.setGroupLeave(groupId!, false);
-      await reply(ctx, "👋 bot 已退出本群。");
-    } catch (err) {
-      await reply(ctx, `❌ 退群失败：${fmtError(err)}`);
-    }
-    return true;
-  }
-
-  // ── /dismiss（二次确认，解散群，群主限定）────────────────
-  if (cmd === "/dismiss") {
-    if (!(await requireGroup(ctx))) return true;
-    if (await needConfirm(ctx, "dismiss", `${groupId}`, "解散本群（不可逆）")) return true;
-    try {
-      client.setGroupLeave(groupId!, true);
-      await reply(ctx, "💥 群已解散。");
-    } catch (err) {
-      await reply(ctx, `❌ 解散群失败：${fmtError(err)}（需 bot 为群主）`);
-    }
-    return true;
-  }
-
-  // ── /essence /deessence /essencelist ─────────────────────
-  if (cmd === "/essence" || cmd === "/deessence") {
-    if (!(await requireGroup(ctx))) return true;
-    const msgId = resolveMsgId(ctx, parts);
-    if (!msgId) {
-      await reply(ctx, `用法：回复目标消息并发送 ${cmd}，或 ${cmd} <message_id>`);
-      return true;
-    }
-    try {
-      if (cmd === "/essence") await client.setEssenceMsg(msgId);
-      else await client.deleteEssenceMsg(msgId);
-      await reply(ctx, cmd === "/essence" ? "✅ 已设为精华消息。" : "✅ 已移出精华消息。");
-    } catch (err) {
-      await reply(ctx, `❌ 操作精华消息失败：${fmtError(err)}`);
-    }
-    return true;
-  }
-
-  if (cmd === "/essencelist") {
-    if (!(await requireGroup(ctx))) return true;
-    const list = await client.getEssenceMsgList(groupId!);
-    if (!list || list.length === 0) {
-      await reply(ctx, "当前群无精华消息。");
-    } else {
-      const lines = list.slice(0, 10).map((m: any, i: number) => {
-        const sender = m.sender_nick ?? m.sender_id ?? "?";
-        const content = (m.content ?? "")
-          .toString()
-          .slice(0, 60)
-          .replace(/\n/g, " ");
-        return `  ${i + 1}. ${sender}: ${content}`;
-      });
-      const more = list.length > 10 ? `\n（共 ${list.length} 条精华，仅显示前 10）` : "";
-      await reply(ctx, `群精华消息：\n${lines.join("\n")}${more}`);
-    }
-    return true;
-  }
-
-  // ── /honor /atallremain /groupinfo ───────────────────────
-  if (cmd === "/honor") {
-    if (!(await requireGroup(ctx))) return true;
-    const type = parts[1] || "all";
-    const info = await client.getGroupHonorInfo(groupId!, type);
-    if (!info) { await reply(ctx, "❌ 获取群荣誉失败。"); return true; }
-    const fmtTop = (entry: any) => {
-      const nick = entry?.nickname ?? entry?.uin ?? "?";
-      const days = entry?.day_count ?? "";
-      return days ? `${nick}（${days} 天）` : String(nick);
-    };
-    const sections: string[] = [];
-    if (info.current_talkative) sections.push(`👑 龙王：${fmtTop(info.current_talkative)}`);
-    if (info.talkative_list?.length) sections.push(`🗣 群聊之火：${info.talkative_list.slice(0, 3).map(fmtTop).join(", ")}`);
-    if (info.performer_list?.length) sections.push(`🔥 群聊炽焰：${info.performer_list.slice(0, 3).map(fmtTop).join(", ")}`);
-    if (info.legend_list?.length) sections.push(`🏆 群聊传说：${info.legend_list.slice(0, 3).map(fmtTop).join(", ")}`);
-    if (info.strong_newbie_list?.length) sections.push(`🌱 冒尖小春笋：${info.strong_newbie_list.slice(0, 3).map(fmtTop).join(", ")}`);
-    if (info.emotion_list?.length) sections.push(`💖 快乐源泉：${info.emotion_list.slice(0, 3).map(fmtTop).join(", ")}`);
-    await reply(ctx, sections.length ? `群荣誉（${type}）：\n${sections.join("\n")}` : "该类别暂无数据。");
-    return true;
-  }
-
-  if (cmd === "/atallremain") {
-    if (!(await requireGroup(ctx))) return true;
-    const info = await client.getGroupAtAllRemain(groupId!);
-    if (!info) { await reply(ctx, "❌ 查询失败。"); return true; }
-    const can = info.can_at_all ?? false;
-    const groupRemain = info.remain_at_all_count_for_group ?? info.group_remain_at_all_count ?? "?";
-    const meRemain = info.remain_at_all_count_for_uin ?? info.uin_remain_at_all_count ?? "?";
-    await reply(
-      ctx,
-      `@全体 剩余：\n  本群总计：${groupRemain}\n  你（${userId}）：${meRemain}\n  当前${can ? "可" : "不可"}@全体。`,
-    );
-    return true;
-  }
-
-  if (cmd === "/groupinfo") {
-    if (!(await requireGroup(ctx))) return true;
-    try {
-      const info = await client.getGroupInfo(groupId!);
-      if (!info) { await reply(ctx, "❌ 获取群信息失败。"); return true; }
-      const memberCount = (info as any).member_count ?? "?";
-      const maxMember = (info as any).max_member_count ?? "?";
-      const remarkAll: any = await client.getGroupAtAllRemain(groupId!).catch(() => null);
-      const atAllRemain = remarkAll ? `${remarkAll.remain_at_all_count_for_group ?? remarkAll.group_remain_at_all_count ?? "?"}` : "?";
-      const lines = [
-        `📋 群 ${groupId} 详情：`,
-        `  群名：${info.group_name ?? "?"}`,
-        `  成员：${memberCount}/${maxMember}`,
-        `  @全体 剩余：${atAllRemain}`,
-      ];
-      await reply(ctx, lines.join("\n"));
-    } catch (err) {
-      await reply(ctx, `❌ 获取群信息失败：${fmtError(err)}`);
-    }
-    return true;
-  }
-
-  // ── 群文件全套 ───────────────────────────────────────────
-  if (cmd === "/files") {
-    if (!(await requireGroup(ctx))) return true;
-    const stack = getCwd(userId!, groupId!);
-    const folderId = currentFolderId(stack);
-    const rawCount = parts[1] ? parseInt(parts[1], 10) : 20;
-    const count = isNaN(rawCount) ? 20 : Math.max(1, Math.min(rawCount, 50));
-    const data = folderId === "/"
-      ? await client.getGroupRootFiles(groupId!, count)
-      : await client.getGroupFilesByFolder(groupId!, folderId, count);
-    if (!data) { await reply(ctx, "❌ 列文件失败。"); return true; }
-    const folders: any[] = data.folders ?? [];
-    const files: any[] = data.files ?? [];
-    const pwd = formatCwdPath(stack);
-    const fLines = folders.slice(0, count).map((f: any) => `  📁 ${f.folder_name ?? f.name ?? "?"}    [${f.folder_id ?? f.id ?? "?"}]`);
-    const lLines = files.slice(0, count).map((f: any) => {
-      const size = f.file_size ? `${(f.file_size / 1024).toFixed(1)} KB` : "";
-      return `  📄 ${f.file_name ?? f.name ?? "?"}  ${size}  [${f.file_id ?? f.id ?? "?"}]`;
-    });
-    const body = [...fLines, ...lLines].join("\n") || "  （空目录）";
-    await reply(ctx, `📂 当前目录：${pwd}\n${body}\n\n用 /cd <文件夹名> 进入；/cdup 上层；/cd / 回根`);
-    return true;
-  }
-
-  if (cmd === "/cd") {
-    if (!(await requireGroup(ctx))) return true;
-    const target = parts.slice(1).join(" ").trim();
-    if (!target) {
-      await reply(ctx, "用法：/cd <文件夹名> | /cd /（回根）");
-      return true;
-    }
-    if (target === "/") {
-      resetCwd(userId!, groupId!);
-      await reply(ctx, "📂 已回到根目录。");
-      return true;
-    }
-    // 查当前层所有子目录，按名匹配
-    const stack = getCwd(userId!, groupId!);
-    const folderId = currentFolderId(stack);
-    const data = folderId === "/"
-      ? await client.getGroupRootFiles(groupId!)
-      : await client.getGroupFilesByFolder(groupId!, folderId);
-    const folders: any[] = data?.folders ?? [];
-    const match = folders.find((f: any) => (f.folder_name ?? f.name) === target);
-    if (!match) {
-      await reply(ctx, `❌ 当前目录下未找到子文件夹「${target}」（用 /files 查看可用列表）`);
-      return true;
-    }
-    const entry: FolderStackEntry = { id: String(match.folder_id ?? match.id), name: String(match.folder_name ?? match.name) };
-    pushCwd(userId!, groupId!, entry);
-    await reply(ctx, `📂 已进入 ${formatCwdPath(getCwd(userId!, groupId!))}`);
-    return true;
-  }
-
-  if (cmd === "/cdup") {
-    if (!(await requireGroup(ctx))) return true;
-    const popped = popCwd(userId!, groupId!);
-    const pwd = formatCwdPath(getCwd(userId!, groupId!));
-    await reply(ctx, popped ? `📂 已离开 ${popped.name}，当前 ${pwd}` : "📂 已在根目录。");
-    return true;
-  }
-
-  if (cmd === "/pwd") {
-    if (!(await requireGroup(ctx))) return true;
-    await reply(ctx, `📂 ${formatCwdPath(getCwd(userId!, groupId!))}`);
-    return true;
-  }
-
-  if (cmd === "/dl") {
-    if (!(await requireGroup(ctx))) return true;
-    const fileId = parts[1];
-    if (!fileId) {
-      await reply(ctx, "用法：/dl <file_id>（file_id 从 /files 获取）");
-      return true;
-    }
-    const data = await client.getGroupFileUrl(groupId!, fileId);
-    if (!data || !data.url) {
-      await reply(ctx, "❌ 获取下载链接失败。");
-      return true;
-    }
-    await reply(ctx, `🔗 下载链接：\n${data.url}`);
-    return true;
-  }
-
-  if (cmd === "/delfile") {
-    if (!(await requireGroup(ctx))) return true;
-    const fileId = parts[1];
-    if (!fileId) {
-      await reply(ctx, "用法：/delfile <file_id>");
-      return true;
-    }
-    try {
-      await client.deleteGroupFile(groupId!, fileId);
-      await reply(ctx, `✅ 已删除文件 ${fileId}`);
-    } catch (err) {
-      await reply(ctx, `❌ 删除文件失败：${fmtError(err)}`);
-    }
-    return true;
-  }
-
-  if (cmd === "/mkdir") {
-    if (!(await requireGroup(ctx))) return true;
-    const name = parts.slice(1).join(" ").trim();
-    if (!name) {
-      await reply(ctx, "用法：/mkdir <文件夹名>");
-      return true;
-    }
-    try {
-      await client.createGroupFileFolder(groupId!, name);
-      await reply(ctx, `✅ 已创建文件夹「${name}」`);
-    } catch (err) {
-      await reply(ctx, `❌ 创建文件夹失败：${fmtError(err)}`);
-    }
-    return true;
-  }
-
-  if (cmd === "/rmdir") {
-    if (!(await requireGroup(ctx))) return true;
-    const folderId = parts[1];
-    if (!folderId) {
-      await reply(ctx, "用法：/rmdir <folder_id>（从 /files 获取）");
-      return true;
-    }
-    try {
-      await client.deleteGroupFolder(groupId!, folderId);
-      await reply(ctx, `✅ 已删除文件夹 ${folderId}`);
-    } catch (err) {
-      await reply(ctx, `❌ 删除文件夹失败：${fmtError(err)}`);
-    }
-    return true;
-  }
-
-  if (cmd === "/mvfile") {
-    if (!(await requireGroup(ctx))) return true;
-    const fileId = parts[1];
-    const targetDir = parts[2];
-    if (!fileId || !targetDir) {
-      await reply(ctx, "用法：/mvfile <file_id> <target_folder_id>（target 用 / 表示根目录）");
-      return true;
-    }
-    const curDir = currentFolderId(getCwd(userId!, groupId!));
-    try {
-      await client.moveGroupFile(groupId!, fileId, curDir, targetDir);
-      await reply(ctx, `✅ 已移动文件 ${fileId} → ${targetDir}`);
-    } catch (err) {
-      await reply(ctx, `❌ 移动文件失败：${fmtError(err)}`);
-    }
-    return true;
-  }
-
-  if (cmd === "/renamefile") {
-    if (!(await requireGroup(ctx))) return true;
-    const fileId = parts[1];
-    const newName = parts.slice(2).join(" ").trim();
-    if (!fileId || !newName) {
-      await reply(ctx, "用法：/renamefile <file_id> <新名>");
-      return true;
-    }
-    const curDir = currentFolderId(getCwd(userId!, groupId!));
-    try {
-      await client.renameGroupFile(groupId!, fileId, curDir, newName);
-      await reply(ctx, `✅ 已重命名为「${newName}」`);
-    } catch (err) {
-      await reply(ctx, `❌ 重命名失败：${fmtError(err)}`);
-    }
-    return true;
-  }
-
-  if (cmd === "/upload") {
-    await reply(
-      ctx,
-      "ℹ️ 上传群文件请直接拖拽到群里（NapCat 自动同步到群文件）。\n" +
-      "如需通过 API 上传，调用 client.uploadGroupFile(groupId, file, name)。",
-    );
-    return true;
-  }
-
-  // ── NapCat 扩展：/poke /sign /todo /donetodo /canceltodo ──
-  if (cmd === "/poke") {
-    if (!(await requireGroup(ctx))) return true;
-    const targetId = extractAtTarget(ctx.message, text) ?? (parts[1] ? parseInt(parts[1], 10) : null);
-    if (!targetId) {
-      await reply(ctx, "用法：/poke @用户");
-      return true;
-    }
-    try {
-      client.sendGroupPoke(groupId!, targetId);
-      await reply(ctx, `👉 已戳一戳 ${targetId}`);
-    } catch (err) {
-      await reply(ctx, `❌ 戳一戳失败：${fmtError(err)}`);
-    }
-    return true;
-  }
-
-  if (cmd === "/sign") {
-    if (!(await requireGroup(ctx))) return true;
-    try {
-      await client.setGroupSign(groupId!);
-      await reply(ctx, "✅ 已群签到。");
-    } catch (err) {
-      await reply(ctx, `❌ 签到失败：${fmtError(err)}`);
-    }
-    return true;
-  }
-
-  if (cmd === "/todo" || cmd === "/donetodo" || cmd === "/canceltodo") {
-    if (!(await requireGroup(ctx))) return true;
-    const msgId = resolveMsgId(ctx, parts);
-    if (!msgId) {
-      await reply(ctx, `用法：回复目标消息并发送 ${cmd}，或 ${cmd} <message_id>`);
-      return true;
-    }
-    try {
-      if (cmd === "/todo") await client.setGroupTodo(groupId!, msgId);
-      else if (cmd === "/donetodo") await client.completeGroupTodo(groupId!, msgId);
-      else await client.cancelGroupTodo(groupId!, msgId);
-      const verb = cmd === "/todo" ? "标记为待办" : cmd === "/donetodo" ? "完成" : "取消";
-      await reply(ctx, `✅ 已${verb}消息 ${msgId}`);
-    } catch (err) {
-      await reply(ctx, `❌ 待办操作失败：${fmtError(err)}`);
-    }
-    return true;
-  }
-
-  // ── /sendto ──────────────────────────────────────────────
-  // 跨会话发送，绕过 OpenClaw 会话树限制
-  if (cmd === "/sendto") {
-    const target = parts[1];
-    const msgText = parts.slice(2).join(" ");
-    if (!target || !msgText) {
-      await reply(ctx, `用法：/sendto <目标> <消息内容>\n示例：\n  /sendto group:88888888 早上好\n  /sendto 12345678 你好`);
-      return true;
-    }
-    try {
-      const { sendProactive } = await import("./proactive.js");
-      const result = await sendProactive({ to: target, text: msgText });
-      if (result.success) {
-        await reply(ctx, `✅ 已发送到 ${target}`);
-      } else {
-        await reply(ctx, `❌ 发送失败：${result.error}`);
-      }
-    } catch (err) {
-      await reply(ctx, `❌ 发送失败：${fmtError(err)}`);
-    }
-    return true;
-  }
-
-  // ── /reload ─────────────────────────────────────────────
-  if (cmd === "/reload") {
-    if (!ctx.configRef || !ctx.fullCfg) {
-      await reply(ctx, "❌ 热更新未启用");
-      return true;
-    }
-    const napcat = ctx.fullCfg.channels?.napcat;
-    const result = updateConfigRef(ctx.configRef, napcat);
-    if (result.success) {
-      let msg = "✅ 配置已重载";
-      if (result.connectionChanged) {
-        msg += "\n⚠️ 连接参数有变更，需重启容器才能生效";
-      }
-      await reply(ctx, msg);
-    } else {
-      await reply(ctx, `❌ 配置验证失败，保留旧配置\n${result.error}`);
-    }
-    return true;
-  }
-
-  // ── /groups ─────────────────────────────────────────────
-  if (cmd === "/groups") {
-    if (!ctx.refreshGroupRoutes) {
-      await reply(ctx, "❌ 群路由刷新未启用");
-      return true;
-    }
-    try {
-      const count = await ctx.refreshGroupRoutes();
-      await reply(ctx, `✅ 已刷新 ${count} 个群路由，cron 投递现在可用`);
-    } catch (err) {
-      await reply(ctx, `❌ 刷新失败：${fmtError(err)}`);
-    }
-    return true;
-  }
-
-  // ── /ratelimit ──────────────────────────────────────────
-  if (cmd === "/ratelimit") {
-    if (!ctx.rateLimiter) {
-      await reply(ctx, "❌ 限流器未初始化");
-      return true;
-    }
-    const limits = ctx.rateLimiter.getActiveLimits();
-    if (limits.length === 0) {
-      await reply(ctx, "✅ 当前无活跃限流");
-      return true;
-    }
-    const lines = limits.map((l) => {
-      const remaining = (l.retryAfterMs / 1000).toFixed(1);
-      const display = l.target.startsWith("user:") ? `用户 ${l.target.slice(5)}` : `群 ${l.target.slice(6)}`;
-      return `  ${display}: 冷却 ${remaining}s (窗口内 ${l.count} 条, 累计阻断 ${l.blockedTotal} 次)`;
-    });
-    await reply(ctx, `⚠️ 活跃限流 (${limits.length}):\n${lines.join("\n")}`);
-    return true;
-  }
-
-  // ── /unratelimit ────────────────────────────────────────
-  if (cmd === "/unratelimit") {
-    if (!ctx.rateLimiter) {
-      await reply(ctx, "❌ 限流器未初始化");
-      return true;
-    }
-    const target = parts[1];
-    if (!target) {
-      await reply(ctx, "用法: /unratelimit <用户QQ号或群号>\n例: /unratelimit 123456789");
-      return true;
-    }
-    const cleared = ctx.rateLimiter.clear(target);
-    if (cleared) {
-      await reply(ctx, `✅ 已解除 ${target} 的限流`);
-    } else {
-      await reply(ctx, `ℹ️ ${target} 当前未被限流`);
-    }
-    return true;
-  }
-
-  return false;
+/** 运行时长格式化 */
+export function formatUptime(seconds: number): string {
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  if (d > 0) return `${d}天 ${h}小时 ${m}分`;
+  if (h > 0) return `${h}小时 ${m}分 ${s}秒`;
+  if (m > 0) return `${m}分 ${s}秒`;
+  return `${s}秒`;
 }
 
-// ============ /help 文本（按分组）============
+// ============ 命令处理器 ============
+
+export async function handlePing(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
+  const now = Date.now();
+  const latency = ctx.eventTime ? now - ctx.eventTime : -1;
+  const latencyStr = latency >= 0 ? `${latency}ms` : "未知";
+  return `🏓 Pong! 延迟: ${latencyStr}`;
+}
+
+export async function handleVersion(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
+  const version = getPackageVersion(import.meta.url);
+  const nodeVer = process.version;
+  let msg = `[OpenClaw QQ] v${version}\nNode.js: ${nodeVer}`;
+
+  try {
+    const info = await getUpdateInfo();
+    if (info.hasUpdate) {
+      msg += `\n更新状态: ✨ 有新版本 v${info.latest} 可用（npm i @openclaw/qq@latest）`;
+    } else if (info.error) {
+      msg += `\n更新状态: ⚠️ 检查失败（${info.error}）`;
+    } else {
+      msg += `\n更新状态: ✅ 已是最新版本`;
+    }
+  } catch {
+    msg += `\n更新状态: 检查失败`;
+  }
+
+  return msg;
+}
+
+export async function handleLogs(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
+  const n = parts[0] ? parseInt(parts[0], 10) : 20;
+  const count = isNaN(n) || n <= 0 ? 20 : Math.min(n, 100);
+  const logs = getRecentLogs(count);
+  if (logs.length === 0) return "[logs] 暂无日志";
+  return `[最近 ${logs.length} 条日志]\n${logs.map(formatLogEntry).join("\n")}`;
+}
+
+export async function handleStatus(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
+  const version = getPackageVersion(import.meta.url);
+  const mem = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
+  const uptime = formatUptime(process.uptime());
+  return (
+    `[OpenClaw QQ] v${version}\n` +
+    `状态: 已连接\n` +
+    `Self ID: ${ctx.client.getSelfId()}\n` +
+    `内存: ${mem} MB\n` +
+    `运行时间: ${uptime}`
+  );
+}
+
+export async function handleHelp(_ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
+  return HELP_TEXT;
+}
+
+export async function handleMute(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  const targetId = extractAtTarget(ctx.message, ctx.text) ?? (parts[0] ? parseInt(parts[0], 10) : null);
+  if (targetId && targetId > 0) {
+    const rawMin = parts[1] ? parseInt(parts[1], 10) : 30;
+    const minutes = isNaN(rawMin) ? 30 : Math.max(1, Math.min(rawMin, 43200));
+    ctx.client.setGroupBan(ctx.groupId!, targetId, minutes * 60);
+    return `已禁言 ${targetId} ${minutes} 分钟。`;
+  }
+  return "用法：/mute @用户 [分钟数]";
+}
+
+export async function handleUnmute(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  const targetId = extractAtTarget(ctx.message, ctx.text) ?? (parts[0] ? parseInt(parts[0], 10) : null);
+  if (targetId && targetId > 0) {
+    ctx.client.setGroupBan(ctx.groupId!, targetId, 0);
+    return `已解除禁言 ${targetId}。`;
+  }
+  return "用法：/unmute @用户";
+}
+
+export async function handleBan(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  const targetId = extractAtTarget(ctx.message, ctx.text) ?? (parts[0] ? parseInt(parts[0], 10) : null);
+  if (targetId && targetId > 0) {
+    const rawMin = parts[1] ? parseInt(parts[1], 10) : 30;
+    const minutes = isNaN(rawMin) ? 30 : Math.max(1, Math.min(rawMin, 43200));
+    ctx.client.setGroupBan(ctx.groupId!, targetId, minutes * 60);
+    return `已禁言 ${targetId} ${minutes} 分钟。`;
+  }
+  return "用法：/ban @用户 [分钟数]";
+}
+
+export async function handleKick(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  const targetId = extractAtTarget(ctx.message, ctx.text) ?? (parts[0] ? parseInt(parts[0], 10) : null);
+  if (targetId && targetId > 0) {
+    ctx.client.setGroupKick(ctx.groupId!, targetId);
+    return `已踢出 ${targetId}。`;
+  }
+  return "用法：/kick @用户";
+}
+
+export async function handleKickBatch(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  const targets = extractAtTargets(ctx.message, ctx.text);
+  if (targets.length === 0) return "用法：/kickbatch @a @b @c（至少一个 @ 目标）";
+  if (await needConfirm(ctx, "kickbatch", `${ctx.groupId}:${targets.join(",")}`, `批量踢出 ${targets.length} 人`))
+    return null;
+  try {
+    ctx.client.setGroupKickMembers(ctx.groupId!, targets);
+    return `✅ 已批量踢出 ${targets.length} 人：${targets.join(", ")}`;
+  } catch (err) {
+    return `❌ 批量踢人失败：${fmtError(err)}`;
+  }
+}
+
+export async function handleAdmin(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  const enable = true;
+  const targetId = extractAtTarget(ctx.message, ctx.text) ?? (parseInt(_parts[0], 10) || null);
+  if (!targetId || targetId <= 0) return "用法：/admin @用户";
+  if (await needConfirm(ctx, "admin", `${ctx.groupId}:${targetId}`, `任命管理员 ${targetId}`)) return null;
+  try {
+    ctx.client.setGroupAdmin(ctx.groupId!, targetId, enable);
+    return `✅ 已任命 ${targetId} 为群管理员。`;
+  } catch (err) {
+    return `❌ 任命管理员失败：${fmtError(err)}（需 bot 为群主）`;
+  }
+}
+
+export async function handleUnadmin(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  const enable = false;
+  const targetId = extractAtTarget(ctx.message, ctx.text) ?? (parseInt(_parts[0], 10) || null);
+  if (!targetId || targetId <= 0) return "用法：/unadmin @用户";
+  if (await needConfirm(ctx, "unadmin", `${ctx.groupId}:${targetId}`, `撤销管理员 ${targetId}`)) return null;
+  try {
+    ctx.client.setGroupAdmin(ctx.groupId!, targetId, enable);
+    return `✅ 已撤销 ${targetId} 的群管理员。`;
+  } catch (err) {
+    return `❌ 撤销管理员失败：${fmtError(err)}（需 bot 为群主）`;
+  }
+}
+
+export async function handleCard(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  const targetId = extractAtTarget(ctx.message, ctx.text);
+  if (!targetId) return "用法：/card @用户 [新名片]（空 = 清除）";
+  const newCard = parts.join(" ").replace(/\[CQ:at,qq=\d+\]\s*/g, "").trim();
+  try {
+    ctx.client.setGroupCard(ctx.groupId!, targetId, newCard);
+    return newCard ? `✅ 已将 ${targetId} 的名片改为「${newCard}」` : `✅ 已清除 ${targetId} 的名片`;
+  } catch (err) {
+    return `❌ 修改名片失败：${fmtError(err)}`;
+  }
+}
+
+export async function handleTitle(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  const targetId = extractAtTarget(ctx.message, ctx.text);
+  if (!targetId) return "用法：/title @用户 <头衔>（需 bot 为群主）";
+  const title = parts.join(" ").replace(/\[CQ:at,qq=\d+\]\s*/g, "").trim();
+  if (!title) return "用法：/title @用户 <头衔>";
+  try {
+    ctx.client.setGroupSpecialTitle(ctx.groupId!, targetId, title);
+    return `✅ 已为 ${targetId} 设置头衔「${title}」`;
+  } catch (err) {
+    return `❌ 设置头衔失败：${fmtError(err)}（需 bot 为群主）`;
+  }
+}
+
+export async function handleShutList(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  const list = await ctx.client.getGroupShutList(ctx.groupId!);
+  if (!list || list.length === 0) return "当前无人被禁言。";
+  const lines = list.slice(0, 30).map((m: any) => {
+    const id = m.user_id ?? m.uid ?? "?";
+    const nick = m.nickname ?? m.card ?? "";
+    const until = m.shut_up_timestamp ?? m.shutuptime ?? 0;
+    const remain = Math.max(0, until * 1000 - Date.now());
+    const min = Math.ceil(remain / 60000);
+    return `  ${id}${nick ? `（${nick}）` : ""}：剩余 ${min} 分钟`;
+  });
+  const more = list.length > 30 ? `\n（共 ${list.length} 人，仅显示前 30）` : "";
+  return `当前禁言名单：\n${lines.join("\n")}${more}`;
+}
+
+export async function handleBanAll(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  try {
+    ctx.client.setGroupWholeBan(ctx.groupId!, true);
+    return "✅ 已开启全员禁言。";
+  } catch (err) {
+    return `❌ 设置全员禁言失败：${fmtError(err)}`;
+  }
+}
+
+export async function handleUnbanAll(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  try {
+    ctx.client.setGroupWholeBan(ctx.groupId!, false);
+    return "✅ 已关闭全员禁言。";
+  } catch (err) {
+    return `❌ 设置全员禁言失败：${fmtError(err)}`;
+  }
+}
+
+export async function handleSetName(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  const newName = parts.join(" ").trim();
+  if (!newName) return "用法：/setname <新群名>";
+  if (await needConfirm(ctx, "setname", `${ctx.groupId}:${newName}`, `修改群名为「${newName}」`)) return null;
+  try {
+    ctx.client.setGroupName(ctx.groupId!, newName);
+    return `✅ 已修改群名为「${newName}」`;
+  } catch (err) {
+    return `❌ 修改群名失败：${fmtError(err)}`;
+  }
+}
+
+export async function handleSetRemark(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  const remark = parts.join(" ").trim();
+  if (!remark) return "用法：/setremark <备注>（备注仅 bot 自己可见）";
+  if (await needConfirm(ctx, "setremark", `${ctx.groupId}`, `设置群备注为「${remark}」`)) return null;
+  try {
+    await ctx.client.setGroupRemark(ctx.groupId!, remark);
+    return `✅ 已设置群备注为「${remark}」`;
+  } catch (err) {
+    return `❌ 设置群备注失败：${fmtError(err)}`;
+  }
+}
+
+export async function handleSetPortrait(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  const file = extractImageFile(ctx.message);
+  if (!file) return "用法：回复一张图片，并发送 /setportrait";
+  if (await needConfirm(ctx, "setportrait", `${ctx.groupId}`, "修改群头像")) return null;
+  try {
+    await ctx.client.setGroupPortrait(ctx.groupId!, file);
+    return "✅ 已修改群头像。";
+  } catch (err) {
+    return `❌ 修改群头像失败：${fmtError(err)}`;
+  }
+}
+
+export async function handleLeave(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  if (await needConfirm(ctx, "leave", `${ctx.groupId}`, "bot 退出本群")) return null;
+  try {
+    ctx.client.setGroupLeave(ctx.groupId!, false);
+    return "👋 bot 已退出本群。";
+  } catch (err) {
+    return `❌ 退群失败：${fmtError(err)}`;
+  }
+}
+
+export async function handleDismiss(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  if (await needConfirm(ctx, "dismiss", `${ctx.groupId}`, "解散本群（不可逆）")) return null;
+  try {
+    ctx.client.setGroupLeave(ctx.groupId!, true);
+    return "💥 群已解散。";
+  } catch (err) {
+    return `❌ 解散群失败：${fmtError(err)}（需 bot 为群主）`;
+  }
+}
+
+export async function handleEssence(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  const msgId = resolveMsgId(ctx, parts);
+  if (!msgId) return `用法：回复目标消息并发送 /essence，或 /essence <message_id>`;
+  try {
+    await ctx.client.setEssenceMsg(msgId);
+    return "✅ 已设为精华消息。";
+  } catch (err) {
+    return `❌ 操作精华消息失败：${fmtError(err)}`;
+  }
+}
+
+export async function handleDeEssence(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  const msgId = resolveMsgId(ctx, parts);
+  if (!msgId) return `用法：回复目标消息并发送 /deessence，或 /deessence <message_id>`;
+  try {
+    await ctx.client.deleteEssenceMsg(msgId);
+    return "✅ 已移出精华消息。";
+  } catch (err) {
+    return `❌ 操作精华消息失败：${fmtError(err)}`;
+  }
+}
+
+export async function handleEssenceList(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  const list = await ctx.client.getEssenceMsgList(ctx.groupId!);
+  if (!list || list.length === 0) return "当前群无精华消息。";
+  const lines = list.slice(0, 10).map((m: any, i: number) => {
+    const sender = m.sender_nick ?? m.sender_id ?? "?";
+    const content = (m.content ?? "").toString().slice(0, 60).replace(/\n/g, " ");
+    return `  ${i + 1}. ${sender}: ${content}`;
+  });
+  const more = list.length > 10 ? `\n（共 ${list.length} 条精华，仅显示前 10）` : "";
+  return `群精华消息：\n${lines.join("\n")}${more}`;
+}
+
+export async function handleHonor(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  const type = parts[0] || "all";
+  const info = await ctx.client.getGroupHonorInfo(ctx.groupId!, type);
+  if (!info) return "❌ 获取群荣誉失败。";
+  const fmtTop = (entry: any) => {
+    const nick = entry?.nickname ?? entry?.uin ?? "?";
+    const days = entry?.day_count ?? "";
+    return days ? `${nick}（${days} 天）` : String(nick);
+  };
+  const sections: string[] = [];
+  if (info.current_talkative) sections.push(`👑 龙王：${fmtTop(info.current_talkative)}`);
+  if (info.talkative_list?.length) sections.push(`🗣 群聊之火：${info.talkative_list.slice(0, 3).map(fmtTop).join(", ")}`);
+  if (info.performer_list?.length) sections.push(`🔥 群聊炽焰：${info.performer_list.slice(0, 3).map(fmtTop).join(", ")}`);
+  if (info.legend_list?.length) sections.push(`🏆 群聊传说：${info.legend_list.slice(0, 3).map(fmtTop).join(", ")}`);
+  if (info.strong_newbie_list?.length) sections.push(`🌱 冒尖小春笋：${info.strong_newbie_list.slice(0, 3).map(fmtTop).join(", ")}`);
+  if (info.emotion_list?.length) sections.push(`💖 快乐源泉：${info.emotion_list.slice(0, 3).map(fmtTop).join(", ")}`);
+  return sections.length ? `群荣誉（${type}）：\n${sections.join("\n")}` : "该类别暂无数据。";
+}
+
+export async function handleAtAllRemain(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  const info = await ctx.client.getGroupAtAllRemain(ctx.groupId!);
+  if (!info) return "❌ 查询失败。";
+  const can = info.can_at_all ?? false;
+  const groupRemain = info.remain_at_all_count_for_group ?? info.group_remain_at_all_count ?? "?";
+  const meRemain = info.remain_at_all_count_for_uin ?? info.uin_remain_at_all_count ?? "?";
+  return (
+    `@全体 剩余：\n` +
+    `  本群总计：${groupRemain}\n` +
+    `  你（${ctx.userId}）：${meRemain}\n` +
+    `  当前${can ? "可" : "不可"}@全体。`
+  );
+}
+
+export async function handleGroupInfo(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  try {
+    const info = await ctx.client.getGroupInfo(ctx.groupId!);
+    if (!info) return "❌ 获取群信息失败。";
+    const memberCount = (info as any).member_count ?? "?";
+    const maxMember = (info as any).max_member_count ?? "?";
+    const atAll = await ctx.client.getGroupAtAllRemain(ctx.groupId!).catch(() => null);
+    const atAllRemain = atAll ? `${atAll.remain_at_all_count_for_group ?? atAll.group_remain_at_all_count ?? "?"}` : "?";
+    return [
+      `📋 群 ${ctx.groupId} 详情：`,
+      `  群名：${info.group_name ?? "?"}`,
+      `  成员：${memberCount}/${maxMember}`,
+      `  @全体 剩余：${atAllRemain}`,
+    ].join("\n");
+  } catch (err) {
+    return `❌ 获取群信息失败：${fmtError(err)}`;
+  }
+}
+
+// ── 群文件命令 ──────────────────────────────────────────────────────
+
+export async function handleFiles(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  const stack = getCwd(ctx.userId!, ctx.groupId!);
+  const folderId = currentFolderId(stack);
+  const rawCount = parts[0] ? parseInt(parts[0], 10) : 20;
+  const count = isNaN(rawCount) ? 20 : Math.max(1, Math.min(rawCount, 50));
+  const data = folderId === "/"
+    ? await ctx.client.getGroupRootFiles(ctx.groupId!, count)
+    : await ctx.client.getGroupFilesByFolder(ctx.groupId!, folderId, count);
+  if (!data) return "❌ 列文件失败。";
+  const folders: any[] = data.folders ?? [];
+  const files: any[] = data.files ?? [];
+  const pwd = formatCwdPath(stack);
+  const fLines = folders.slice(0, count).map((f: any) => `  📁 ${f.folder_name ?? f.name ?? "?"}    [${f.folder_id ?? f.id ?? "?"}]`);
+  const lLines = files.slice(0, count).map((f: any) => {
+    const size = f.file_size ? `${(f.file_size / 1024).toFixed(1)} KB` : "";
+    return `  📄 ${f.file_name ?? f.name ?? "?"}  ${size}  [${f.file_id ?? f.id ?? "?"}]`;
+  });
+  const body = [...fLines, ...lLines].join("\n") || "  （空目录）";
+  return `📂 当前目录：${pwd}\n${body}\n\n用 /cd <文件夹名> 进入；/cdup 上层；/cd / 回根`;
+}
+
+export async function handleCd(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  const target = parts.join(" ").trim();
+  if (!target) return "用法：/cd <文件夹名> | /cd /（回根）";
+  if (target === "/") {
+    resetCwd(ctx.userId!, ctx.groupId!);
+    return "📂 已回到根目录。";
+  }
+  const stack = getCwd(ctx.userId!, ctx.groupId!);
+  const folderId = currentFolderId(stack);
+  const data = folderId === "/"
+    ? await ctx.client.getGroupRootFiles(ctx.groupId!)
+    : await ctx.client.getGroupFilesByFolder(ctx.groupId!, folderId);
+  const folders: any[] = data?.folders ?? [];
+  const match = folders.find((f: any) => (f.folder_name ?? f.name) === target);
+  if (!match) return `❌ 当前目录下未找到子文件夹「${target}」（用 /files 查看可用列表）`;
+  const entry: FolderStackEntry = { id: String(match.folder_id ?? match.id), name: String(match.folder_name ?? match.name) };
+  pushCwd(ctx.userId!, ctx.groupId!, entry);
+  return `📂 已进入 ${formatCwdPath(getCwd(ctx.userId!, ctx.groupId!))}`;
+}
+
+export async function handleCdup(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  const popped = popCwd(ctx.userId!, ctx.groupId!);
+  const pwd = formatCwdPath(getCwd(ctx.userId!, ctx.groupId!));
+  return popped ? `📂 已离开 ${popped.name}，当前 ${pwd}` : "📂 已在根目录。";
+}
+
+export async function handlePwd(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  return `📂 ${formatCwdPath(getCwd(ctx.userId!, ctx.groupId!))}`;
+}
+
+export async function handleDl(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  const fileId = parts[0];
+  if (!fileId) return "用法：/dl <file_id>（file_id 从 /files 获取）";
+  const data = await ctx.client.getGroupFileUrl(ctx.groupId!, fileId);
+  if (!data || !data.url) return "❌ 获取下载链接失败。";
+  return `🔗 下载链接：\n${data.url}`;
+}
+
+export async function handleDelFile(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  const fileId = parts[0];
+  if (!fileId) return "用法：/delfile <file_id>";
+  try {
+    await ctx.client.deleteGroupFile(ctx.groupId!, fileId);
+    return `✅ 已删除文件 ${fileId}`;
+  } catch (err) {
+    return `❌ 删除文件失败：${fmtError(err)}`;
+  }
+}
+
+export async function handleMkdir(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  const name = parts.join(" ").trim();
+  if (!name) return "用法：/mkdir <文件夹名>";
+  try {
+    await ctx.client.createGroupFileFolder(ctx.groupId!, name);
+    return `✅ 已创建文件夹「${name}」`;
+  } catch (err) {
+    return `❌ 创建文件夹失败：${fmtError(err)}`;
+  }
+}
+
+export async function handleRmdir(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  const folderId = parts[0];
+  if (!folderId) return "用法：/rmdir <folder_id>（从 /files 获取）";
+  try {
+    await ctx.client.deleteGroupFolder(ctx.groupId!, folderId);
+    return `✅ 已删除文件夹 ${folderId}`;
+  } catch (err) {
+    return `❌ 删除文件夹失败：${fmtError(err)}`;
+  }
+}
+
+export async function handleMvFile(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  const fileId = parts[0];
+  const targetDir = parts[1];
+  if (!fileId || !targetDir) return "用法：/mvfile <file_id> <target_folder_id>（target 用 / 表示根目录）";
+  const curDir = currentFolderId(getCwd(ctx.userId!, ctx.groupId!));
+  try {
+    await ctx.client.moveGroupFile(ctx.groupId!, fileId, curDir, targetDir);
+    return `✅ 已移动文件 ${fileId} → ${targetDir}`;
+  } catch (err) {
+    return `❌ 移动文件失败：${fmtError(err)}`;
+  }
+}
+
+export async function handleRenameFile(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  const fileId = parts[0];
+  const newName = parts.slice(1).join(" ").trim();
+  if (!fileId || !newName) return "用法：/renamefile <file_id> <新名>";
+  const curDir = currentFolderId(getCwd(ctx.userId!, ctx.groupId!));
+  try {
+    await ctx.client.renameGroupFile(ctx.groupId!, fileId, curDir, newName);
+    return `✅ 已重命名为「${newName}」`;
+  } catch (err) {
+    return `❌ 重命名失败：${fmtError(err)}`;
+  }
+}
+
+export async function handleUpload(_ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
+  return (
+    "ℹ️ 上传群文件请直接拖拽到群里（NapCat 自动同步到群文件）。\n" +
+    "如需通过 API 上传，调用 client.uploadGroupFile(groupId, file, name)。"
+  );
+}
+
+// ── NapCat 扩展命令 ─────────────────────────────────────────────────
+
+export async function handlePoke(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  const targetId = extractAtTarget(ctx.message, ctx.text) ?? (parts[0] ? parseInt(parts[0], 10) : null);
+  if (!targetId) return "用法：/poke @用户";
+  try {
+    ctx.client.sendGroupPoke(ctx.groupId!, targetId);
+    return `👉 已戳一戳 ${targetId}`;
+  } catch (err) {
+    return `❌ 戳一戳失败：${fmtError(err)}`;
+  }
+}
+
+export async function handleSign(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  try {
+    await ctx.client.setGroupSign(ctx.groupId!);
+    return "✅ 已群签到。";
+  } catch (err) {
+    return `❌ 签到失败：${fmtError(err)}`;
+  }
+}
+
+export async function handleTodo(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  const msgId = resolveMsgId(ctx, parts);
+  if (!msgId) return `用法：回复目标消息并发送 /todo，或 /todo <message_id>`;
+  try {
+    await ctx.client.setGroupTodo(ctx.groupId!, msgId);
+    return `✅ 已标记消息 ${msgId} 为待办`;
+  } catch (err) {
+    return `❌ 待办操作失败：${fmtError(err)}`;
+  }
+}
+
+export async function handleDoneTodo(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  const msgId = resolveMsgId(ctx, parts);
+  if (!msgId) return `用法：回复目标消息并发送 /donetodo，或 /donetodo <message_id>`;
+  try {
+    await ctx.client.completeGroupTodo(ctx.groupId!, msgId);
+    return `✅ 已完成消息 ${msgId}`;
+  } catch (err) {
+    return `❌ 待办操作失败：${fmtError(err)}`;
+  }
+}
+
+export async function handleCancelTodo(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
+  if (!(await requireGroup(ctx))) return null;
+  const msgId = resolveMsgId(ctx, parts);
+  if (!msgId) return `用法：回复目标消息并发送 /canceltodo，或 /canceltodo <message_id>`;
+  try {
+    await ctx.client.cancelGroupTodo(ctx.groupId!, msgId);
+    return `✅ 已取消消息 ${msgId} 的待办`;
+  } catch (err) {
+    return `❌ 待办操作失败：${fmtError(err)}`;
+  }
+}
+
+export async function handleSendTo(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
+  const target = parts[0];
+  const msgText = parts.slice(1).join(" ");
+  if (!target || !msgText) {
+    return (
+      `用法：/sendto <目标> <消息内容>\n示例：\n` +
+      `  /sendto group:88888888 早上好\n` +
+      `  /sendto 12345678 你好`
+    );
+  }
+  try {
+    const result = await sendProactive({ to: target, text: msgText });
+    if (result.success) return `✅ 已发送到 ${target}`;
+    return `❌ 发送失败：${result.error}`;
+  } catch (err) {
+    return `❌ 发送失败：${fmtError(err)}`;
+  }
+}
+
+export async function handleReload(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
+  if (!ctx.configRef || !ctx.fullCfg) return "❌ 热更新未启用";
+  const napcat = ctx.fullCfg.channels?.napcat;
+  const result = updateConfigRef(ctx.configRef, napcat);
+  if (result.success) {
+    let msg = "✅ 配置已重载";
+    if (result.connectionChanged) {
+      msg += "\n⚠️ 连接参数有变更，需重启容器才能生效";
+    }
+    return msg;
+  }
+  return `❌ 配置验证失败，保留旧配置\n${result.error}`;
+}
+
+export async function handleGroups(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
+  if (!ctx.refreshGroupRoutes) return "❌ 群路由刷新未启用";
+  try {
+    const count = await ctx.refreshGroupRoutes();
+    return `✅ 已刷新 ${count} 个群路由，cron 投递现在可用`;
+  } catch (err) {
+    return `❌ 刷新失败：${fmtError(err)}`;
+  }
+}
+
+export async function handleRateLimit(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
+  if (!ctx.rateLimiter) return "❌ 限流器未初始化";
+  const limits = ctx.rateLimiter.getActiveLimits();
+  if (limits.length === 0) return "✅ 当前无活跃限流";
+  const lines = limits.map((l: ActiveRateLimit) => {
+    const remaining = (l.retryAfterMs / 1000).toFixed(1);
+    const display = l.target.startsWith("user:") ? `用户 ${l.target.slice(5)}` : `群 ${l.target.slice(6)}`;
+    return `  ${display}: 冷却 ${remaining}s (窗口内 ${l.count} 条, 累计阻断 ${l.blockedTotal} 次)`;
+  });
+  return `⚠️ 活跃限流 (${limits.length}):\n${lines.join("\n")}`;
+}
+
+export async function handleUnrateLimit(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
+  if (!ctx.rateLimiter) return "❌ 限流器未初始化";
+  const target = parts[0];
+  if (!target) return "用法: /unratelimit <用户QQ号或群号>\n例: /unratelimit 123456789";
+  const cleared = ctx.rateLimiter.clear(target);
+  if (cleared) return `✅ 已解除 ${target} 的限流`;
+  return `ℹ️ ${target} 当前未被限流`;
+}
+
+// ============ /help 文本 ============
 
 const HELP_TEXT =
   `[OpenClaw QQ] 管理命令（带 * 为二次确认，30s 内再发一次确认）\n` +
@@ -986,15 +835,143 @@ const HELP_TEXT =
   `\n` +
   `/help                显示本帮助`;
 
-// ============ 工具函数 ============
+// ============ 注册表 ============
 
-function formatUptime(seconds: number): string {
-  const d = Math.floor(seconds / 86400);
-  const h = Math.floor((seconds % 86400) / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-  if (d > 0) return `${d}天 ${h}小时 ${m}分`;
-  if (h > 0) return `${h}小时 ${m}分 ${s}秒`;
-  if (m > 0) return `${m}分 ${s}秒`;
-  return `${s}秒`;
+import { CommandRegistry } from "./admin-registry.js";
+
+/** 全局管理命令注册表 */
+export const adminCommandRegistry = new CommandRegistry();
+
+adminCommandRegistry.register("ping", "测量延迟", handlePing);
+adminCommandRegistry.register("version", "查看版本", handleVersion);
+adminCommandRegistry.register("logs", "最近日志", handleLogs);
+adminCommandRegistry.register("status", "查看状态", handleStatus);
+adminCommandRegistry.register("help", "帮助", handleHelp);
+
+adminCommandRegistry.register("mute", "禁言", handleMute);
+adminCommandRegistry.register("unmute", "解除禁言", handleUnmute);
+adminCommandRegistry.register("ban", "禁言", handleBan);
+adminCommandRegistry.register("kick", "踢人", handleKick);
+adminCommandRegistry.register("kickbatch", "批量踢人", handleKickBatch);
+adminCommandRegistry.register("admin", "任命管理员", handleAdmin);
+adminCommandRegistry.register("unadmin", "撤销管理员", handleUnadmin);
+adminCommandRegistry.register("card", "改名片", handleCard);
+adminCommandRegistry.register("title", "设头衔", handleTitle);
+adminCommandRegistry.register("shutlist", "禁言名单", handleShutList);
+adminCommandRegistry.register("banall", "全员禁言", handleBanAll);
+adminCommandRegistry.register("unbanall", "解除全员禁言", handleUnbanAll);
+adminCommandRegistry.register("setname", "改群名", handleSetName);
+adminCommandRegistry.register("setremark", "改群备注", handleSetRemark);
+adminCommandRegistry.register("setportrait", "改群头像", handleSetPortrait);
+adminCommandRegistry.register("leave", "bot 退群", handleLeave);
+adminCommandRegistry.register("dismiss", "解散群", handleDismiss);
+adminCommandRegistry.register("essence", "设精华", handleEssence);
+adminCommandRegistry.register("deessence", "取消精华", handleDeEssence);
+adminCommandRegistry.register("essencelist", "精华列表", handleEssenceList);
+adminCommandRegistry.register("honor", "群荣誉", handleHonor);
+adminCommandRegistry.register("atallremain", "@全体 剩余", handleAtAllRemain);
+adminCommandRegistry.register("groupinfo", "群详情", handleGroupInfo);
+
+adminCommandRegistry.register("files", "列群文件", handleFiles);
+adminCommandRegistry.register("cd", "进入子目录", handleCd);
+adminCommandRegistry.register("cdup", "上级目录", handleCdup);
+adminCommandRegistry.register("pwd", "当前路径", handlePwd);
+adminCommandRegistry.register("dl", "下载链接", handleDl);
+adminCommandRegistry.register("delfile", "删文件", handleDelFile);
+adminCommandRegistry.register("mkdir", "建文件夹", handleMkdir);
+adminCommandRegistry.register("rmdir", "删文件夹", handleRmdir);
+adminCommandRegistry.register("mvfile", "移动文件", handleMvFile);
+adminCommandRegistry.register("renamefile", "重命名文件", handleRenameFile);
+adminCommandRegistry.register("upload", "上传说明", handleUpload);
+
+adminCommandRegistry.register("poke", "戳一戳", handlePoke);
+adminCommandRegistry.register("sign", "群签到", handleSign);
+adminCommandRegistry.register("todo", "待办", handleTodo);
+adminCommandRegistry.register("donetodo", "完成待办", handleDoneTodo);
+adminCommandRegistry.register("canceltodo", "取消待办", handleCancelTodo);
+
+adminCommandRegistry.register("sendto", "跨会话发送", handleSendTo);
+adminCommandRegistry.register("reload", "热重载配置", handleReload);
+adminCommandRegistry.register("groups", "刷新群路由", handleGroups);
+adminCommandRegistry.register("ratelimit", "查看限流", handleRateLimit);
+adminCommandRegistry.register("unratelimit", "解除限流", handleUnrateLimit);
+
+/**
+ * 管理命令统一入口。
+ *
+ * 支持两种调用方式（向后兼容）：
+ * - 旧签名：handleAdminCommand(cmd: string, args: string[], ctx: Partial<AdminCmdContext>)
+ * - 新签名：handleAdminCommand(ctx: AdminCmdContext)
+ *
+ * 返回 boolean（true = 命中并处理，false = 未命中）。
+ */
+export async function handleAdminCommand(
+  cmdOrCtx: string | AdminCmdContext,
+  args?: string[],
+  ctx?: Partial<AdminCmdContext>,
+): Promise<boolean> {
+  let context: AdminCmdContext;
+  let trailingArgs: string[];
+  let matchedCmd: string | null = null;
+
+  if (typeof cmdOrCtx === "string" && args && ctx) {
+    // ── 旧签名：handleAdminCommand(cmd, args, ctx) ──
+    const text = ctx.text ?? cmdOrCtx;
+    const trimmed = text.startsWith("/") ? text.slice(1) : text;
+    const parts = trimmed.split(/\s+/);
+    const cmd = parts[0].toLowerCase();
+    trailingArgs = parts.slice(1);
+
+    matchedCmd = findCommand(cmd);
+    if (!matchedCmd) return false;
+
+    context = {
+      client: ctx.client,
+      isGroup: ctx.isGroup ?? false,
+      groupId: ctx.groupId,
+      userId: ctx.userId,
+      text: trimmed,
+      message: ctx.message,
+      eventTime: ctx.eventTime,
+      configRef: ctx.configRef,
+      fullCfg: ctx.fullCfg,
+      refreshGroupRoutes: ctx.refreshGroupRoutes,
+      rateLimiter: ctx.rateLimiter,
+    };
+  } else {
+    // ── 新签名：handleAdminCommand(ctx) ──
+    const fullCtx = cmdOrCtx as AdminCmdContext;
+    const text = fullCtx.text.trim();
+    if (text.length === 0) return false;
+
+    const trimmed = text.startsWith("/") ? text.slice(1) : text;
+    const parts = trimmed.split(/\s+/);
+    const cmd = parts[0].toLowerCase();
+    trailingArgs = parts.slice(1);
+
+    matchedCmd = findCommand(cmd);
+    if (!matchedCmd) return false;
+
+    context = fullCtx;
+  }
+
+  return adminCommandRegistry.execute(matchedCmd!, context, trailingArgs);
 }
+
+/** 在已注册命令中查找最长前缀匹配 */
+function findCommand(input: string): string | null {
+  const names = adminCommandRegistry.getCommandNames();
+  // 先找完全匹配
+  if (names.includes(input)) return input;
+  // 再找前缀匹配（最长的）
+  let best: string | null = null;
+  for (const name of names) {
+    if (name.startsWith(input) && (!best || name.length > best.length)) {
+      best = name;
+    }
+  }
+  return best;
+}
+
+// 重新导出类型，保持向后兼容
+export type { AdminCmdContext } from "./admin-registry.js";
