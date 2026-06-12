@@ -19,29 +19,6 @@ const _realSchedule: (fn: () => void) => void =
     ? (fn) => _realSetImmediate(fn)
     : (fn) => void Promise.resolve().then(fn);
 
-/**
- * @deprecated 兼容旧测试和外部调用者。新代码请使用 client.ts 的 NapcatApiError。
- */
-export class HttpApiError extends Error {
-  public readonly name = "HttpApiError";
-
-  constructor(
-    public readonly statusCode: number,
-    public readonly statusText: string,
-    public readonly action: string,
-  ) {
-    super(`HTTP ${statusCode} ${statusText} for action ${action}`);
-  }
-
-  get isServerError(): boolean {
-    return this.statusCode >= 500;
-  }
-
-  get isClientError(): boolean {
-    return this.statusCode >= 400 && this.statusCode < 500;
-  }
-}
-
 export interface RetryOptions {
   /** 最大重试次数（不含首次调用）。默认 3 */
   maxRetries: number;

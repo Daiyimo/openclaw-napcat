@@ -139,3 +139,16 @@ export const DEFAULT_RESPONSE_GUIDELINES = `【回复格式硬性约束 — 违�
 4. 多 bot 共存场景:不要复述其他 bot 的消息(避免噪声);如需回应则简短、明确。
 
 5. 旁听/被动模式:没想说的回复 [SILENT],不要硬凑回复。`;
+
+/** 友军抑制随机延迟上限（ms）。减少多 bot 间竞态 */
+export const BOT_SUPPRESSION_JITTER_MS = 2_000;
+
+// === 入站频控 ===
+
+/** 入站频控默认每窗口最大消息数 */
+export const INBOUND_RATE_LIMIT_DEFAULT_MAX = 5;
+
+// === 对话状态 ===
+
+/** 群对话状态清理最大未活跃时长（ms）。超过后清除对话状态 */
+export const DIALOG_STATE_CLEANUP_MS = 60 * 60 * 1_000;

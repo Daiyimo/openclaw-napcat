@@ -67,7 +67,7 @@ export async function resolveMessageText(
           const voiceResp = await fetch(voiceUrl, { signal: AbortSignal.timeout(30_000) });
           if (voiceResp.ok) {
             const buf = await voiceResp.arrayBuffer();
-            fsSync.writeFileSync(tmpFile, Buffer.from(buf));
+            await fsSync.promises.writeFile(tmpFile, Buffer.from(buf));
             const wavResult = await convertSilkToWav(tmpFile, tmpDir);
             if (wavResult?.wavPath) {
               wavPath = wavResult.wavPath;
@@ -85,7 +85,8 @@ export async function resolveMessageText(
             resolvedText += ` [语音消息: 下载失败]`;
           }
         } catch (sttErr) {
-          console.warn(`[message-processor] STT failed: ${sttErr}`);
+          const errMsg = sttErr instanceof Error ? sttErr.message : String(sttErr);
+          console.warn(`[message-processor] STT failed: ${errMsg}`, sttErr instanceof Error ? sttErr.cause : undefined);
           resolvedText += ` [语音消息: 转写失败]`;
         } finally {
           try { fsSync.unlinkSync(tmpFile); } catch (e) { console.debug(`[message-processor] cleanup tmpFile failed: ${e}`); }

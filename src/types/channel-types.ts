@@ -35,6 +35,8 @@ import type { InboundRateLimiter } from "../rate-limiter.js";
 export interface InboundRateLimitStore {
   /** @deprecated Replaced by rateLimiter for sliding window support */
   lastTrigger: Map<string, number>;
+  /** 消息去重集合 */
+  processedMsgIds: Set<string>;
   /** 滑动窗口限流器 */
   rateLimiter?: InboundRateLimiter;
   config: QQConfig;

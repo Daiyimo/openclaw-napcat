@@ -2,53 +2,13 @@ import WebSocket, { WebSocketServer } from "ws";
 import EventEmitter from "events";
 import type { OneBotEvent, OneBotMessage } from "./types.js";
 import type { IncomingMessage } from "http";
-/**
- * OneBot API 统一错误类型。
- *
- * 覆盖 HTTP API 错误（含 retry 模块抛出的 HttpApiError）和 WebSocket 错误，
- * 供外部调用方统一 catch 和处理。
- */
-export class NapcatApiError extends Error {
-  public readonly name = "NapcatApiError";
-  /** HTTP 状态码（HTTP 错误）；WebSocket 错误为 0 */
-  public readonly statusCode: number;
-  /** 触发的 API action 名称 */
-  public readonly action: string;
-  /** HTTP 状态描述；WS 错误为空 */
-  public readonly statusText: string;
-
-  constructor(
-    statusCode: number,
-    statusText: string,
-    action: string,
-    message?: string,
-  ) {
-    super(message ?? `HTTP ${statusCode} ${statusText} for action ${action}`);
-    this.statusCode = statusCode;
-    this.statusText = statusText;
-    this.action = action;
-  }
-
-  /** 是否为服务端错误（5xx） */
-  get isServerError(): boolean {
-    return this.statusCode >= 500;
-  }
-
-  /** 是否为客户端错误（4xx） */
-  get isClientError(): boolean {
-    return this.statusCode >= 400 && this.statusCode < 500;
-  }
-
-  /** 是否为连接层错误（WebSocket 断开、超时等） */
-  get isConnectionError(): boolean {
-    return this.statusCode === 0;
-  }
-
-  /** 从 retry 模块的 HttpApiError 转换 */
-  static fromHttpApiError(err: { statusCode: number; statusText: string; action: string }): NapcatApiError {
-    return new NapcatApiError(err.statusCode, err.statusText, err.action);
-  }
-}
+import {
+  ConnectionError,
+  TimeoutError,
+  ClientApiError,
+  ServerApiError,
+  RateLimitError,
+} from "./errors/napcat-error.js";
 import { maskUrl, maskBearerToken } from "./utils/log-sanitize.js";
 import { withRetry, isRetryableError } from "./utils/retry.js";
 import {
@@ -192,7 +152,7 @@ export class OneBotClient extends EventEmitter {
     // 拒绝所有等待中的请求
     for (const [echo, pending] of this.pendingRequests) {
       clearTimeout(pending.timer);
-      pending.reject(new NapcatApiError(0, "Disconnected", "unknown", "WebSocket disconnected"));
+      pending.reject(new ConnectionError("unknown", "WebSocket disconnected"));
     }
     this.pendingRequests.clear();
     console.log("[napcat-QQ] Disconnected from OneBot server");
@@ -264,7 +224,8 @@ export class OneBotClient extends EventEmitter {
   }
 
   async getGuildServiceProfile(): Promise<any> {
-    try { return await this.sendWithResponse("get_guild_service_profile", {}); } catch { return null; }
+    try { return await this.sendWithResponse("get_guild_service_profile", {}); }
+    catch (err) { console.warn("get_guild_service_profile failed", err); return null; }
   }
 
   sendGroupPoke(groupId: number, userId: number) {
@@ -426,7 +387,7 @@ export class OneBotClient extends EventEmitter {
   /** 获取 @全体 剩余次数 */
   async getGroupAtAllRemain(groupId: number): Promise<any> {
     try { return await this.sendWithResponse("get_group_at_all_remain", { group_id: String(groupId) }); }
-    catch { return null; }
+    catch (err) { console.warn("get_group_at_all_remain failed", err); return null; }
   }
 
   /**
@@ -435,7 +396,7 @@ export class OneBotClient extends EventEmitter {
    */
   async getGroupHonorInfo(groupId: number, type: string = "all"): Promise<any> {
     try { return await this.sendWithResponse("get_group_honor_info", { group_id: String(groupId), type }); }
-    catch { return null; }
+    catch (err) { console.warn("API call failed", err); return null; }
   }
 
   // ── B. 群文件全套 ───────────────────────────────────────
@@ -443,7 +404,7 @@ export class OneBotClient extends EventEmitter {
   /** 列群根目录文件 + 子文件夹 */
   async getGroupRootFiles(groupId: number, fileCount: number = 50): Promise<any> {
     try { return await this.sendWithResponse("get_group_root_files", { group_id: String(groupId), file_count: fileCount }); }
-    catch { return null; }
+    catch (err) { console.warn("API call failed", err); return null; }
   }
 
   /** 列指定文件夹下的文件 + 子文件夹 */
@@ -454,19 +415,19 @@ export class OneBotClient extends EventEmitter {
         folder_id: folderId,
         file_count: fileCount,
       });
-    } catch { return null; }
+    } catch (err) { console.warn("API call failed", err); return null; }
   }
 
   /** 获取文件下载 URL */
   async getGroupFileUrl(groupId: number, fileId: string): Promise<any> {
     try { return await this.sendWithResponse("get_group_file_url", { group_id: String(groupId), file_id: fileId }); }
-    catch { return null; }
+    catch (err) { console.warn("API call failed", err); return null; }
   }
 
   /** 获取群文件系统空间/状态 */
   async getGroupFileSystemInfo(groupId: number): Promise<any> {
     try { return await this.sendWithResponse("get_group_file_system_info", { group_id: String(groupId) }); }
-    catch { return null; }
+    catch (err) { console.warn("API call failed", err); return null; }
   }
 
   /** 删除群文件 */
@@ -577,15 +538,15 @@ export class OneBotClient extends EventEmitter {
         body: JSON.stringify(params),
       });
       if (!resp.ok) {
-        throw new NapcatApiError(resp.status, resp.statusText, action);
+        if (resp.status >= 500) throw new ServerApiError(resp.status, resp.statusText, action);
+        throw new ClientApiError(resp.status, resp.statusText, action);
       }
       const data = await resp.json() as any;
       if (data.status !== "ok" && data.retcode !== 0) {
-        throw new NapcatApiError(
-          data.retcode ?? resp.status,
-          data.msg || data.wording || resp.statusText,
-          action,
-        );
+        const code = data.retcode ?? resp.status;
+        const text = data.msg || data.wording || resp.statusText;
+        if (code >= 500) throw new ServerApiError(code, text, action);
+        throw new ClientApiError(code, text, action);
       }
       return data.data;
     }, {
@@ -703,7 +664,7 @@ export class OneBotClient extends EventEmitter {
     return new Promise((resolve, reject) => {
       const activeWs = this.getActiveWs();
       if (!activeWs) {
-        reject(new NapcatApiError(0, "No connection", action, "WebSocket not open"));
+        reject(new ConnectionError(action, "WebSocket not open"));
         return;
       }
 
@@ -711,15 +672,14 @@ export class OneBotClient extends EventEmitter {
 
       const timer = setTimeout(() => {
         this.pendingRequests.delete(echo);
-        reject(new NapcatApiError(0, "Timeout", action, "Request timeout"));
+        reject(new TimeoutError(action, "Request timeout"));
       }, WS_RESPONSE_TIMEOUT_MS);
 
-      // 注册 close 监听，WS 断连时立即 reject 而非等待超时
       const closeHandler = () => {
         if (this.pendingRequests.has(echo)) {
           this.pendingRequests.delete(echo);
           clearTimeout(timer);
-          reject(new NapcatApiError(0, "Connection closed", action, "WebSocket closed while waiting for response"));
+          reject(new ConnectionError(action, "WebSocket closed while waiting for response"));
         }
       };
       activeWs.once("close", closeHandler);
@@ -736,14 +696,13 @@ export class OneBotClient extends EventEmitter {
         timer,
       });
 
-      // TOCTOU 修复：try-catch 包裹 send()，防止 WS 在检查后关闭导致异常逃逸
       try {
         activeWs.send(JSON.stringify({ action, params, echo }));
       } catch (err) {
         this.pendingRequests.delete(echo);
         activeWs.off("close", closeHandler);
         clearTimeout(timer);
-        reject(new NapcatApiError(0, "Send failed", action, err instanceof Error ? err.message : String(err)));
+        reject(new ConnectionError(action, err instanceof Error ? err.message : String(err)));
       }
     });
   }
@@ -753,7 +712,7 @@ export class OneBotClient extends EventEmitter {
     if (activeWs) {
       activeWs.send(JSON.stringify({ action, params }));
     } else {
-      throw new NapcatApiError(0, "No connection", action, "No WebSocket connection available");
+      throw new ConnectionError(action, "No WebSocket connection available");
     }
   }
 
@@ -762,11 +721,9 @@ export class OneBotClient extends EventEmitter {
     await this.stopReverseWs();
   }
 
-  /** 解析入站消息，过滤心跳，分发 echo 响应，解析失败返回 null */
   private parseIncomingMessage(data: WebSocket.RawData): OneBotEvent | null {
     try {
       const payload = JSON.parse(data.toString());
-      // echo 响应分发：由 pendingRequests Map 处理，不透传给上层
       if (payload.echo && this.pendingRequests.has(payload.echo)) {
         const pending = this.pendingRequests.get(payload.echo)!;
         this.pendingRequests.delete(payload.echo);
@@ -774,11 +731,9 @@ export class OneBotClient extends EventEmitter {
         if (payload.status === "ok") {
           pending.resolve(payload.data);
         } else {
-          pending.reject(new NapcatApiError(
-            payload.retcode ?? 0,
-            payload.msg || payload.wording || "API request failed",
-            payload.action || "unknown",
-          ));
+          const code = payload.retcode ?? 0;
+          const text = payload.msg || payload.wording || "API request failed";
+          pending.reject(code >= 500 ? new ServerApiError(code, text, payload.action || "unknown") : new ClientApiError(code, text, payload.action || "unknown"));
         }
         return null;
       }

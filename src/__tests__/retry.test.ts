@@ -1,14 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { withRetry, isRetryableError, HttpApiError } from "../utils/retry.js";
+import { withRetry, isRetryableError } from "../utils/retry.js";
+import { NapcatApiError, ServerApiError, ClientApiError } from "../errors/napcat-error.js";
 
 describe("isRetryableError", () => {
-  it("returns true for HttpApiError with 5xx", () => {
-    const err = new HttpApiError(502, "Bad Gateway", "send_msg");
+  it("returns true for ServerApiError with 5xx", () => {
+    const err = new ServerApiError(502, "Bad Gateway", "send_msg");
     expect(isRetryableError(err)).toBe(true);
   });
 
-  it("returns false for HttpApiError with 4xx", () => {
-    const err = new HttpApiError(400, "Bad Request", "send_msg");
+  it("returns false for ClientApiError with 4xx", () => {
+    const err = new ClientApiError(400, "Bad Request", "send_msg");
     expect(isRetryableError(err)).toBe(false);
   });
 
@@ -37,8 +38,8 @@ describe("withRetry", () => {
 
   it("retries on retryable error and succeeds", async () => {
     const fn = vi.fn()
-      .mockRejectedValueOnce(new HttpApiError(500, "Internal", "test"))
-      .mockRejectedValueOnce(new HttpApiError(503, "Unavailable", "test"))
+      .mockRejectedValueOnce(new ServerApiError(500, "Internal", "test"))
+      .mockRejectedValueOnce(new ServerApiError(503, "Unavailable", "test"))
       .mockResolvedValue("recovered");
 
     const promise = withRetry(fn, { maxRetries: 3, baseDelayMs: 100 });
@@ -51,27 +52,27 @@ describe("withRetry", () => {
   });
 
   it("throws last error when all retries exhausted", async () => {
-    const err = new HttpApiError(500, "Internal", "test");
+    const err = new ServerApiError(500, "Internal", "test");
     const fn = vi.fn().mockRejectedValue(err);
 
     const promise = withRetry(fn, { maxRetries: 2, baseDelayMs: 50 });
     await vi.advanceTimersByTimeAsync(50);
     await vi.advanceTimersByTimeAsync(100);
 
-    await expect(promise).rejects.toThrow("HTTP 500");
+    await expect(promise).rejects.toThrow("SERVER_ERROR: 500 Internal");
     expect(fn).toHaveBeenCalledTimes(3);
   });
 
   it("does not retry non-retryable errors", async () => {
-    const err = new HttpApiError(404, "Not Found", "test");
+    const err = new ServerApiError(404, "Not Found", "test");
     const fn = vi.fn().mockRejectedValue(err);
 
-    await expect(withRetry(fn)).rejects.toThrow("HTTP 404");
+    await expect(withRetry(fn)).rejects.toThrow("SERVER_ERROR: 404 Not Found");
     expect(fn).toHaveBeenCalledTimes(1);
   });
 
   it("respects maxRetries=0", async () => {
-    const err = new HttpApiError(500, "Internal", "test");
+    const err = new ServerApiError(500, "Internal", "test");
     const fn = vi.fn().mockRejectedValue(err);
 
     await expect(withRetry(fn, { maxRetries: 0 })).rejects.toThrow();
@@ -80,9 +81,9 @@ describe("withRetry", () => {
 
   it("uses exponential backoff delays", async () => {
     const fn = vi.fn()
-      .mockRejectedValueOnce(new HttpApiError(500, "err", "t"))
-      .mockRejectedValueOnce(new HttpApiError(500, "err", "t"))
-      .mockRejectedValueOnce(new HttpApiError(500, "err", "t"))
+      .mockRejectedValueOnce(new ServerApiError(500, "err", "t"))
+      .mockRejectedValueOnce(new ServerApiError(500, "err", "t"))
+      .mockRejectedValueOnce(new ServerApiError(500, "err", "t"))
       .mockResolvedValue("ok");
 
     const promise = withRetry(fn, { maxRetries: 3, baseDelayMs: 200 });

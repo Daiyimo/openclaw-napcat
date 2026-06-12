@@ -26,6 +26,8 @@ import {
   DEDUP_KEEP_SIZE,
   CLEANUP_INTERVAL_MS,
   PASSIVE_COOLDOWN_MAX_AGE_MS,
+  INBOUND_RATE_LIMIT_DEFAULT_MAX,
+  DIALOG_STATE_CLEANUP_MS,
 } from "../constants.js";
 import { installConnectHandler } from "./connection.js";
 import { installMessageHandler } from "./inbound.js";
@@ -58,13 +60,10 @@ export async function startAccount(
   // ── 注册入站频控状态 ────────────────────────────────
   const lastTrigger = new Map<string, number>();
   const rateLimiter = new InboundRateLimiter(
-    {
-      windowMs: config.inboundRateLimitMs ?? 0,
-      maxMessages: 5, // 默认每窗口 5 条
-    },
+    { windowMs: config.inboundRateLimitMs ?? 0, maxMessages: INBOUND_RATE_LIMIT_DEFAULT_MAX },
     config.admins ?? [],
   );
-  const inboundStore: InboundRateLimitStore = { lastTrigger, rateLimiter, config };
+  const inboundStore: InboundRateLimitStore = { lastTrigger, rateLimiter, config, processedMsgIds: new Set<string>() };
   shared.inboundStores.set(account.accountId, inboundStore);
 
   // ── 版本检查 ────────────────────────────────────────
@@ -106,7 +105,7 @@ export async function startAccount(
       console.log(`[napcat-QQ] Dedup set trimmed: kept ${processedMsgIds.size} recent IDs`);
     }
     shared.passiveMode.cleanup(PASSIVE_COOLDOWN_MAX_AGE_MS);
-    cleanupDialogState(60 * 60 * 1000);  // 1 小时未活跃的群状态清理
+    cleanupDialogState(DIALOG_STATE_CLEANUP_MS);
   }, CLEANUP_INTERVAL_MS);
 
   // ── 安装 connect handler ────────────────────────────
