@@ -87,6 +87,13 @@ export class InboundRateLimiter {
   }
 
   /**
+   * 获取当前限流配置（用于 /ratelimit 命令展示阈值参数）
+   */
+  getConfig(): { windowMs: number; maxMessages: number } {
+    return { windowMs: this.config.windowMs, maxMessages: this.config.maxMessages };
+  }
+
+  /**
    * 检查是否允许通过
    *
    * @param userId - 用户 QQ 号（用户级限流）

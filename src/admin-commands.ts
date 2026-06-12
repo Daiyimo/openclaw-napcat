@@ -765,14 +765,19 @@ export async function handleGroups(ctx: AdminCmdContext, _parts: string[]): Prom
 
 export async function handleRateLimit(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
   if (!ctx.rateLimiter) return "❌ 限流器未初始化";
+  const { windowMs, maxMessages } = ctx.rateLimiter.getConfig();
+  const configLine =
+    windowMs <= 0
+      ? "当前状态: 禁用 (windowMs=0)"
+      : `当前阈值: ${maxMessages} 条 / ${windowMs / 1000}s`;
   const limits = ctx.rateLimiter.getActiveLimits();
-  if (limits.length === 0) return "✅ 当前无活跃限流";
+  if (limits.length === 0) return `✅ 当前无活跃限流\n${configLine}`;
   const lines = limits.map((l: ActiveRateLimit) => {
     const remaining = (l.retryAfterMs / 1000).toFixed(1);
     const display = l.target.startsWith("user:") ? `用户 ${l.target.slice(5)}` : `群 ${l.target.slice(6)}`;
     return `  ${display}: 冷却 ${remaining}s (窗口内 ${l.count} 条, 累计阻断 ${l.blockedTotal} 次)`;
   });
-  return `⚠️ 活跃限流 (${limits.length}):\n${lines.join("\n")}`;
+  return `${configLine}\n⚠️ 活跃限流 (${limits.length}):\n${lines.join("\n")}`;
 }
 
 export async function handleUnrateLimit(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
