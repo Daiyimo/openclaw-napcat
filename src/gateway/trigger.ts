@@ -58,6 +58,27 @@ export interface TriggerResult extends TriggerInput {
   isPassiveMode: boolean;
 }
 
+const otherBotNamesResult = new Map<string, { names: string[]; idSet: Set<string> }>();
+
+// ── silentKeywords 正则缓存 ────────────────────────────────────────────
+// 每消息 new RegExp() 有 GC 开销，按关键词数组内容签名缓存，配置变更时自动重建
+let silentKeywordsCache: { key: string; regexes: RegExp[] } | null = null;
+
+function getSilentKeywordRegexes(keywords: string[]): RegExp[] {
+  const key = JSON.stringify(keywords);
+  if (silentKeywordsCache?.key === key) return silentKeywordsCache.regexes;
+  const regexes = keywords.map((kw) => {
+    const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`\\b${escaped}\\b`);
+  });
+  silentKeywordsCache = { key, regexes };
+  return regexes;
+}
+
+export function invalidateOtherBotNamesCache(): void {
+  otherBotNamesResult.clear();
+}
+
 export async function triggerStage(
   input: TriggerInput,
   client: OneBotClient,
@@ -65,6 +86,9 @@ export async function triggerStage(
 ): Promise<TriggerResult | null> {
   const { event, isGroup, isGuild, selfId } = input;
   const { account, config, cfg, channelRuntime, knownGroupIds, passiveMode, log } = ctx;
+  let isAdmin =
+    (config.admins?.includes(input.userId!) ?? false) ||
+    (config.sharedAdmins?.includes(input.userId!) ?? false);
 
   const text = await resolveMessageText(event, client, config, cfg as Record<string, unknown>, log);
 
@@ -72,9 +96,6 @@ export async function triggerStage(
   {
     const rateLimiter = ctx.inboundStore.rateLimiter;
     if (rateLimiter && config.inboundRateLimitMs > 0) {
-      const isAdmin =
-        (config.admins?.includes(input.userId!) ?? false) ||
-        (config.sharedAdmins?.includes(input.userId!) ?? false);
       const result = rateLimiter.check(input.userId, isGroup ? input.groupId : undefined, isAdmin);
       if (!result.allowed) {
         if (config.debug) {
@@ -91,17 +112,32 @@ export async function triggerStage(
     }
 
     if (config.silentKeywords?.length) {
-      const body = text;
-      for (const kw of config.silentKeywords) {
-        const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        if (new RegExp(`\\b${escaped}\\b`).test(body)) {
+      const regexes = getSilentKeywordRegexes(config.silentKeywords);
+      for (const re of regexes) {
+        if (re.test(text)) {
           if (config.debug) {
-            log.log(`[napcat-QQ][silent_keyword] matched "${kw}", dropping message`);
+            log.log(`[napcat-QQ][silent_keyword] matched, dropping message`);
           }
           return null;
         }
       }
     }
+  }
+
+  // 高并发热路径：buildOtherBotNames 结果在运行期不变，按 (accountId, knownBotIds) 缓存一次
+  const cacheKey = `${account.accountId}:${[...(config.knownBotIds ?? [])].sort().join(",")}`;
+  let otherBotNames: string[];
+  let knownBotIdSet: Set<string>;
+  const cached = otherBotNamesResult.get(cacheKey);
+  if (cached) {
+    ({ names: otherBotNames, idSet: knownBotIdSet } = cached);
+  } else {
+    ({ names: otherBotNames, idSet: knownBotIdSet } = buildOtherBotNames(
+      account.accountId,
+      config.knownBotIds,
+      selfId,
+    ));
+    otherBotNamesResult.set(cacheKey, { names: otherBotNames, idSet: knownBotIdSet });
   }
 
   let isBot = false;
@@ -175,12 +211,6 @@ export async function triggerStage(
     }
   }
 
-  const { names: otherBotNames, idSet: knownBotIdSet } = buildOtherBotNames(
-    account.accountId,
-    config.knownBotIds,
-    selfId,
-  );
-
   if (!isBot) {
     if (!isMessageDirectedAtBot(event, selfId, text, config._selfName, otherBotNames)) {
       if (config.debug) {
@@ -192,17 +222,13 @@ export async function triggerStage(
     }
   }
 
-  const isAdmin =
-    (config.admins?.includes(input.userId!) ?? false) ||
-    (config.sharedAdmins?.includes(input.userId!) ?? false);
-  const effectiveSelfId = selfId;
-
   if (text.includes("[SYS:GUARD]")) {
     if (config.debug) {
       log.log(`[napcat-QQ][debug-sensitive-guard] cascade blocked: msg contains [SYS:GUARD]`);
     }
     return null;
   }
+  const effectiveSelfId = selfId;
 
   const isKnownBotSender =
     isGroup &&
