@@ -147,9 +147,8 @@ export async function triggerStage(
         }
         return null;
       }
-      if (config.ignoreSenderBot !== false) passiveMode.markBotActive(`group:${input.groupId}`);
-
       if (config.ignoreSenderBot !== false) {
+        passiveMode.markBotActive(`group:${input.groupId}`);
         const dialogKey = `group:${input.groupId}`;
         const dialog = getDialogState(account.accountId, dialogKey);
         const maxRounds = config.botDialogMaxRounds ?? 5;
