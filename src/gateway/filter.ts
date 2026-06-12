@@ -15,8 +15,8 @@ export interface FilterResult {
   event: OneBotEvent;
   userId: number | undefined;
   groupId: number | undefined;
-  guildId: number | undefined;
-  channelId: number | undefined;
+  guildId: string | undefined;
+  channelId: string | undefined;
   isGroup: boolean;
   isGuild: boolean;
   selfId: string;
@@ -31,8 +31,8 @@ export function filterStage(
   const { config, knownGroupIds, inboundStore, log } = ctx;
   const userId = event.user_id;
   const groupId = event.group_id;
-  const guildId = event.guild_id;
-  const channelId = event.channel_id;
+  const guildId = event.guild_id != null ? String(event.guild_id) : undefined;
+  const channelId = event.channel_id != null ? String(event.channel_id) : undefined;
   const isGroup = event.message_type === "group";
   const isGuild = event.message_type === "guild";
 
