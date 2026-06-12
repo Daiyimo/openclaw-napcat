@@ -27,8 +27,12 @@ export function filterStage(
   client: OneBotClient,
   ctx: InboundContext,
 ): FilterResult | null {
-  console.log("[FILTER] start, post_type=", event.post_type, "user_id=", event.user_id, "self_id=", event.self_id);
   const { config, knownGroupIds, inboundStore, log } = ctx;
+  if (config.debug) {
+    log.log(
+      `[napcat-QQ][debug-filter] start, post_type=${event.post_type} user_id=${maskId(String(event.user_id))} self_id=${event.self_id}`,
+    );
+  }
   const userId = event.user_id;
   const groupId = event.group_id;
   const guildId = event.guild_id != null ? String(event.guild_id) : undefined;
@@ -83,7 +87,7 @@ export function filterStage(
 
   const rawSelfId = client.getSelfId() ?? event.self_id;
   if (!rawSelfId) {
-    console.warn(
+    log.warn(
       `[napcat-QQ] selfId not available yet, dropping message from user ${event.user_id}`,
     );
     return null;
@@ -92,7 +96,7 @@ export function filterStage(
 
   if (String(event.user_id) === String(selfId)) {
     if (config.debug) {
-      console.log(
+      log.log(
         `[napcat-QQ][debug-self-filter] dropping self message event.user_id=${maskId(String(event.user_id))} selfId=${selfId}`,
       );
     }

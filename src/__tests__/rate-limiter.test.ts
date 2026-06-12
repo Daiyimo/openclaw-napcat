@@ -339,4 +339,31 @@ describe("InboundRateLimiter", () => {
       expect(limiter2.check(999, undefined).allowed).toBe(false);
     });
   });
+
+  // ── 更新窗口大小 ────────────────────────────────────────────
+
+  describe("updateWindowMs()", () => {
+    it("updates window size for hot-reload", () => {
+      const limiter3 = new InboundRateLimiter(
+        { windowMs: 5000, maxMessages: 2 },
+        [],
+      );
+      vi.setSystemTime(new Date("2024-01-01T00:00:00.000Z"));
+      limiter3.record(1001, undefined);
+      limiter3.record(1001, undefined);
+      expect(limiter3.check(1001, undefined).allowed).toBe(false);
+
+      // Fast-forward past original window (5s)
+      vi.setSystemTime(new Date("2024-01-01T00:00:05.001Z"));
+      expect(limiter3.check(1001, undefined).allowed).toBe(true); // old entries expired
+
+      // Shrink window to 1000ms - records from t=0 are now outside the new window
+      limiter3.updateWindowMs(1000);
+      limiter3.record(1001, undefined);
+      // The old entries at t=0 are now outside 1s window from current time (5s ago)
+      // so user should be allowed (only 1 entry in new window)
+      const result = limiter3.check(1001, undefined);
+      expect(result.allowed).toBe(true);
+    });
+  });
 });

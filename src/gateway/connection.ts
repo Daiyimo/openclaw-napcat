@@ -30,7 +30,7 @@ export function installConnectHandler(
   const result: ConnectionResult = { groupRouteRefreshTimer: null };
 
   client.on("connect", async () => {
-    console.log(`[napcat-QQ] Connected account ${ctx.account.accountId}`);
+    ctx.log.log(`[napcat-QQ] Connected account ${ctx.account.accountId}`);
     try {
       const info = await Promise.race([
         client.getLoginInfo(),
@@ -46,7 +46,7 @@ export function installConnectHandler(
         ctx.shared.setBotSelfId(ctx.account.accountId, info.user_id);
       }
       if (info?.nickname) {
-        console.log(`[napcat-QQ] Logged in as: ${info.nickname} (${info.user_id})`);
+        ctx.log.log(`[napcat-QQ] Logged in as: ${info.nickname} (${info.user_id})`);
         // 存入 account config，供自我认知和名字触发使用
         ctx.account.config._selfName = info.nickname;
       }
@@ -76,11 +76,11 @@ export function installConnectHandler(
             }),
           ),
         );
-        console.log(
+        ctx.log.log(
           `[napcat-QQ] Pre-registered ${groups.length} group session routes for cron delivery`,
         );
-      } catch (err) {
-        console.warn(`[napcat-QQ] Group route pre-registration failed (non-fatal): ${err}`);
+        } catch (err) {
+          ctx.log.warn(`[napcat-QQ] Group route pre-registration failed (non-fatal): ${err}`);
       }
 
       // v1.9.2 移除启动握手(原 metadata 模式):
@@ -95,7 +95,7 @@ export function installConnectHandler(
         try {
           const discovered = await runHandshakeBackfill(client, ctx.account.accountId);
           if (discovered > 0) {
-            console.log(
+            ctx.log.log(
               `[napcat-QQ] Cold-start backfill discovered ${discovered} bot(s) from group history`,
             );
           }
@@ -104,7 +104,7 @@ export function installConnectHandler(
           }
           ctx.shared.handshakeBackfillDone.add(ctx.account.accountId);
         } catch (bfErr) {
-          console.warn(`[napcat-QQ] Handshake backfill failed (non-fatal): ${bfErr}`);
+          ctx.log.warn(`[napcat-QQ] Handshake backfill failed (non-fatal): ${bfErr}`);
         }
       }
 
@@ -125,9 +125,9 @@ export function installConnectHandler(
                 }),
               ),
             );
-            console.log(`[napcat-QQ] Refreshed ${groups.length} group session routes`);
+            ctx.log.log(`[napcat-QQ] Refreshed ${groups.length} group session routes`);
           } catch (err) {
-            console.warn(`[napcat-QQ] Group route refresh failed: ${err}`);
+            ctx.log.warn(`[napcat-QQ] Group route refresh failed: ${err}`);
           }
         }, GROUP_ROUTE_REFRESH_INTERVAL_MS);
       }
@@ -138,7 +138,7 @@ export function installConnectHandler(
       // 2. group_increase 触发节流清除(在 inbound.ts)
       // 3. 对方 bot 重启时会自动从冷启动 backfill 重新发现
     } catch (err) {
-      console.warn(`[napcat-QQ] connect handler error (non-fatal): ${err}`);
+      ctx.log.warn(`[napcat-QQ] connect handler error (non-fatal): ${err}`);
     }
   });
 

@@ -6,10 +6,17 @@
  */
 
 import { QQConfigSchema, type QQConfig } from "./config.js";
+import type { Logger } from "./types/channel-types.js";
 
 export interface ConfigRef {
   /** 当前生效的配置 */
   current: QQConfig;
+  /** 可选的 logger 实例 */
+  log?: Logger;
+}
+
+export function createConfigRef(initial: QQConfig, log?: Logger): ConfigRef {
+  return { current: initial, log };
 }
 
 export interface UpdateResult {
@@ -27,14 +34,6 @@ const CONNECTION_FIELDS: (keyof QQConfig)[] = [
 ];
 
 /**
- * 创建一个持有当前配置的引用对象。
- * @param initial 初始配置，必须已通过 Zod 验证
- */
-export function createConfigRef(initial: QQConfig): ConfigRef {
-  return { current: initial };
-}
-
-/**
  * 用新的原始配置更新 ConfigRef。
  *
  * 若 Zod 验证失败，保留旧配置并返回 success=false。
@@ -46,12 +45,13 @@ export function createConfigRef(initial: QQConfig): ConfigRef {
  */
 export function updateConfigRef(ref: ConfigRef, raw: unknown): UpdateResult {
   const parsed = QQConfigSchema.safeParse(raw ?? {});
+  const log = ref.log ?? console;
 
   if (!parsed.success) {
     const errMsg = parsed.error.issues
       .map((i) => `${i.path.join(".")}: ${i.message}`)
       .join("; ");
-    console.warn(`[config-watcher] Validation failed, keeping old config: ${errMsg}`);
+    log.warn(`[config-watcher] Validation failed, keeping old config: ${errMsg}`);
     return { success: false, connectionChanged: false, error: errMsg };
   }
 
@@ -63,7 +63,7 @@ export function updateConfigRef(ref: ConfigRef, raw: unknown): UpdateResult {
   );
 
   if (connectionChanged) {
-    console.warn(
+    log.warn(
       "[config-watcher] Connection parameters changed (wsUrl/httpUrl/reverseWsPort/accessToken). " +
         "These require a restart to take effect.",
     );

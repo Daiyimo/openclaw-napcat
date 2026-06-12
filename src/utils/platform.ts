@@ -10,6 +10,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { execFile } from "node:child_process";
+import type { Logger } from "../types/channel-types.js";
 
 // ============ 基础平台信息 ============
 
@@ -56,11 +57,12 @@ export function getQQBotDataDir(...subPaths: string[]): string {
 
 let _ffmpegPath: string | null | undefined; // undefined = 未检测, null = 不可用
 let _ffmpegCheckPromise: Promise<string | null> | null = null;
+let _log: Logger = console;
 
 /**
  * 检测 ffmpeg 是否可用，返回可执行路径
  */
-export function detectFfmpeg(): Promise<string | null> {
+export function detectFfmpeg(log?: Logger): Promise<string | null> {
   if (_ffmpegPath !== undefined) return Promise.resolve(_ffmpegPath);
   if (_ffmpegCheckPromise) return _ffmpegCheckPromise;
 
@@ -71,10 +73,10 @@ export function detectFfmpeg(): Promise<string | null> {
       const ok = await testExecutable(envPath, ["-version"]);
       if (ok) {
         _ffmpegPath = envPath;
-        console.log(`[platform] ffmpeg found via FFMPEG_PATH: ${envPath}`);
+        (log ?? console).log(`[platform] ffmpeg found via FFMPEG_PATH: ${envPath}`);
         return _ffmpegPath;
       }
-      console.warn(`[platform] FFMPEG_PATH set but not working: ${envPath}`);
+      (log ?? console).warn(`[platform] FFMPEG_PATH set but not working: ${envPath}`);
     }
 
     // 2. 系统 PATH 中检测
@@ -82,7 +84,7 @@ export function detectFfmpeg(): Promise<string | null> {
     const ok = await testExecutable(cmd, ["-version"]);
     if (ok) {
       _ffmpegPath = cmd;
-      console.log(`[platform] ffmpeg detected in PATH`);
+      (log ?? console).log(`[platform] ffmpeg detected in PATH`);
       return _ffmpegPath;
     }
 
@@ -105,7 +107,7 @@ export function detectFfmpeg(): Promise<string | null> {
         const works = await testExecutable(p, ["-version"]);
         if (works) {
           _ffmpegPath = p;
-          console.log(`[platform] ffmpeg found at: ${p}`);
+          (log ?? console).log(`[platform] ffmpeg found at: ${p}`);
           return _ffmpegPath;
         }
       }

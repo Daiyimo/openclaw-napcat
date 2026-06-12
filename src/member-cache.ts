@@ -6,6 +6,7 @@
  */
 
 import type { OneBotClient } from "./client.js";
+import type { Logger } from "./types/channel-types.js";
 
 // ============ 状态 ============
 
@@ -13,6 +14,8 @@ import type { OneBotClient } from "./client.js";
 const MEMBER_CACHE_TTL_MS = 3_600_000;
 /** 缓存最大条目数（防止 OOM） */
 const MAX_CACHE_SIZE = 100_000;
+
+let _log: Logger = console;
 
 const memberCache = new Map<string, { name: string; time: number }>();
 // 记录每个群的批量拉取时间，TTL 与单条缓存一致（1 小时）
@@ -55,7 +58,7 @@ export function setCachedMemberName(groupId: string, userId: string, name: strin
  * 批量填充指定群的成员缓存（每群只填充一次）
  * 使用 Promise 通知模式替代 spin-wait，减少 CPU 浪费。
  */
-export async function populateGroupMemberCache(client: OneBotClient, groupId: number): Promise<void> {
+export async function populateGroupMemberCache(client: OneBotClient, groupId: number, log?: Logger): Promise<void> {
   const key = String(groupId);
   const cachedAt = bulkCachedGroups.get(key);
   if (cachedAt && Date.now() - cachedAt < MEMBER_CACHE_TTL_MS) return;
@@ -84,7 +87,7 @@ export async function populateGroupMemberCache(client: OneBotClient, groupId: nu
       bulkCachedGroups.set(key, Date.now());
     }
   } catch (err) {
-    console.error(`[member-cache] 批量拉取群 ${groupId} 成员失败，降级为按需查询: ${err}`);
+    (log ?? _log ?? console).error(`[member-cache] 批量拉取群 ${groupId} 成员失败，降级为按需查询: ${err}`);
   } finally {
     // 通知所有等待者
     const waiters = loadingGroups.get(key);

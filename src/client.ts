@@ -11,6 +11,7 @@ import {
 } from "./errors/napcat-error.js";
 import { maskUrl, maskBearerToken } from "./utils/log-sanitize.js";
 import { withRetry, isRetryableError } from "./utils/retry.js";
+import type { Logger } from "./types/channel-types.js";
 import {
   WS_HEARTBEAT_INTERVAL_MS,
   WS_RESPONSE_TIMEOUT_MS,
@@ -23,6 +24,7 @@ interface OneBotClientOptions {
   httpUrl?: string;
   reverseWsPort?: number;
   accessToken?: string;
+  log?: Logger;
 }
 
 export class OneBotClient extends EventEmitter {
@@ -43,10 +45,12 @@ export class OneBotClient extends EventEmitter {
   }>();
   /** echo ID 递增计数器，避免 Math.random() 碰撞风险 */
   private echoCounter = 0;
+  private log: Logger;
 
   constructor(options: OneBotClientOptions) {
     super();
     this.options = options;
+    this.log = options.log ?? console;
   }
 
   getSelfId(): number | null {
@@ -72,7 +76,7 @@ export class OneBotClient extends EventEmitter {
     this.ws.on("open", () => {
       this.isAlive = true;
       this.emit("connect");
-      console.log("[napcat-QQ] Connected to OneBot server");
+      this.log.log("[napcat-QQ] Connected to OneBot server");
       this.startHeartbeat();
     });
 
@@ -86,7 +90,7 @@ export class OneBotClient extends EventEmitter {
     this.ws.on("close", () => { this.handleDisconnect(); });
 
     this.ws.on("error", (err) => {
-      console.error("[napcat-QQ] WebSocket error:", err);
+      this.log.error("[napcat-QQ] WebSocket error:", err);
       this.handleDisconnect();
     });
   }
@@ -112,7 +116,7 @@ export class OneBotClient extends EventEmitter {
     // If no message is received within one interval (45s), force a reconnect.
     this.heartbeatTimer = setInterval(() => {
       if (this.isAlive === false) {
-        console.warn("[napcat-QQ] Heartbeat timeout, forcing reconnect...");
+        this.log.warn("[napcat-QQ] Heartbeat timeout, forcing reconnect...");
         this.handleDisconnect();
         return;
       }
@@ -130,7 +134,7 @@ export class OneBotClient extends EventEmitter {
     this.isAlive = true;
     this.reverseHeartbeatTimer = setInterval(() => {
       if (this.isAlive === false) {
-        console.warn("[napcat-QQ] Reverse WS heartbeat timeout, closing stale connection...");
+        this.log.warn("[napcat-QQ] Reverse WS heartbeat timeout, closing stale connection...");
         ws.terminate();
         // terminate() 会触发 "close" 事件 → 走正常 disconnect 流程
         return;
@@ -155,7 +159,7 @@ export class OneBotClient extends EventEmitter {
       pending.reject(new ConnectionError("unknown", "WebSocket disconnected"));
     }
     this.pendingRequests.clear();
-    console.log("[napcat-QQ] Disconnected from OneBot server");
+    this.log.log("[napcat-QQ] Disconnected from OneBot server");
     this.emit("disconnect");
     // Reconnection is handled by OpenClaw's health-monitor via startAccount.
     // Do not self-reconnect here to avoid racing with the host framework.
@@ -225,7 +229,7 @@ export class OneBotClient extends EventEmitter {
 
   async getGuildServiceProfile(): Promise<any> {
     try { return await this.sendWithResponse("get_guild_service_profile", {}); }
-    catch (err) { console.warn("get_guild_service_profile failed", err); return null; }
+    catch (err) { this.log.warn("get_guild_service_profile failed", err); return null; }
   }
 
   sendGroupPoke(groupId: number, userId: number) {
@@ -387,7 +391,7 @@ export class OneBotClient extends EventEmitter {
   /** 获取 @全体 剩余次数 */
   async getGroupAtAllRemain(groupId: number): Promise<any> {
     try { return await this.sendWithResponse("get_group_at_all_remain", { group_id: String(groupId) }); }
-    catch (err) { console.warn("get_group_at_all_remain failed", err); return null; }
+    catch (err) { this.log.warn("get_group_at_all_remain failed", err); return null; }
   }
 
   /**
@@ -396,7 +400,7 @@ export class OneBotClient extends EventEmitter {
    */
   async getGroupHonorInfo(groupId: number, type: string = "all"): Promise<any> {
     try { return await this.sendWithResponse("get_group_honor_info", { group_id: String(groupId), type }); }
-    catch (err) { console.warn("API call failed", err); return null; }
+    catch (err) { this.log.warn("API call failed", err); return null; }
   }
 
   // ── B. 群文件全套 ───────────────────────────────────────
@@ -404,7 +408,7 @@ export class OneBotClient extends EventEmitter {
   /** 列群根目录文件 + 子文件夹 */
   async getGroupRootFiles(groupId: number, fileCount: number = 50): Promise<any> {
     try { return await this.sendWithResponse("get_group_root_files", { group_id: String(groupId), file_count: fileCount }); }
-    catch (err) { console.warn("API call failed", err); return null; }
+    catch (err) { this.log.warn("API call failed", err); return null; }
   }
 
   /** 列指定文件夹下的文件 + 子文件夹 */
@@ -415,19 +419,19 @@ export class OneBotClient extends EventEmitter {
         folder_id: folderId,
         file_count: fileCount,
       });
-    } catch (err) { console.warn("API call failed", err); return null; }
+    } catch (err) { this.log.warn("API call failed", err); return null; }
   }
 
   /** 获取文件下载 URL */
   async getGroupFileUrl(groupId: number, fileId: string): Promise<any> {
     try { return await this.sendWithResponse("get_group_file_url", { group_id: String(groupId), file_id: fileId }); }
-    catch (err) { console.warn("API call failed", err); return null; }
+    catch (err) { this.log.warn("API call failed", err); return null; }
   }
 
   /** 获取群文件系统空间/状态 */
   async getGroupFileSystemInfo(groupId: number): Promise<any> {
     try { return await this.sendWithResponse("get_group_file_system_info", { group_id: String(groupId) }); }
-    catch (err) { console.warn("API call failed", err); return null; }
+    catch (err) { this.log.warn("API call failed", err); return null; }
   }
 
   /** 删除群文件 */
@@ -511,17 +515,17 @@ export class OneBotClient extends EventEmitter {
   async sendAction(action: string, params: any) {
     if (this.options.httpUrl) {
       try {
-        console.log(`[napcat-QQ][sendAction] trying HTTP: ${maskUrl(this.options.httpUrl)}/${action}`);
+        this.log.log(`[napcat-QQ][sendAction] trying HTTP: ${maskUrl(this.options.httpUrl)}/${action}`);
         await this.sendViaHttp(action, params);
-        console.log(`[napcat-QQ][sendAction] HTTP success: ${action}`);
+        this.log.log(`[napcat-QQ][sendAction] HTTP success: ${action}`);
         return;
       } catch (err: any) {
         const errMsg = maskBearerToken(err.message ?? String(err));
-        console.warn(`[napcat-QQ][sendAction] HTTP failed for ${action}:`, errMsg);
+        this.log.warn(`[napcat-QQ][sendAction] HTTP failed for ${action}:`, errMsg);
       }
     }
     const activeWs = this.getActiveWs();
-    console.log(`[napcat-QQ][sendAction] trying WS: forwardWs=${this.ws?.readyState}, reverseWs=${this.reverseWs?.readyState}, active=${!!activeWs}`);
+    this.log.log(`[napcat-QQ][sendAction] trying WS: forwardWs=${this.ws?.readyState}, reverseWs=${this.reverseWs?.readyState}, active=${!!activeWs}`);
     this.sendWs(action, params);
   }
 
@@ -568,20 +572,20 @@ export class OneBotClient extends EventEmitter {
     //     原因：(1) 测试环境会冲突端口；(2) 实际部署由 NapCat 客户端连入；
     //     (3) 单元测试已覆盖正向上游连接和 sendWithResponseWs 的 echo 关联逻辑。
     this.reverseWss = new WebSocketServer({ port });
-    console.log(`[napcat-QQ] Reverse WebSocket server listening on port ${port}`);
+    this.log.log(`[napcat-QQ] Reverse WebSocket server listening on port ${port}`);
 
     this.reverseWss.on("connection", (ws: WebSocket, req: IncomingMessage) => {
       // Verify access token if configured
       if (this.options.accessToken) {
         const auth = req.headers["authorization"];
         if (auth !== `Bearer ${this.options.accessToken}`) {
-          console.warn("[napcat-QQ] Reverse WS: unauthorized connection rejected");
+          this.log.warn("[napcat-QQ] Reverse WS: unauthorized connection rejected");
           ws.close(4001, "Unauthorized");
           return;
         }
       }
 
-      console.log("[napcat-QQ] Reverse WS: NapCat connected");
+      this.log.log("[napcat-QQ] Reverse WS: NapCat connected");
 
       // 关闭旧连接，防止双连接窗口期内事件被处理两次
       if (this.reverseWs) {
@@ -602,7 +606,7 @@ export class OneBotClient extends EventEmitter {
       });
 
       ws.on("close", () => {
-        console.log("[napcat-QQ] Reverse WS: NapCat disconnected");
+        this.log.log("[napcat-QQ] Reverse WS: NapCat disconnected");
         if (this.reverseWs === ws) this.reverseWs = null;
         this.stopReverseHeartbeat();
         ws.removeAllListeners();
@@ -610,7 +614,7 @@ export class OneBotClient extends EventEmitter {
       });
 
       ws.on("error", (err) => {
-        console.error("[napcat-QQ] Reverse WS error:", err);
+        this.log.error("[napcat-QQ] Reverse WS error:", err);
       });
 
       // listeners 就绪后触发，使 channel.ts 的 connect handler 能正确更新状态
@@ -619,7 +623,7 @@ export class OneBotClient extends EventEmitter {
     });
 
     this.reverseWss.on("error", (err) => {
-      console.error("[napcat-QQ] Reverse WS server error:", err);
+      this.log.error("[napcat-QQ] Reverse WS server error:", err);
     });
   }
 
@@ -633,7 +637,7 @@ export class OneBotClient extends EventEmitter {
       if (this.reverseWss) {
         this.reverseWss.close(() => {
           this.reverseWss = null;
-          console.log("[napcat-QQ] Reverse WebSocket server stopped");
+          this.log.log("[napcat-QQ] Reverse WebSocket server stopped");
           resolve();
         });
       } else {
@@ -653,7 +657,7 @@ export class OneBotClient extends EventEmitter {
     // Prefer HTTP API for request-response calls if available
     if (this.options.httpUrl) {
       return this.sendViaHttp(action, params).catch((err) => {
-        console.warn(`[napcat-QQ] HTTP API failed for ${action}, falling back to WS:`, err.message);
+        this.log.warn(`[napcat-QQ] HTTP API failed for ${action}, falling back to WS:`, err.message);
         return this.sendWithResponseWs(action, params);
       });
     }

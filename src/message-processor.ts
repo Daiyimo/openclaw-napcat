@@ -17,6 +17,7 @@ import { getBotInfo } from "./known-bots-store.js";
 import { cleanCQCodes } from "./message-parser.js";
 import { convertSilkToWav } from "./utils/audio-convert.js";
 import { transcribeAudioForNapcat } from "./message-parser.js";
+import type { Logger } from "./types/channel-types.js";
 import { maskId } from "./utils/log-sanitize.js";
 import { DEFAULT_RESPONSE_GUIDELINES } from "./constants.js";
 
@@ -36,6 +37,7 @@ export async function resolveMessageText(
   client: OneBotClient,
   config: Pick<QQConfig, "enableSTT" | "aiVoiceId">,
   openClawCfg?: OpenClawConfig,
+  log?: Logger,
 ): Promise<string> {
   let text = event.raw_message || "";
 
@@ -86,11 +88,11 @@ export async function resolveMessageText(
           }
         } catch (sttErr) {
           const errMsg = sttErr instanceof Error ? sttErr.message : String(sttErr);
-          console.warn(`[message-processor] STT failed: ${errMsg}`, sttErr instanceof Error ? sttErr.cause : undefined);
+          (log ?? console).warn(`[message-processor] STT failed: ${errMsg}`, sttErr instanceof Error ? sttErr.cause : undefined);
           resolvedText += ` [语音消息: 转写失败]`;
         } finally {
-          try { fsSync.unlinkSync(tmpFile); } catch (e) { console.debug(`[message-processor] cleanup tmpFile failed: ${e}`); }
-          if (wavPath) { try { fsSync.unlinkSync(wavPath); } catch (e) { console.debug(`[message-processor] cleanup wav failed: ${e}`); } }
+          try { fsSync.unlinkSync(tmpFile); } catch (e) { (log ?? console).debug(`[message-processor] cleanup tmpFile failed: ${e}`); }
+          if (wavPath) { try { fsSync.unlinkSync(wavPath); } catch (e) { (log ?? console).debug(`[message-processor] cleanup wav failed: ${e}`); } }
         }
       } else {
         const textData = seg.data?.text;
@@ -115,7 +117,7 @@ export async function resolveMessageText(
           }
         }
       } catch (e) {
-        console.debug(`[message-processor] forward msg fetch failed: ${e}`);
+        (log ?? console).debug(`[message-processor] forward msg fetch failed: ${e}`);
       }
     } else if (seg.type === "file") {
       let fileSeg = seg;
@@ -128,7 +130,7 @@ export async function resolveMessageText(
           });
           if (info?.url) fileSeg = { ...fileSeg, data: { ...fileSeg.data, url: info.url } };
         } catch (e) {
-          console.debug(`[message-processor] file URL fetch failed: ${e}`);
+          (log ?? console).debug(`[message-processor] file URL fetch failed: ${e}`);
         }
       }
       resolvedText += ` [文件: ${fileSeg.data?.file || "未命名"}]`;
@@ -156,24 +158,25 @@ export function detectMention(
   text: string,
   repliedMsg?: { sender?: { user_id?: any } } | null,
   debug = false,
+  log?: Logger,
 ): boolean {
   if (Array.isArray(event.message)) {
     for (const s of event.message) {
       if (s.type === "at") {
         if (String(s.data?.qq) === String(selfId) || s.data?.qq === "all") {
-          if (debug) console.log(`[napcat-QQ][debug-mention] MATCH at segment qq=${s.data?.qq} selfId=${selfId}`);
+          if (debug) (log ?? console).log(`[napcat-QQ][debug-mention] MATCH at segment qq=${s.data?.qq} selfId=${selfId}`);
           return true;
         }
       }
     }
   } else if (text.includes(`[CQ:at,qq=${selfId}]`)) {
-    if (debug) console.log(`[napcat-QQ][debug-mention] MATCH text fallback selfId=${selfId}`);
+    if (debug) (log ?? console).log(`[napcat-QQ][debug-mention] MATCH text fallback selfId=${selfId}`);
     return true;
   }
   if (repliedMsg?.sender?.user_id !== undefined) {
-    if (String(repliedMsg.sender.user_id) === String(selfId)) {
-      if (debug) console.log(`[napcat-QQ][debug-mention] MATCH reply sender userId=${maskId(repliedMsg.sender.user_id)} selfId=${selfId}`);
-      return true;
+      if (String(repliedMsg.sender.user_id) === String(selfId)) {
+        if (debug) (log ?? console).log(`[napcat-QQ][debug-mention] MATCH reply sender userId=${maskId(repliedMsg.sender.user_id)} selfId=${selfId}`);
+        return true;
     }
   }
   return false;
@@ -269,6 +272,7 @@ export function detectNameTrigger(
   text: string,
   botName: string | undefined,
   debug = false,
+  log?: Logger,
 ): boolean {
   if (!botName || botName.trim().length === 0) return false;
 
@@ -280,9 +284,9 @@ export function detectNameTrigger(
   // 检测消息中是否包含 bot 名字
   const matched = textLower.includes(nameLower);
 
-  if (debug && matched) {
-    console.log(`[napcat-QQ][debug-name-trigger] MATCH botName="${cleanName}" in text="${text.slice(0, 50)}"`);
-  }
+    if (debug && matched) {
+      (log ?? console).log(`[napcat-QQ][debug-name-trigger] MATCH botName="${cleanName}" in text="${text.slice(0, 50)}"`);
+    }
 
   return matched;
 }

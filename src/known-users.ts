@@ -7,10 +7,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { getQQBotDataDir } from "./utils/platform.js";
+import type { Logger } from "./types/channel-types.js";
 
 // 存储文件路径（延迟初始化，避免模块加载时立即创建目录）
 let _KNOWN_USERS_DIR: string | null = null;
 let _KNOWN_USERS_FILE: string | null = null;
+let _log: Logger = console;
 
 function getKnownUsersFile(): string {
   if (!_KNOWN_USERS_FILE) {
@@ -66,12 +68,13 @@ function ensureDir(): void {
 /**
  * 从文件加载用户数据到缓存
  */
-function loadUsersFromFile(): Map<string, KnownUser> {
+function loadUsersFromFile(log?: Logger): Map<string, KnownUser> {
   if (usersCache !== null) {
     return usersCache;
   }
 
   usersCache = new Map();
+  const out = log ?? _log;
 
   try {
     const file = getKnownUsersFile();
@@ -84,10 +87,10 @@ function loadUsersFromFile(): Map<string, KnownUser> {
         usersCache.set(key, user);
       }
 
-      console.log(`[known-users] Loaded ${usersCache.size} users`);
+      out.log(`[known-users] Loaded ${usersCache.size} users`);
     }
   } catch (err) {
-    console.error(`[known-users] Failed to load users: ${err}`);
+    out.error(`[known-users] Failed to load users: ${err}`);
     usersCache = new Map();
   }
 
@@ -125,13 +128,18 @@ function doSaveUsersToFile(): void {
     fs.renameSync(tmpPath, filePath);
     isDirty = false;
   } catch (err) {
-    console.error(`[known-users] Failed to save users: ${err}`);
+    (_log ?? console).error(`[known-users] Failed to save users: ${err}`);
   }
 }
 
 /**
  * 强制立即保存（用于进程退出前）
  */
+export function initKnownUsers(log?: Logger): void {
+  if (log) _log = log;
+  loadUsersFromFile();
+}
+
 export function flushKnownUsers(): void {
   if (saveTimer) {
     clearTimeout(saveTimer);
@@ -185,7 +193,7 @@ export function recordKnownUser(user: {
       interactionCount: 1,
     };
     cache.set(key, newUser);
-    console.log(`[known-users] New user: ${user.openid} (${user.type})`);
+    (_log ?? console).log(`[known-users] New user: ${user.openid} (${user.type})`);
   }
 
   isDirty = true;

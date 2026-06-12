@@ -83,7 +83,7 @@ export async function startAccount(
   // ── 防止同账号重复启动 ──────────────────────────────
   const existingClient = shared.clients.get(account.accountId);
   if (existingClient) {
-    console.log(
+    log.log(
       `[napcat-QQ] Stopping existing client for account ${account.accountId} before restart`,
     );
     await existingClient.disconnect();
@@ -102,7 +102,7 @@ export async function startAccount(
   let groupRouteRefreshTimer: ReturnType<typeof setInterval> | null = null;
   const cleanupInterval = setInterval(() => {
     if (trimDedupSet(processedMsgIds)) {
-      console.log(`[napcat-QQ] Dedup set trimmed: kept ${processedMsgIds.size} recent IDs`);
+      log.log(`[napcat-QQ] Dedup set trimmed: kept ${processedMsgIds.size} recent IDs`);
     }
     shared.passiveMode.cleanup(PASSIVE_COOLDOWN_MAX_AGE_MS);
     cleanupDialogState(DIALOG_STATE_CLEANUP_MS);
@@ -116,6 +116,7 @@ export async function startAccount(
     cfg,
     channelRuntime,
     knownGroupIds: shared.knownGroupIds,
+    log,
     startAccountCtx: {
       getStatus: ctx.getStatus,
       setStatus: ctx.setStatus,
@@ -153,7 +154,7 @@ export async function startAccount(
       ctx.abortSignal!.addEventListener("abort", () => resolve(), { once: true });
     });
   } else {
-    console.warn("[napcat-QQ] No abortSignal provided, startAccount will not block");
+      log.warn("[napcat-QQ] No abortSignal provided, startAccount will not block");
   }
 
   // ── Cleanup ─────────────────────────────────────────

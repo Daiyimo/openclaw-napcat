@@ -80,6 +80,13 @@ export class InboundRateLimiter {
   }
 
   /**
+   * 更新窗口大小（配置热重载时调用）
+   */
+  updateWindowMs(windowMs: number): void {
+    this.config.windowMs = windowMs;
+  }
+
+  /**
    * 检查是否允许通过
    *
    * @param userId - 用户 QQ 号（用户级限流）

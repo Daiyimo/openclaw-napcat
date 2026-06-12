@@ -12,6 +12,7 @@ import * as os from "node:os";
 import type { OneBotMessage } from "./types.js";
 import type { OneBotClient } from "./client.js";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
+import type { Logger } from "./types/channel-types.js";
 
 // ============ CQ 码参数转义 ============
 
@@ -37,7 +38,7 @@ const MAX_LOCAL_FILE_SIZE = 10 * 1024 * 1024;
 
 // ============ 图片 URL 提取 ============
 
-export function extractImageUrls(message: OneBotMessage | string | undefined, maxImages = 3): string[] {
+export function extractImageUrls(message: OneBotMessage | string | undefined, maxImages = 3, log?: Logger): string[] {
   const urls: string[] = [];
 
   if (Array.isArray(message)) {
@@ -47,7 +48,7 @@ export function extractImageUrls(message: OneBotMessage | string | undefined, ma
         const raw =
           segment.data?.url ||
           (typeof segment.data?.file === "string" ? segment.data.file : undefined);
-        console.log(`[napcat-QQ][extractImageUrls] segment.data=`, JSON.stringify(segment.data), `raw=`, raw);
+        (log ?? console).log(`[napcat-QQ][extractImageUrls] segment.data=`, JSON.stringify(segment.data), `raw=`, raw);
         if (!raw) continue;
         // 接受 http(s)、base64、file: 协议，以及裸路径（由下游 resolveMediaUrl 处理）
         const url =
@@ -281,25 +282,25 @@ function isPathAllowed(filePath: string): boolean {
   return ALLOWED_LOCAL_DIRS.some((dir) => resolved.startsWith(dir));
 }
 
-export async function resolveMediaUrl(url: string): Promise<string> {
+export async function resolveMediaUrl(url: string, log?: Logger): Promise<string> {
   // file: 协议 → 解码为本地路径
   if (url.startsWith("file:")) {
     try {
       const filePath = fileURLToPath(url);
       // 路径遍历防护：仅允许访问白名单目录
       if (!isPathAllowed(filePath)) {
-        console.warn(`[napcat-QQ] Path traversal blocked: ${url} not in allowed directories`);
+        (log ?? console).warn(`[napcat-QQ] Path traversal blocked: ${url} not in allowed directories`);
         return url;
       }
       const stat = await fs.stat(filePath);
       if (stat.size > MAX_LOCAL_FILE_SIZE) {
-        console.warn(`[napcat-QQ] File too large to base64 encode (${stat.size} bytes), passing as-is: ${url}`);
+        (log ?? console).warn(`[napcat-QQ] File too large to base64 encode (${stat.size} bytes), passing as-is: ${url}`);
         return url;
       }
       const data = await fs.readFile(filePath);
       return `base64://${data.toString("base64")}`;
     } catch (e) {
-      console.warn(`[napcat-QQ] Failed to convert local file to base64: ${e}`);
+      (log ?? console).warn(`[napcat-QQ] Failed to convert local file to base64: ${e}`);
       return url;
     }
   }
@@ -308,18 +309,18 @@ export async function resolveMediaUrl(url: string): Promise<string> {
     try {
       // 路径遍历防护
       if (!isPathAllowed(url)) {
-        console.warn(`[napcat-QQ] Path traversal blocked: ${url} not in allowed directories`);
+        (log ?? console).warn(`[napcat-QQ] Path traversal blocked: ${url} not in allowed directories`);
         return url;
       }
       const stat = await fs.stat(url);
       if (stat.size > MAX_LOCAL_FILE_SIZE) {
-        console.warn(`[napcat-QQ] File too large to base64 encode (${stat.size} bytes), passing as-is: ${url}`);
+        (log ?? console).warn(`[napcat-QQ] File too large to base64 encode (${stat.size} bytes), passing as-is: ${url}`);
         return url;
       }
       const data = await fs.readFile(url);
       return `base64://${data.toString("base64")}`;
     } catch (e) {
-      console.warn(`[napcat-QQ] Failed to read local file, passing as-is: ${e}`);
+      (log ?? console).warn(`[napcat-QQ] Failed to read local file, passing as-is: ${e}`);
       return url;
     }
   }
@@ -366,8 +367,8 @@ export interface DownloadedImage {
   type: string;
 }
 
-export async function downloadImages(urls: string[]): Promise<DownloadedImage[]> {
-  console.log(`[napcat-QQ][downloadImages] downloading ${urls.length} image(s):`, urls.map(u => u.slice(0, 100)));
+export async function downloadImages(urls: string[], log?: Logger): Promise<DownloadedImage[]> {
+  (log ?? console).log(`[napcat-QQ][downloadImages] downloading ${urls.length} image(s):`, urls.map(u => u.slice(0, 100)));
   // 下载到 workspace 目录（框架的 workspaceOnly 限制只能读取 workspace 下的文件）
   const homeDir = process.env.HOME || "/home/node";
   const downloadDir = path.join(homeDir, ".openclaw", "workspace");
@@ -383,7 +384,7 @@ export async function downloadImages(urls: string[]): Promise<DownloadedImage[]>
         headers: { "User-Agent": "Mozilla/5.0" },
       });
       if (!resp.ok) {
-        console.warn(`[napcat-QQ] Image download failed (${resp.status}): ${url}`);
+        (log ?? console).warn(`[napcat-QQ] Image download failed (${resp.status}): ${url}`);
         results.push({ path: url, type: "image/jpeg" });
         continue;
       }
@@ -394,10 +395,10 @@ export async function downloadImages(urls: string[]): Promise<DownloadedImage[]>
       const filePath = path.join(downloadDir, filename);
       const buf = Buffer.from(await resp.arrayBuffer());
       fsSync.writeFileSync(filePath, buf);
-      console.log(`[napcat-QQ][downloadImages] saved: ${filePath} (${buf.length} bytes)`);
+      (log ?? console).log(`[napcat-QQ][downloadImages] saved: ${filePath} (${buf.length} bytes)`);
       results.push({ path: filePath, type: mime });
     } catch (err) {
-      console.warn(`[napcat-QQ] Image download error: ${err instanceof Error ? err.message : String(err)}`);
+      (log ?? console).warn(`[napcat-QQ] Image download error: ${err instanceof Error ? err.message : String(err)}`);
       results.push({ path: url, type: "image/jpeg" });
     }
   }

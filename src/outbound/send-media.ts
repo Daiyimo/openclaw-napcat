@@ -23,9 +23,12 @@ export interface SendMediaParams {
   replyToId?: string | null;
 }
 
+import type { Logger } from "../types/channel-types.js";
+
 export interface SendMediaDeps {
   getClient: (accountId: string) => OneBotClient | undefined;
   knownGroupIds: Set<string>;
+  log?: Logger;
 }
 
 /**
@@ -71,7 +74,7 @@ export async function sendMedia(
     await dispatchMessage(client, target, message);
     return { channel: "napcat", sent: true };
   } catch (err) {
-    console.error("[napcat-QQ] outbound.sendMedia failed:", err);
+    (deps.log ?? console).error("[napcat-QQ] outbound.sendMedia failed:", err);
     return { channel: "napcat", sent: false, error: String(err) };
   }
 }

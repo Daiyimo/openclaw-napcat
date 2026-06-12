@@ -299,8 +299,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
   },
   outbound: {
     deliveryMode: "direct" as const,
-    sendText: async ({ to, text, accountId, replyToId, cfg }: { to: string; text: string; accountId?: string | null; replyToId?: string | null; cfg?: any }) => {
-      console.log(`[napcat-QQ][outbound.sendText] called with to=${to}, accountId=${accountId}`);
+    sendText: async ({ to, text, accountId, replyToId, cfg, log }: { to: string; text: string; accountId?: string | null; replyToId?: string | null; cfg?: any; log?: any }) => {
       const resolvedAid = accountId || DEFAULT_ACCOUNT_ID;
       // 提取本 bot 的 QQ 号和昵称用于生成友军签名
       // 优先用昵称（更可读），UID 作为兜底
@@ -309,7 +308,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
       const selfName = accountCfg?._selfName;
       return sendText(
         { to, text, accountId, botSelfId: selfId, botSelfName: selfName, cfg: accountCfg },
-        { getClient: getClientForAccount, knownGroupIds: getKnownGroupIds(resolvedAid), passiveMode },
+        { getClient: getClientForAccount, knownGroupIds: getKnownGroupIds(resolvedAid), passiveMode, log },
       );
     },
     sendMedia: async ({ to, text, mediaUrl, accountId, replyToId }) => {

@@ -18,6 +18,7 @@ import type { OneBotMessage } from "../types.js";
 import { BOT_SIGNATURE_PATTERN, BOT_SIGNATURE_ZW_PATTERN } from "../constants.js";
 import { recordKnownBot, isKnownBot } from "../known-bots-store.js";
 import { maskId } from "./log-sanitize.js";
+import type { Logger } from "../types/channel-types.js";
 
 /** 握手元数据中 app 字段的固定值,用于跨实现识别 */
 const HANDSHAKE_APP = "openclaw-napcat";
@@ -118,6 +119,7 @@ interface BackfillClient {
 export async function runHandshakeBackfill(
   client: BackfillClient,
   accountId: string,
+  log?: Logger,
 ): Promise<number> {
   const groups = await client.getGroupList();
   let discovered = 0;
@@ -131,14 +133,14 @@ export async function runHandshakeBackfill(
           if (!isKnownBot(accountId, id)) {
             recordKnownBot(accountId, id);
             discovered += 1;
-            console.log(
+            (log ?? console).log(
               `[napcat-QQ][backfill] discovered bot ${maskId(id)} in group ${g.group_id} (msg from user ${m.sender?.user_id})`,
             );
           }
         }
       }
     } catch (err) {
-      console.warn(`[napcat-QQ][backfill] group ${g.group_id} history fetch failed: ${err}`);
+      (log ?? console).warn(`[napcat-QQ][backfill] group ${g.group_id} history fetch failed: ${err}`);
     }
   }
   return discovered;

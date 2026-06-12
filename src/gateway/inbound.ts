@@ -107,7 +107,7 @@ export function installMessageHandler(
           try {
             repliedMsg = await client.getMsg(replyMsgId);
           } catch (e) {
-            console.debug(`[napcat-QQ] Failed to fetch replied message ${replyMsgId}:`, e);
+            log.log(`[napcat-QQ] Failed to fetch replied message ${replyMsgId}:`, e);
           }
         }
       }
@@ -128,19 +128,7 @@ export function installMessageHandler(
               .join("\n");
           }
         } catch (e) {
-          console.debug(`[napcat-QQ] Failed to fetch group history for ${groupId}:`, e);
-        }
-      }
-
-      // ── @其他人检测 ──────────────────────────────────────────
-      if (isGroup || isGuild) {
-        if (effectiveSelfId && !detectMention(event, effectiveSelfId, text, null, config.debug)) {
-          if (hasMentionOtherUser(event, effectiveSelfId, otherBotNames)) {
-            if (config.debug) {
-              console.log(`[napcat-QQ][debug-mention-other] skipping message that @mentions other user, not bot`);
-            }
-            return;
-          }
+          log.log(`[napcat-QQ] Failed to fetch group history for ${groupId}:`, e);
         }
       }
 
@@ -160,7 +148,7 @@ export function installMessageHandler(
         if (botName && detectNameTrigger(text, botName, config.debug)) {
           isTriggered = true;
           if (config.debug) {
-            console.log(`[napcat-QQ][debug-trigger] name trigger activated: botName="${botName}"`);
+            log.log(`[napcat-QQ][debug-trigger] name trigger activated: botName="${botName}"`);
           }
         }
       }
@@ -182,7 +170,7 @@ export function installMessageHandler(
         if (config.passiveMode?.enabled && isGroup) {
           if (hasMentionOtherUser(event, effectiveSelfId, otherBotNames)) {
             if (config.debug) {
-              console.log(`[napcat-QQ][debug-mention-other] passive mode skipped: msg @ other user, not bot`);
+              log.debug(`[napcat-QQ][debug-mention-other] passive mode skipped: msg @ other user, not bot`);
             }
             return;
           }
@@ -217,7 +205,7 @@ export function installMessageHandler(
             isUserStopIntent = true;
             markStopped(account.accountId, `group:${groupId}`);
             if (config.debug) {
-              console.log(`[napcat-QQ][debug-dialog] user stop intent detected`);
+              log.debug(`[napcat-QQ][debug-dialog] user stop intent detected`);
             }
           }
         }
@@ -298,43 +286,7 @@ export function installMessageHandler(
           }
           await client.setMsgEmojiLike(event.message_id, emojiId);
         } catch (err) {
-          console.error(`[napcat-QQ][debug-reaction] FAILED msgId=${event.message_id} err=`, err);
-        }
-      }
-
-      // ── 入站频控（滑动窗口）& 静默关键词过滤 ────────────
-      {
-        const store = inboundStore;
-        const { config: storeConfig } = store;
-        const rateLimiter = store.rateLimiter;
-
-        if (rateLimiter && storeConfig.inboundRateLimitMs > 0) {
-          const result = rateLimiter.check(userId, isGroup ? groupId : undefined, isAdmin);
-          if (!result.allowed) {
-            if (config.debug) {
-              console.log(
-                `[napcat-QQ][rate_limit] rate limited: user=${maskId(userId)} group=${groupId} ` +
-                  `retryAfter=${result.retryAfterMs}ms count=${result.currentCount}`,
-              );
-            }
-            return;
-          }
-          if (!isAdmin) {
-            rateLimiter.record(userId, isGroup ? groupId : undefined);
-          }
-        }
-
-        if (storeConfig.silentKeywords?.length) {
-          const body = cleanCQCodes(text);
-          for (const kw of storeConfig.silentKeywords) {
-            const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-            if (new RegExp(`\\b${escaped}\\b`).test(body)) {
-              console.log(
-                `[napcat-QQ][silent_keyword] matched "${kw}", dropping message from ${fromId}`,
-              );
-              return;
-            }
-          }
+          log.error(`[napcat-QQ][debug-reaction] FAILED msgId=${event.message_id} err=`, err);
         }
       }
 
@@ -458,7 +410,7 @@ export function installMessageHandler(
           to: fromId,
           accountId: account.accountId,
         },
-        onRecordError: (err) => console.error("QQ Session Error:", err),
+        onRecordError: (err) => log.error("QQ Session Error:", err),
       });
 
       // ── Typing 状态 ───────────────────────────────────
@@ -515,13 +467,13 @@ export function installMessageHandler(
         if (config.enableErrorNotify) {
           await deliver({ text: "⚠️ 服务调用失败，请稍后重试。" });
         }
-        console.error("[napcat-QQ] Reply dispatch error:", error);
+        log.error("[napcat-QQ] Reply dispatch error:", error);
       } finally {
         if (debouncer) await debouncer.dispose();
         typing.stop();
       }
     } catch (err) {
-      console.error("[napcat-QQ] Critical error in message handler:", err);
+      log.error("[napcat-QQ] Critical error in message handler:", err);
       if (config.enableErrorNotify && config.admins?.length) {
         try {
           const errorMsg =
@@ -532,7 +484,7 @@ export function installMessageHandler(
             await sleep(ERROR_NOTIFY_SLEEP_MS);
           }
         } catch (notifyErr) {
-          console.warn("[napcat-QQ] Failed to send error notification:", notifyErr);
+          log.warn("[napcat-QQ] Failed to send error notification:", notifyErr);
         }
       }
     }

@@ -744,6 +744,10 @@ export async function handleReload(ctx: AdminCmdContext, _parts: string[]): Prom
     if (result.connectionChanged) {
       msg += "\n⚠️ 连接参数有变更，需重启容器才能生效";
     }
+    if (ctx.rateLimiter && napcat?.inboundRateLimitMs !== undefined) {
+      ctx.rateLimiter.updateWindowMs(napcat.inboundRateLimitMs);
+      ctx.rateLimiter.updateAdmins(napcat.admins ?? []);
+    }
     return msg;
   }
   return `❌ 配置验证失败，保留旧配置\n${result.error}`;

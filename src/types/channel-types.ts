@@ -12,6 +12,7 @@ import type { UploadCache } from "../upload-cache.js";
 export interface Logger {
   log: (...args: unknown[]) => void;
   info: (...args: unknown[]) => void;
+  debug: (...args: unknown[]) => void;
   warn: (...args: unknown[]) => void;
   error: (...args: unknown[]) => void;
 }
@@ -102,6 +103,7 @@ export interface ConnectionContext {
   cfg: OpenClawConfig;
   channelRuntime: PluginRuntimeChannel;
   knownGroupIds: Set<string>;
+  log: Logger;
   startAccountCtx: {
     getStatus?: () => AccountStatus | undefined;
     setStatus?: (next: AccountStatus) => void;
