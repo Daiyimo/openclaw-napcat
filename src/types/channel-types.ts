@@ -51,6 +51,11 @@ export interface SharedState {
   setBotSelfId: (accountId: string, selfId: number) => void;
   /** 每账号冷启动握手回填是否已执行（避免定时器重复触发） */
   handshakeBackfillDone?: Set<string>;
+  /**
+   * 并发锁：防止同一账号并发 startAccount 导致竞态
+   * @see P1 #7
+   */
+  startingPromises: Map<string, Promise<void>>;
 }
 
 export interface PluginRuntimeChannel {

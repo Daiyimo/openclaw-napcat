@@ -101,9 +101,17 @@ export class OneBotClient extends EventEmitter {
       this.heartbeatTimer = null;
     }
     if (this.ws) {
-      this.ws.removeAllListeners();
+      try {
+        this.ws.removeAllListeners();
+      } catch (err) {
+        this.log.debug("[napcat-QQ] removeAllListeners error during cleanup:", err);
+      }
       if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
-        this.ws.terminate();
+        try {
+          this.ws.terminate();
+        } catch (err) {
+          this.log.debug("[napcat-QQ] WebSocket terminate error during cleanup:", err);
+        }
       }
       this.ws = null;
     }

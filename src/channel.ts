@@ -290,7 +290,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
           channelRuntime: ctx.channelRuntime,
           runtime: ctx.runtime,
         },
-        { clients, knownGroupIds: getKnownGroupIds(ctx.accountId), inboundStores, passiveMode, setBotSelfId },
+        { clients, knownGroupIds: getKnownGroupIds(ctx.accountId), inboundStores, passiveMode, setBotSelfId, startingPromises: new Map<string, Promise<void>>() },
       );
     },
     logoutAccount: async ({ accountId, cfg: _cfg }: { accountId: string; cfg: OpenClawConfig; account?: any; runtime?: any; log?: any }) => {
