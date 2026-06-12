@@ -27,6 +27,7 @@ export function filterStage(
   client: OneBotClient,
   ctx: InboundContext,
 ): FilterResult | null {
+  console.log("[FILTER] start, post_type=", event.post_type, "user_id=", event.user_id, "self_id=", event.self_id);
   const { config, knownGroupIds, inboundStore, log } = ctx;
   const userId = event.user_id;
   const groupId = event.group_id;
