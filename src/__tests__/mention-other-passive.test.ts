@@ -107,7 +107,7 @@ function makeCtx(configOverrides: Partial<QQConfig> = {}): {
     cfg: { channels: { napcat: {} }, session: {} } as any,
     channelRuntime,
     uploadCache,
-    inboundStore: { lastTrigger: new Map(), config },
+    inboundStore: { lastTrigger: new Map(), config, processedMsgIds: new Set<string>() },
     processedMsgIds: new Set(),
     knownGroupIds: new Set(),
     passiveMode,

@@ -148,7 +148,7 @@ function makeCtx(configOverrides: Partial<QQConfig> = {}): {
     cfg: {} as any,
     channelRuntime,
     uploadCache: new UploadCache(),
-    inboundStore: { lastTrigger: new Map(), rateLimiter, config },
+    inboundStore: { lastTrigger: new Map(), rateLimiter, config, processedMsgIds: new Set<string>() },
     processedMsgIds: new Set(),
     knownGroupIds: new Set(),
     passiveMode: new PassiveModeManager(),

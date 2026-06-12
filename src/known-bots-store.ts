@@ -13,6 +13,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { getQQBotDataDir } from "./utils/platform.js";
+import type { OneBotClient } from "./client.js";
 
 const SAVE_THROTTLE_MS = 5_000;
 const MAX_BOT_IDS = 5_000;
@@ -190,4 +191,52 @@ export function resetKnownBotsStore(): void {
 
 export function _getCacheForTest(accountId: string): Map<string, BotInfo> | undefined {
   return caches.get(accountId);
+}
+
+const BOT_INFO_FETCH_TIMEOUT_MS = 5_000;
+
+export async function fetchBotInfoAsync(
+  client: OneBotClient,
+  accountId: string,
+  botId: string,
+  groupId: number | undefined,
+  log?: { warn?: (msg: string) => void; info?: (msg: string) => void; error?: (msg: string) => void },
+): Promise<void> {
+  try {
+    let info: any = null;
+    if (groupId !== undefined) {
+      try {
+        info = await Promise.race([
+          client.getGroupMemberInfo(groupId, botId),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("timeout")), BOT_INFO_FETCH_TIMEOUT_MS),
+          ),
+        ]);
+      } catch {
+        info = await Promise.race([
+          client.getStrangerInfo(botId),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("timeout")), BOT_INFO_FETCH_TIMEOUT_MS),
+          ),
+        ]);
+      }
+    } else {
+      info = await Promise.race([
+        client.getStrangerInfo(botId),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("timeout")), BOT_INFO_FETCH_TIMEOUT_MS),
+        ),
+      ]);
+    }
+    if (info && (info.nickname || info.card)) {
+      recordBotInfo(accountId, {
+        selfId: botId,
+        nickname: info.nickname,
+        card: info.card,
+      });
+      log?.info?.(`[napcat-QQ] Updated bot info: ${botId} → ${info.card || info.nickname}`);
+    }
+  } catch (err: any) {
+    log?.warn?.(`[napcat-QQ] fetchBotInfoAsync failed for ${botId}: ${err.message}`);
+  }
 }
