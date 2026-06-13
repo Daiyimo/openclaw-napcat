@@ -5,7 +5,7 @@
  * 使用 Zod schema 验证新配置，验证失败则保留旧值。
  */
 
-import { QQConfigSchema, type QQConfig } from "./config.js";
+import { QQConfigSchema, type QQConfig, resolvePassiveModeTemperature } from "./config.js";
 import type { Logger } from "./types/channel-types.js";
 
 export interface ConfigRef {
@@ -56,6 +56,16 @@ export function updateConfigRef(ref: ConfigRef, raw: unknown): UpdateResult {
   }
 
   const newConfig = parsed.data;
+
+  // 热更新时也要映射 temperature → 三个子参数（与 resolveAccount 逻辑一致）
+  const pm = newConfig.passiveMode;
+  if (pm?.temperature !== undefined && pm.temperature !== null) {
+    const mapped = resolvePassiveModeTemperature(pm.temperature);
+    if (mapped) {
+      newConfig.passiveMode = { ...pm, ...mapped };
+    }
+  }
+
   const oldConfig = ref.current;
 
   const connectionChanged = CONNECTION_FIELDS.some(
