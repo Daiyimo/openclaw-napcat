@@ -167,7 +167,8 @@
           "cooldownMs":       { "type": "number" },
           "minIntervalMs":    { "type": "number" },
           "botSuppressionMs": { "type": "number" },
-          "systemPrompt":     { "type": "string" }
+          "systemPrompt":     { "type": "string" },
+          "temperature":      { "type": "number", "minimum": 0, "maximum": 100 }
         }
       },
       "botDialogMaxRounds": {
