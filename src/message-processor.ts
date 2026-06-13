@@ -295,23 +295,23 @@ export function detectNameTrigger(
  * 判断消息是否指向本 bot（v1.11+ 多 bot 路由门控）。
  *
  * 群聊/频道消息必须 @本 bot / 含本 bot 名字才放行；
- * 文本以其他已知 bot 名字开头（NapCat stripping 补判）则视为指向其他 bot。
+ * 文本以其他已知 bot 名字开头（NapCat stripping 补判，词边界匹配）则视为指向其他 bot。
  * 私聊天然通过。
  *
  * 设计：单一纯函数，供 inbound pipeline 顶层门控 + 守卫内 defense-in-depth 共用。
  *
- * @param event          OneBot 事件
- * @param selfId         本 bot QQ 号（必传，但允许 undefined 兜底放行）
- * @param text           消息文本
- * @param selfName       本 bot 昵称（来自 QQ 昵称或群名片）
- * @param otherBotNames  其他已知 bot 的昵称列表（用于 NapCat stripping 补判）
+ * @param event         OneBot 事件
+ * @param selfId        本 bot QQ 号（必传，但允许 undefined 兜底放行）
+ * @param text          消息文本
+ * @param selfName      本 bot 昵称（来自 QQ 昵称或群名片）
+ * @param otherBotNames 已知其他 bot 的名字列表，用于 NapCat  stripping 补判
  */
 export function isMessageDirectedAtBot(
   event: OneBotEvent,
   selfId: number | string | undefined,
   text: string,
   selfName: string | undefined,
-  otherBotNames?: string[],
+  otherBotNames: string[] = [],
 ): boolean {
   // 私聊/非群聊场景：天然指向
   if (event.message_type !== "group" && event.message_type !== "guild") {
@@ -352,17 +352,12 @@ export function isMessageDirectedAtBot(
   // 名字命中（含 substring 匹配）→ 放行
   if (selfName && detectNameTrigger(text, selfName, false)) return true;
 
-  // NapCat stripping 补判：文本以其他 bot 昵称开头 → 视为指向其他 bot
-  if (otherBotNames && otherBotNames.length > 0) {
-    const trimmed = text.trimStart();
+  // NapCat stripping 补判：文本以其他 bot 名字开头 → 发给别的 bot
+  // 要求名字后跟空白或标点（不是紧贴其他字符），避免 "abc云崽" 误判
+  if (otherBotNames.length > 0) {
     for (const name of otherBotNames) {
-      if (!name || (selfIdStr != null && name === selfIdStr)) continue;
-      if (trimmed.startsWith(name)) {
-        // 名字后必须紧跟空白/标点/句末，避免子串误命中（如"小爱"在"我爱你小爱"中）
-        const after = trimmed.slice(name.length);
-        if (after.length === 0 || /^[\s，。！？!?,."'、；;：:（(）)]/.test(after)) {
-          return false;
-        }
+      if (text.startsWith(name) && /[\s\p{P}]/u.test(text[name.length] ?? "")) {
+        return false;
       }
     }
   }
@@ -373,8 +368,7 @@ export function isMessageDirectedAtBot(
 
 /**
  * 根据配置中的 knownBotIds 构建其他 bot 的昵称列表和 ID 集合。
- * 一次性返回 names（用于 isMessageDirectedAtBot / hasMentionOtherUser 的补判）
- * 和 idSet（用于 O(1) 白名单检测，替代 .some() 线性扫描）。
+ * 返回 names（用于 hasMentionOtherUser 的补判）和 idSet（用于 O(1) 白名单检测）。
  */
 export function buildOtherBotNames(
   accountId: string,

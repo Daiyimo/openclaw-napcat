@@ -11,6 +11,7 @@ import { getUpdateInfo } from "./update-checker.js";
 import { getRecentLogs, formatLogEntry } from "./log-buffer.js";
 import { getPackageVersion } from "./utils/pkg-version.js";
 import { updateConfigRef } from "./config-watcher.js";
+import { invalidateOtherBotNamesCache } from "./gateway/trigger.js";
 import { requireConfirm } from "./utils/confirm-pending.js";
 import {
   getCwd,
@@ -740,6 +741,7 @@ export async function handleReload(ctx: AdminCmdContext, _parts: string[]): Prom
   const napcat = ctx.fullCfg.channels?.napcat;
   const result = updateConfigRef(ctx.configRef, napcat);
   if (result.success) {
+    invalidateOtherBotNamesCache();
     let msg = "✅ 配置已重载";
     if (result.connectionChanged) {
       msg += "\n⚠️ 连接参数有变更，需重启容器才能生效";
@@ -991,7 +993,7 @@ function findCommand(input: string): string | null {
   // 再找前缀匹配（最长的）
   let best: string | null = null;
   for (const name of names) {
-    if (name.startsWith(input) && (!best || name.length > best.length)) {
+    if (name.startsWith(input) && input.length >= 3 && (!best || name.length > best.length)) {
       best = name;
     }
   }

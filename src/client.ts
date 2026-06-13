@@ -144,6 +144,7 @@ export class OneBotClient extends EventEmitter {
       if (this.isAlive === false) {
         this.log.warn("[napcat-QQ] Reverse WS heartbeat timeout, closing stale connection...");
         ws.terminate();
+        this.isAlive = false;
         // terminate() 会触发 "close" 事件 → 走正常 disconnect 流程
         return;
       }
