@@ -39,8 +39,10 @@ function parseBool(raw, fallback) {
 
 function parseIntOpt(raw) {
   if (!raw) return undefined;
-  const n = parseInt(raw, 10);
-  return isNaN(n) ? undefined : n;
+  const trimmed = raw.trim();
+  // 防御 parseInt 的部分匹配："50abc" → 50 静默接受；正则校验确保整串都是数字
+  if (!/^-?\d+$/.test(trimmed)) return undefined;
+  return parseInt(trimmed, 10);
 }
 
 const env = process.env;

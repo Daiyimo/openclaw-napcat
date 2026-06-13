@@ -162,6 +162,24 @@ describe("QQConfigSchema", () => {
         QQConfigSchema.safeParse({ passiveMode: { temperature: -1 } }).success,
       ).toBe(false);
     });
+
+    it("rejects non-integer temperature (0.5)", () => {
+      expect(
+        QQConfigSchema.safeParse({ passiveMode: { temperature: 0.5 } }).success,
+      ).toBe(false);
+    });
+
+    it("accepts temperature=0", () => {
+      expect(
+        QQConfigSchema.safeParse({ passiveMode: { temperature: 0 } }).success,
+      ).toBe(true);
+    });
+
+    it("accepts temperature=100", () => {
+      expect(
+        QQConfigSchema.safeParse({ passiveMode: { temperature: 100 } }).success,
+      ).toBe(true);
+    });
   });
 });
 
