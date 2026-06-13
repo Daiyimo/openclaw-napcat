@@ -88,7 +88,7 @@
 | `inboundRateLimitMs` | number | `0` | 入站频控（ms），同一来源两次触发的最小间隔。`0` = 禁用。 |
 | `silentKeywords` | string[] | `[]` | **静默关键词**。消息包含任一关键词时直接丢弃，不触发 AI、不回复（适合过滤其他 bot 指令）。 |
 | `sensitiveFileGuard` | object | 默认启用 | **系统文件预拦截**（v1.10+）。非 admin 用户试图修改 SOUL/AGENTS/IDENTITY/USER/MEMORY 等人设/记忆文件时直接拒绝并 reply 提示，不调用 OpenClaw。详见下方说明。 |
-| `passiveMode` | object | - | **旁观模式**配置，见下方详细说明。 |
+| `passiveMode` | object | - | **旁观模式**配置，见下方详细说明。支持 `temperature`（0–100）快速调节主动程度。 |
 
 ## gateway 必填说明
 
@@ -108,6 +108,27 @@
 }
 ```
 
+**简化方式 — 使用 `temperature`：**
+
+```json
+{
+  "passiveMode": {
+    "enabled": true,
+    "temperature": 50
+  }
+}
+```
+
+`temperature` 是一个 0–100 的整数，单一数值同时控制三个频率参数，无需手动调毫秒。
+
+| 值 | 效果 |
+| :--- | :--- |
+| `0` | 几乎不插话（cooldown=60s, minInterval=120s, botSuppression=300s） |
+| `50` | 均衡（默认值，等效于 cooldown=10s, minInterval=30s, botSuppression=120s） |
+| `100` | 很活跃（cooldown=2s, minInterval=5s, botSuppression=30s） |
+
+设置 `temperature` 后，同级的 `cooldownMs` / `minIntervalMs` / `botSuppressionMs` 会被覆盖。`systemPrompt` 不受影响，仍可单独设置。
+
 | 子字段 | 类型 | 默认值 | 说明 |
 | :--- | :--- | :--- | :--- |
 | `enabled` | boolean | `false` | 是否开启旁观模式。开启后 AI 监听所有群消息，自主判断是否发言。 |
@@ -115,6 +136,7 @@
 | `minIntervalMs` | number | `30000` | **最小触发间隔**。含 [SILENT] 响应在内的所有检查的最小间隔，防止 AI 被频繁调用（0–3600000）。 |
 | `botSuppressionMs` | number | `120000` | **友军抑制时长**。检测到其他 bot 在该群回复后，本 bot 静音该时长（ms）。`0` = 禁用。依赖 `ignoreSenderBot=true`。 |
 | `systemPrompt` | string | - | **旁观人设**。仅在旁观模式下注入的额外系统提示词，指导 AI 何时发言、何时 [SILENT]。 |
+| `temperature` | number | - | **主动回复温度**（0–100）。单一数值映射 cooldownMs / minIntervalMs / botSuppressionMs 三个参数。设置后覆盖后三者的显式值。`0`=几乎不插话，`50`=均衡，`100`=很活跃。与子参数共存时 temperature 优先。 |
 
 **工作流程：** 群消息到达 → 检测触发（@/关键词）→ 通过 `minIntervalMs` 限流 → 通过 `botSuppressionMs` 友军抑制 → 通过 `cooldownMs` 冷却 → AI 判断 → 输出回复 或 `[SILENT]`。
 

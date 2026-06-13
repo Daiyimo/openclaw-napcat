@@ -64,6 +64,19 @@ export const QQConfigSchema = z.object({
     /** 友军识别：检测到其他 bot 回复后静默的时长（ms），0 = 禁用 */
     botSuppressionMs: z.number().int().min(0).max(3600000).optional().default(120000),
     systemPrompt: z.string().optional(),
+    /**
+     * 主动回复"温度"（0–100）。单一数值控制 passive mode 的三个频率参数：
+     * cooldownMs / minIntervalMs / botSuppressionMs。
+     * 设置后覆盖同级的三个子参数（但 systemPrompt 不受影响）。
+     *
+     * 关键帧映射：
+     *   0   → cooldown=60s  minInterval=120s  botSuppression=300s  (几乎不插话)
+     *   50  → cooldown=10s  minInterval=30s   botSuppression=120s  (当前默认)
+     *   100 → cooldown=2s   minInterval=5s    botSuppression=30s   (很活跃)
+     *
+     * 与子参数共存时 temperature 优先。未设置时各子参数独立生效。
+     */
+    temperature: z.number().int().min(0).max(100).optional(),
   }).optional().describe("Passive observation mode: AI watches all group messages and decides whether to chime in. AI replies [SILENT] to stay quiet."),
   // ── 多 bot 对话控制（v1.8+） ─────────────────────────────────────
   /** 多 bot 对话轮数硬上限（含本 bot 自身回复）。超过后本 bot 不再响应其他 bot 消息，直到用户发新消息重置。默认 5 */
@@ -101,4 +114,45 @@ export type QQConfig = z.infer<typeof QQConfigSchema>;
 /** 从 schema 提取所有默认值。注意：safeParse 不填充 .default()，需手动合并。 */
 export function getQQConfigDefaults(): QQConfig {
   return QQConfigSchema.parse({});
+}
+
+// ── passiveMode temperature 映射 ───────────────────────────────────────────
+
+/**
+ * 将 temperature（0–100）映射到被动模式的三个频率参数。
+ *
+ * 三关键帧分段线性插值：
+ *
+ *   cooldownMs:       t=0 → 60_000   t=50 → 10_000   t=100 → 2_000
+ *   minIntervalMs:    t=0 → 120_000  t=50 → 30_000   t=100 → 5_000
+ *   botSuppressionMs: t=0 → 300_000  t=50 → 120_000  t=100 → 30_000
+ *
+ * 中间值在同段内线性插值；50 恰好命中默认值。
+ *
+ * @param temperature 0–100，undefined 或 null 则返回 null（调用方保留原有值）
+ */
+export function resolvePassiveModeTemperature(
+  temperature: number | undefined | null,
+): Partial<{
+  cooldownMs: number;
+  minIntervalMs: number;
+  botSuppressionMs: number;
+}> | null {
+  if (temperature == null) return null;
+  const clamped = Math.max(0, Math.min(100, temperature));
+
+  const lerp = (t: number, tStart: number, tEnd: number, vStart: number, vEnd: number) =>
+    Math.round(vStart + (vEnd - vStart) * (t - tStart) / (tEnd - tStart));
+
+  return {
+    cooldownMs: clamped <= 50
+      ? lerp(clamped, 0, 50, 60_000, 10_000)
+      : lerp(clamped, 50, 100, 10_000, 2_000),
+    minIntervalMs: clamped <= 50
+      ? lerp(clamped, 0, 50, 120_000, 30_000)
+      : lerp(clamped, 50, 100, 30_000, 5_000),
+    botSuppressionMs: clamped <= 50
+      ? lerp(clamped, 0, 50, 300_000, 120_000)
+      : lerp(clamped, 50, 100, 120_000, 30_000),
+  };
 }

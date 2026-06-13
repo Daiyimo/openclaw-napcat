@@ -9,7 +9,7 @@ import {
   migrateBaseNameToDefaultAccount,
 } from "openclaw/plugin-sdk";
 import { OneBotClient } from "./client.js";
-import { QQConfigSchema, type QQConfig, getQQConfigDefaults } from "./config.js";
+import { QQConfigSchema, type QQConfig, getQQConfigDefaults, resolvePassiveModeTemperature } from "./config.js";
 import { registerClientsMap } from "./proactive.js";
 import { normalizeTarget } from "./message-parser.js";
 import { PassiveModeManager } from "./passive-mode.js";
@@ -108,6 +108,14 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
       const rawConfig = parsed.success ? parsed.data : (accountConfig || {});
       // safeParse 不填充 .default()，手动合并默认值（用户显式设置的优先）
       const config: QQConfig = { ...getQQConfigDefaults(), ...rawConfig };
+      // passiveMode.temperature 优先映射到三个子参数
+      const pm = config.passiveMode;
+      if (pm?.temperature !== undefined && pm.temperature !== null) {
+        const mapped = resolvePassiveModeTemperature(pm.temperature);
+        if (mapped) {
+          config.passiveMode = { ...pm, ...mapped };
+        }
+      }
       return {
         accountId: id,
         name: accountConfig?.name ?? "QQ Default",

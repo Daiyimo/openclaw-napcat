@@ -142,13 +142,28 @@ QQ_RESPONSE_GUIDELINES: ""  # 留空 = 用默认硬约束;设 "" = 关闭
 
 AI 监听群聊所有消息，自主判断是否参与对话，无需 @：
 
+**推荐：使用 `temperature` 快速调节**
+
+```json
+{
+  "passiveMode": {
+    "enabled": true,
+    "temperature": 50
+  }
+}
+```
+
+`temperature` 是 0–100 的整数，控制主动程度：`0`=几乎不插话，`50`=均衡（默认），`100`=很活跃。等价于手动设置 `cooldownMs` / `minIntervalMs` / `botSuppressionMs` 三个毫秒参数。
+
+也可继续使用细粒度参数：
 ```json
 {
   "passiveMode": {
     "enabled": true,
     "cooldownMs": 10000,
     "minIntervalMs": 30000,
-    "botSuppressionMs": 120000
+    "botSuppressionMs": 120000,
+    "systemPrompt": "你是一个观察者，仅在值得发言时回复，否则输出 [SILENT]"
   }
 }
 ```
@@ -156,6 +171,7 @@ AI 监听群聊所有消息，自主判断是否参与对话，无需 @：
 - `cooldownMs`：实质回复后的冷却时间（默认 10 秒）
 - `minIntervalMs`：最小触发间隔，含 [SILENT] 响应（默认 30 秒），防止 AI 被频繁调用
 - `botSuppressionMs`：友军识别抑制时长（默认 120 秒），检测到其他 bot 回复后静默
+- `temperature`：主动回复温度（0–100），设置后覆盖上述三个毫秒参数
 
 ### 群组白名单
 
@@ -253,6 +269,7 @@ services:
       QQ_PASSIVE_MODE_ENABLED: "false" # 是否启用旁观模式
       QQ_PASSIVE_MODE_COOLDOWN_MS: "10000"      # 实质回复冷却（ms）
       QQ_PASSIVE_MODE_MIN_INTERVAL_MS: "30000"  # 最小触发间隔（ms）
+      QQ_PASSIVE_MODE_TEMPERATURE: "50"         # 主动回复温度（0-100），覆盖三个毫秒参数
     restart: unless-stopped
 ```
 
@@ -272,6 +289,7 @@ services:
 | `QQ_KNOWN_BOT_IDS` | ❌ | 手动 bot 白名单（QQ 号），适用于不支持签名的 bot |
 | `QQ_BOT_SIGNATURE_STYLE` | ❌ | 签名样式：`visible`（默认）或 `zero-width` |
 | `QQ_PASSIVE_MODE_ENABLED` | ❌ | 旁观模式，默认 `false` |
+| `QQ_PASSIVE_MODE_TEMPERATURE` | ❌ | 主动回复温度（0–100），覆盖三个毫秒参数 |
 
 **NapCat 侧配置**（`onebot11_<QQ号>.json`）：
 
@@ -345,7 +363,7 @@ docker compose restart openclaw
 | `silentKeywords` | string[] | `[]` | 静默关键词（命中即丢弃） |
 | `historyLimit` | number | `5` | 携带历史消息条数 |
 | `rateLimitMs` | number | `1000` | 发送限速（ms） |
-| `passiveMode` | object | - | 旁观模式配置 |
+| `passiveMode` | object | - | 旁观模式配置，支持 `temperature`（0–100）快速调节 |
 | `deliverDebounce` | object | - | 消息防抖配置 |
 
 完整配置见 [docs/CONFIG.md](docs/CONFIG.md)。

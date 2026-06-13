@@ -103,6 +103,9 @@ if (env.QQ_PASSIVE_MODE_ENABLED !== undefined) {
   const minIntervalMs = parseIntOpt(env.QQ_PASSIVE_MODE_MIN_INTERVAL_MS);
   if (minIntervalMs !== undefined) passiveMode.minIntervalMs = minIntervalMs;
   if (env.QQ_PASSIVE_MODE_SYSTEM_PROMPT) passiveMode.systemPrompt = env.QQ_PASSIVE_MODE_SYSTEM_PROMPT;
+  // temperature：0-100 单一数值控制主动程度，覆盖三个毫秒参数
+  const temperature = parseIntOpt(env.QQ_PASSIVE_MODE_TEMPERATURE);
+  if (temperature !== undefined) passiveMode.temperature = temperature;
   qqEnv.passiveMode = passiveMode;
 }
 
