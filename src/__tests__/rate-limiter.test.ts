@@ -291,6 +291,42 @@ describe("InboundRateLimiter", () => {
     });
   });
 
+  // ── _enforceKeyLimit 边界条件 ──────────────────────────────
+
+  describe("_enforceKeyLimit eviction (P1 回归)", () => {
+    it("超出上限 1 个时仅删除 1 个，保留恰好 MAX_ACTIVE_KEYS 个", () => {
+      // 使用私有方法访问（通过 record 触发）
+      vi.setSystemTime(new Date("2024-01-01T00:00:00.000Z"));
+      // 填充 5000 个 key（MAX_ACTIVE_KEYS = 5000）
+      for (let i = 0; i < 5000; i++) {
+        limiter.record(i, undefined);
+      }
+      expect(limiter.getStats().activeKeys).toBe(5000);
+
+      // 再添加 1 个，触发淘汰
+      limiter.record(5000, undefined);
+
+      // 应该恰好保留 5000 个（MAX_ACTIVE_KEYS），不是 4000
+      const stats = limiter.getStats();
+      expect(stats.activeKeys).toBe(5000);
+    });
+
+    it("超出上限 1200 个时删除 1000 个（不超过 CLEANUP_BATCH）", () => {
+      vi.setSystemTime(new Date("2024-01-01T00:00:00.000Z"));
+      // 填充 5000 个 key
+      for (let i = 0; i < 5000; i++) {
+        limiter.record(i, undefined);
+      }
+      // 再添加 1200 个，超出上限 1200
+      for (let i = 5000; i < 6200; i++) {
+        limiter.record(i, undefined);
+      }
+
+      // 应该保留 5000 个（删除 1200 个中的前 1000 个）
+      expect(limiter.getStats().activeKeys).toBe(5000);
+    });
+  });
+
   // ── getStats ──────────────────────────────────────────────
 
   describe("getStats()", () => {

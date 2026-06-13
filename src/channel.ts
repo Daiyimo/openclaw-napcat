@@ -35,6 +35,8 @@ const clients = new Map<string, OneBotClient>();
 registerClientsMap(clients);
 
 const inboundStores = new Map<string, InboundRateLimitStore>();
+/** 并发启动锁（模块级共享，防止同一账号并发 startAccount 竞态） */
+export const startingPromises = new Map<string, Promise<void>>();
 /** 旁观模式冷却状态（模块级单例，startAccount 和 outbound.sendText 共享） */
 const passiveMode = new PassiveModeManager();
 /**
@@ -74,10 +76,6 @@ function getBotSelfId(accountId: string): number | undefined {
 function setBotSelfId(accountId: string, selfId: number): void {
   botSelfIds.set(accountId, selfId);
 }
-
-// ============================================================
-// 插件定义
-// ============================================================
 
 export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
   id: "napcat",
@@ -290,7 +288,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
           channelRuntime: ctx.channelRuntime,
           runtime: ctx.runtime,
         },
-        { clients, knownGroupIds: getKnownGroupIds(ctx.accountId), inboundStores, passiveMode, setBotSelfId, startingPromises: new Map<string, Promise<void>>() },
+        { clients, knownGroupIds: getKnownGroupIds(ctx.accountId), inboundStores, passiveMode, setBotSelfId, startingPromises },
       );
     },
     logoutAccount: async ({ accountId, cfg: _cfg }: { accountId: string; cfg: OpenClawConfig; account?: any; runtime?: any; log?: any }) => {

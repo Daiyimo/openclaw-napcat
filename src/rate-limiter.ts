@@ -282,7 +282,7 @@ export class InboundRateLimiter {
       return aLast - bLast;
     });
 
-    const toRemove = Math.min(CLEANUP_BATCH, this.windows.size - MAX_ACTIVE_KEYS + CLEANUP_BATCH);
+    const toRemove = Math.min(CLEANUP_BATCH, this.windows.size - MAX_ACTIVE_KEYS);
     for (let i = 0; i < toRemove && i < entries.length; i++) {
       this.windows.delete(entries[i][0]);
     }
