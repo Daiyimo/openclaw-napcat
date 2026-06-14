@@ -51,6 +51,8 @@ export class TypingKeepAlive {
         user_id: String(this.userId),
         event_type: 1,
       })
-      .catch(() => {});
+      .catch((err) => {
+        this.client.log?.warn?.("[napcat-QQ] set_input_status failed:", err);
+      });
   }
 }

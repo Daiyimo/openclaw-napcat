@@ -63,7 +63,9 @@ export interface PluginRuntimeChannel {
     record: (params: { channel: string; accountId: string; direction: "inbound" | "outbound" }) => void;
   };
   session: {
+    /** @deprecated 推荐使用 channel turn helpers */
     resolveStorePath: (store: unknown, opts: { agentId: string }) => string;
+    /** @deprecated 推荐使用 channel turn helpers */
     recordInboundSession: (params: {
       storePath: string;
       sessionKey: string;
@@ -73,11 +75,14 @@ export interface PluginRuntimeChannel {
     }) => Promise<void>;
   };
   reply: {
+    /** @deprecated 3.31: 推荐使用 dispatchReplyWithBufferedBlockDispatcher */
     createReplyDispatcherWithTyping: (params: { deliver: (payload: unknown) => Promise<void> }) => {
       dispatcher: unknown;
       replyOptions: unknown;
     };
+    /** @deprecated 3.31: 推荐使用 channelRuntime.inbound.buildContext */
     finalizeInboundContext: (ctx: Record<string, unknown>) => Record<string, unknown>;
+    /** @deprecated 3.31: 推荐使用 channelRuntime.inbound.dispatchReply */
     dispatchReplyFromConfig: (params: {
       ctx: Record<string, unknown>;
       cfg: OpenClawConfig;
@@ -110,8 +115,8 @@ export interface ConnectionContext {
   knownGroupIds: Set<string>;
   log: Logger;
   startAccountCtx: {
-    getStatus?: () => AccountStatus | undefined;
-    setStatus?: (next: AccountStatus) => void;
+    getStatus: () => AccountStatus;
+    setStatus: (next: AccountStatus) => void;
   };
   shared: SharedState;
 }
@@ -122,8 +127,8 @@ export interface StartAccountContext {
   accountId: string;
   abortSignal: AbortSignal;
   log: Logger;
-  getStatus?: () => AccountStatus | undefined;
-  setStatus?: (next: AccountStatus) => void;
+  getStatus: () => AccountStatus;
+  setStatus: (next: AccountStatus) => void;
   channelRuntime?: PluginRuntimeChannel;
   runtime?: unknown;
 }

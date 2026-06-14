@@ -125,7 +125,7 @@ describe("channel.ts — startingPromises 并发锁回归 (P1)", () => {
         reply: {
           createReplyDispatcherWithTyping: vi.fn().mockReturnValue({ dispatcher: {}, replyOptions: {} }),
           finalizeInboundContext: vi.fn().mockReturnValue({}),
-          dispatchReplyFromConfig: vi.fn(),
+          dispatchReplyWithBufferedBlockDispatcher: vi.fn(),
         },
       } as any,
       ...overrides,

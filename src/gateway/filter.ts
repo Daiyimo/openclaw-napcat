@@ -116,9 +116,13 @@ export function filterStage(
 
   if (config.autoMarkRead) {
     if (isGroup && groupId) {
-      client.markGroupMsgAsRead(groupId).catch(() => {});
+      client.markGroupMsgAsRead(groupId).catch((err) => {
+        ctx.log.warn("[napcat-QQ] markGroupMsgAsRead failed:", err);
+      });
     } else if (!isGuild && userId) {
-      client.markPrivateMsgAsRead(userId).catch(() => {});
+      client.markPrivateMsgAsRead(userId).catch((err) => {
+        ctx.log.warn("[napcat-QQ] markPrivateMsgAsRead failed:", err);
+      });
     }
   }
 

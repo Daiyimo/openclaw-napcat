@@ -44,10 +44,10 @@ import {
 import { MessageSender } from "../message-sender.js";
 import { filterStage, type FilterResult } from "./filter.js";
 import { triggerStage } from "./trigger.js";
-import { BOT_SIGNATURE_PATTERN, BOT_SIGNATURE_ZW_PATTERN, ERROR_NOTIFY_SLEEP_MS, BOT_STOPPED_SUPPRESS_MS, DEFAULT_STOP_KEYWORDS } from "../constants.js";
-import { sleep } from "../utils/sleep.js";
+import { BOT_SIGNATURE_PATTERN, BOT_SIGNATURE_ZW_PATTERN, BOT_SUPPRESSION_JITTER_MS, ERROR_NOTIFY_SLEEP_MS, DEFAULT_STOP_KEYWORDS } from "../constants.js";
 
-const BOT_SUPPRESSION_JITTER_MS = 2000;
+// BOT_SUPPRESSION_JITTER_MS 已从 constants.ts 导入（见上方 import）
+import { sleep } from "../utils/sleep.js";
 
 export function installMessageHandler(
   client: OneBotClient,
@@ -290,9 +290,7 @@ export function installMessageHandler(
         }
       }
 
-      const { dispatcher, replyOptions } =
-        channelRuntime.reply.createReplyDispatcherWithTyping({ deliver });
-
+      // ── 被引用消息信息 ──────────────────────────────
       let replyToBody = "";
       let replyToSender = "";
       if (replyMsgId && repliedMsg) {
@@ -365,6 +363,9 @@ export function installMessageHandler(
         downloaded = await downloadImages(imageUrls);
       }
 
+      // ── 派发回复（3.31: dispatchReplyWithBufferedBlockDispatcher）────────────────
+      // 旧: createReplyDispatcherWithTyping + dispatchReplyFromConfig
+      // 新: 直接传 deliver 给 dispatcherOptions，一步完成派发
       const ctxPayload = channelRuntime.reply.finalizeInboundContext({
         Provider: "napcat",
         Channel: "napcat",
@@ -435,19 +436,30 @@ export function installMessageHandler(
       }
 
       try {
-        await channelRuntime.reply.dispatchReplyFromConfig({
+        await channelRuntime.reply.dispatchReplyWithBufferedBlockDispatcher({
           ctx: ctxPayload,
           cfg,
-          dispatcher: () => deliver({
-            text: bodyWithReply,
-            replyMsg: repliedMsg,
-            historyContext,
-            isPassiveMode: isPassiveModeFlag,
-            isBot,
-            isUserStopIntent,
-            event,
-          } as any),
-          replyOptions,
+          dispatcherOptions: {
+            deliver: async (payload: unknown) => {
+              const dp = payload as Record<string, unknown>;
+              await deliver({
+                text: (dp.Body ?? dp.text ?? "") as string,
+                mediaUrls: (dp.MediaUrls ?? dp.mediaUrls) as string[] | undefined,
+                mediaUrl: (dp.MediaUrl ?? dp.mediaUrl) as string | undefined,
+                replyToId: (dp.ReplyToId ?? dp.replyToId) as string | undefined,
+                replyMsg,
+                historyContext,
+                isPassiveMode: isPassiveModeFlag,
+                isBot,
+                isUserStopIntent,
+                event,
+              } as any);
+            },
+            onError: (err) => log.error("[napcat-QQ] dispatch error:", err),
+          },
+          replyOptions: {
+            onReplyStart: undefined,
+          },
         });
 
         // 派发成功：释放哨兵并写入冷却时间戳

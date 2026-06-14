@@ -41,7 +41,7 @@ function makeCtx(overrides: Partial<StartAccountContext> = {}): StartAccountCont
       reply: {
         createReplyDispatcherWithTyping: vi.fn().mockReturnValue({ dispatcher: {}, replyOptions: {} }),
         finalizeInboundContext: vi.fn().mockReturnValue({}),
-        dispatchReplyFromConfig: vi.fn(),
+        dispatchReplyWithBufferedBlockDispatcher: vi.fn(),
       },
     } as any,
     ...overrides,

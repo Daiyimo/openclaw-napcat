@@ -19,7 +19,7 @@ import { resolveOutboundSessionRoute } from "./utils/resolve-session-route.js";
 // ── 子模块委托 ─────────────────────────────────────────────────────────────
 import { startAccount } from "./gateway/index.js";
 import { sendText } from "./outbound/send-text.js";
-import { sendMedia, deleteMessage } from "./outbound/send-media.js";
+import { sendMedia } from "./outbound/send-media.js";
 
 export type ResolvedQQAccount = ChannelAccountSnapshot & {
   config: QQConfig;
@@ -90,7 +90,9 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
     chatTypes: ["direct", "group"],
     media: true,
     reactions: true,
+    reply: true,
     unsend: true,
+    nativeCommands: true,
   },
   configSchema: buildChannelConfigSchema(QQConfigSchema),
   config: {
@@ -279,8 +281,8 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
       accountId: string;
       abortSignal: AbortSignal;
       log?: any;
-      getStatus?: () => any;
-      setStatus?: (next: any) => void;
+      getStatus: () => any;
+      setStatus: (next: any) => void;
       channelRuntime?: import("openclaw/plugin-sdk").PluginRuntimeChannel;
       runtime?: any;
     }) => {
@@ -313,7 +315,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
       const selfId = getBotSelfId(resolvedAid) ?? cfg?.channels?.napcat?._selfId;
       const selfName = accountCfg?._selfName;
       return sendText(
-        { to, text, accountId, botSelfId: selfId, botSelfName: selfName, cfg: accountCfg },
+        { to, text, accountId, replyToId, botSelfId: selfId, botSelfName: selfName, cfg: accountCfg },
         { getClient: getClientForAccount, knownGroupIds: getKnownGroupIds(resolvedAid), passiveMode, log },
       );
     },
@@ -322,13 +324,6 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
       return sendMedia(
         { to, text, mediaUrl, accountId, replyToId },
         { getClient: getClientForAccount, knownGroupIds: getKnownGroupIds(resolvedAid) },
-      );
-    },
-    // @ts-ignore
-    deleteMessage: async ({ messageId, accountId }) => {
-      return deleteMessage(
-        { messageId, accountId },
-        { getClient: getClientForAccount },
       );
     },
   },

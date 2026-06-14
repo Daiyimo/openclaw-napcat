@@ -233,7 +233,8 @@ export class OneBotClient extends EventEmitter {
   }
 
   async getGuildList(): Promise<any[]> {
-    try { return await this.sendWithResponse("get_guild_list", {}); } catch { return []; }
+    try { return await this.sendWithResponse("get_guild_list", {}); }
+    catch (err) { this.log.warn("get_guild_list failed", err); return []; }
   }
 
   async getGuildServiceProfile(): Promise<any> {
@@ -388,13 +389,13 @@ export class OneBotClient extends EventEmitter {
   /** 获取群精华列表 */
   async getEssenceMsgList(groupId: number): Promise<any[]> {
     try { return await this.sendWithResponse("get_essence_msg_list", { group_id: String(groupId) }); }
-    catch { return []; }
+    catch (err) { this.log.warn("get_essence_msg_list failed", err); return []; }
   }
 
   /** 获取当前禁言名单 */
   async getGroupShutList(groupId: number): Promise<any[]> {
     try { return await this.sendWithResponse("get_group_shut_list", { group_id: String(groupId) }); }
-    catch { return []; }
+    catch (err) { this.log.warn("get_group_shut_list failed", err); return []; }
   }
 
   /** 获取 @全体 剩余次数 */
@@ -528,14 +529,18 @@ export class OneBotClient extends EventEmitter {
         await this.sendViaHttp(action, params);
         this.log.log(`[napcat-QQ][sendAction] HTTP success: ${action}`);
         return;
-      } catch (err: any) {
-        const errMsg = maskBearerToken(err.message ?? String(err));
-        this.log.warn(`[napcat-QQ][sendAction] HTTP failed for ${action}:`, errMsg);
+      } catch (err) {
+        this.log.warn(`[napcat-QQ][sendAction] HTTP failed for ${action}:`, err);
       }
     }
     const activeWs = this.getActiveWs();
     this.log.log(`[napcat-QQ][sendAction] trying WS: forwardWs=${this.ws?.readyState}, reverseWs=${this.reverseWs?.readyState}, active=${!!activeWs}`);
-    this.sendWs(action, params);
+    try {
+      this.sendWs(action, params);
+    } catch (err) {
+      this.log.error(`[napcat-QQ][sendAction] WS failed for ${action}:`, err);
+      throw err;
+    }
   }
 
   private async sendViaHttp(action: string, params: any): Promise<any> {
@@ -666,7 +671,7 @@ export class OneBotClient extends EventEmitter {
     // Prefer HTTP API for request-response calls if available
     if (this.options.httpUrl) {
       return this.sendViaHttp(action, params).catch((err) => {
-        this.log.warn(`[napcat-QQ] HTTP API failed for ${action}, falling back to WS:`, err.message);
+        this.log.warn(`[napcat-QQ] HTTP API failed for ${action}, falling back to WS:`, err);
         return this.sendWithResponseWs(action, params);
       });
     }
@@ -715,7 +720,10 @@ export class OneBotClient extends EventEmitter {
         this.pendingRequests.delete(echo);
         activeWs.off("close", closeHandler);
         clearTimeout(timer);
-        reject(new ConnectionError(action, err instanceof Error ? err.message : String(err)));
+        const cause = err instanceof Error ? err : new Error(String(err));
+        const connectionErr = new ConnectionError(action, cause.message);
+        (connectionErr as any).cause = cause;
+        reject(connectionErr);
       }
     });
   }

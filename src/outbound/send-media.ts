@@ -21,6 +21,8 @@ export interface SendMediaParams {
   mediaUrl: string;
   accountId?: string | null;
   replyToId?: string | null;
+  // TODO(3.31+): ChannelOutboundContext 新增字段（audioAsVoice, mediaAccess, gifPlayback,
+  // forceDocument, replyToIdSource, replyToMode, formatting）当前 napcat 未使用。
 }
 
 import type { Logger } from "../types/channel-types.js";
@@ -55,6 +57,11 @@ export async function sendMedia(
         if (groupInfo?.group_id) {
           knownGroupIds.add(to);
           effectiveTo = `group:${to}`;
+        } else {
+          (deps.log ?? console).warn(
+            `[napcat-QQ][outbound.sendMedia] 裸数字 "${to}" 无法确认为群，将作私聊处理。` +
+              `如需指定群请使用 "group:${to}" 格式。`,
+          );
         }
       }
     }

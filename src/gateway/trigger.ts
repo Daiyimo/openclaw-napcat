@@ -124,8 +124,9 @@ export async function triggerStage(
     }
   }
 
-  // 高并发热路径：buildOtherBotNames 结果在运行期不变，按 (accountId, knownBotIds) 缓存一次
-  const cacheKey = `${account.accountId}:${[...(config.knownBotIds ?? [])].sort().join(",")}`;
+  // 高并发热路径：buildOtherBotNames 结果在运行期不变，按 (accountId, selfId, knownBotIds) 缓存一次
+  // 包含 selfId 避免多 bot 场景下缓存碰撞
+  const cacheKey = `${account.accountId}:${selfId}:${[...(config.knownBotIds ?? [])].sort().join(",")}`;
   let otherBotNames: string[];
   let knownBotIdSet: Set<string>;
   const cached = otherBotNamesResult.get(cacheKey);

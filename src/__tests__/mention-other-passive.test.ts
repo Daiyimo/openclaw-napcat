@@ -58,12 +58,12 @@ function makeClient(selfId = SELF_ID): OneBotClient {
 function makeCtx(configOverrides: Partial<QQConfig> = {}): {
   client: OneBotClient;
   ctx: InboundContext;
-  dispatchReplyFromConfig: any;
+  dispatchReplyWithBufferedBlockDispatcher: any;
 } {
   const passiveMode = new PassiveModeManager();
   const uploadCache = new UploadCache();
 
-  const dispatchReplyFromConfig = vi.fn().mockResolvedValue(undefined);
+  const dispatchReplyWithBufferedBlockDispatcher = vi.fn().mockResolvedValue(undefined);
   const channelRuntime: PluginRuntimeChannel = {
     activity: { record: vi.fn() },
     session: {
@@ -76,7 +76,7 @@ function makeCtx(configOverrides: Partial<QQConfig> = {}): {
         replyOptions: {},
       }),
       finalizeInboundContext: vi.fn().mockImplementation((ctx: any) => ctx),
-      dispatchReplyFromConfig,
+      dispatchReplyWithBufferedBlockDispatcher,
     },
   };
 
@@ -114,7 +114,7 @@ function makeCtx(configOverrides: Partial<QQConfig> = {}): {
     log: { log: () => {}, info: () => {}, warn: () => {}, error: () => {} } as any,
   };
 
-  return { client: ctx.client, ctx, dispatchReplyFromConfig };
+  return { client: ctx.client, ctx, dispatchReplyWithBufferedBlockDispatcher };
 }
 
 function makeGroupEventAtOther(): OneBotEvent {
@@ -139,7 +139,7 @@ describe("A 修复：旁观模式 @其他用户 不应误派发", () => {
   });
 
   it("旁观模式下 @其他用户 不进入 AI 派发", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx();
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx();
     installMessageHandler(client, ctx);
 
     client.emit("message", makeGroupEventAtOther());
@@ -147,11 +147,11 @@ describe("A 修复：旁观模式 @其他用户 不应误派发", () => {
     // 等待事件循环
     await new Promise((r) => setTimeout(r, 50));
 
-    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+    expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
   });
 
   it("旁观模式下 @自己 正常派发", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx();
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx();
     installMessageHandler(client, ctx);
 
     client.emit("message", {
@@ -167,7 +167,7 @@ describe("A 修复：旁观模式 @其他用户 不应误派发", () => {
       time: Math.floor(Date.now() / 1000),
     } as OneBotEvent);
 
-    await vi.waitFor(() => expect(dispatchReplyFromConfig).toHaveBeenCalledOnce(), {
+    await vi.waitFor(() => expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce(), {
       timeout: 2000,
     });
   });

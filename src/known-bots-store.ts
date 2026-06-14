@@ -239,7 +239,8 @@ export async function fetchBotInfoAsync(
       });
       log?.info?.(`[napcat-QQ] Updated bot info: ${botId} → ${info.card || info.nickname}`);
     }
-  } catch (err: any) {
-    log?.warn?.(`[napcat-QQ] fetchBotInfoAsync failed for ${botId}: ${err.message}`);
+  } catch (err) {
+    const errObj = err instanceof Error ? err : new Error(String(err));
+    log?.warn?.(`[napcat-QQ] fetchBotInfoAsync failed for ${botId}: ${errObj.message}`);
   }
 }

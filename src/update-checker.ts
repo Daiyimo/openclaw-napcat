@@ -67,8 +67,9 @@ async function fetchDistTags(): Promise<Record<string, string>> {
       const json = await fetchJson(url, 10_000);
       const tags = json["dist-tags"];
       if (tags && typeof tags === "object") return tags;
-    } catch (e: any) {
-      _log?.debug?.(`[napcat-qq:update-checker] ${url} failed: ${e.message}`);
+    } catch (err) {
+      const errObj = err instanceof Error ? err : new Error(String(err));
+      _log?.debug?.(`[napcat-qq:update-checker] ${url} failed: ${errObj.message}`);
     }
   }
   throw new Error("all registries failed");
@@ -113,7 +114,9 @@ export function triggerUpdateCheck(log?: {
         );
       }
     })
-    .catch(() => {});
+    .catch((err) => {
+      _log?.debug?.("[napcat-qq:update-checker] check failed:", err);
+    });
 }
 
 /** 实时查询 npm registry */
@@ -121,8 +124,9 @@ export async function getUpdateInfo(): Promise<UpdateInfo> {
   try {
     const tags = await fetchDistTags();
     return buildUpdateInfo(tags);
-  } catch (err: any) {
-    _log?.debug?.(`[napcat-qq:update-checker] check failed: ${err.message}`);
+  } catch (err) {
+    const errObj = err instanceof Error ? err : new Error(String(err));
+    _log?.debug?.(`[napcat-qq:update-checker] check failed: ${errObj.message}`);
     return {
       current: CURRENT_VERSION,
       latest: null,
@@ -130,7 +134,7 @@ export async function getUpdateInfo(): Promise<UpdateInfo> {
       alpha: null,
       hasUpdate: false,
       checkedAt: Date.now(),
-      error: err.message,
+      error: errObj.message,
     };
   }
 }
