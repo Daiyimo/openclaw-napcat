@@ -58,14 +58,16 @@ export interface SharedState {
   startingPromises: Map<string, Promise<void>>;
 }
 
+/**
+ * 本地 channel runtime 类型（与 openclaw SDK PluginRuntimeChannel 对齐）。
+ * 只声明 napcat 实际使用的方法，避免直接依赖 SDK 内部类型。
+ */
 export interface PluginRuntimeChannel {
   activity: {
     record: (params: { channel: string; accountId: string; direction: "inbound" | "outbound" }) => void;
   };
   session: {
-    /** @deprecated 推荐使用 channel turn helpers */
     resolveStorePath: (store: unknown, opts: { agentId: string }) => string;
-    /** @deprecated 推荐使用 channel turn helpers */
     recordInboundSession: (params: {
       storePath: string;
       sessionKey: string;
@@ -75,20 +77,16 @@ export interface PluginRuntimeChannel {
     }) => Promise<void>;
   };
   reply: {
-    /** @deprecated 3.31: 推荐使用 dispatchReplyWithBufferedBlockDispatcher */
-    createReplyDispatcherWithTyping: (params: { deliver: (payload: unknown) => Promise<void> }) => {
-      dispatcher: unknown;
-      replyOptions: unknown;
-    };
-    /** @deprecated 3.31: 推荐使用 channelRuntime.inbound.buildContext */
     finalizeInboundContext: (ctx: Record<string, unknown>) => Record<string, unknown>;
-    /** @deprecated 3.31: 推荐使用 channelRuntime.inbound.dispatchReply */
-    dispatchReplyFromConfig: (params: {
+    dispatchReplyWithBufferedBlockDispatcher: (params: {
       ctx: Record<string, unknown>;
       cfg: OpenClawConfig;
-      dispatcher: unknown;
-      replyOptions: unknown;
-    }) => Promise<void>;
+      dispatcherOptions: {
+        deliver: (payload: unknown) => Promise<void>;
+        onError?: (err: unknown) => void;
+      };
+      replyOptions?: Record<string, unknown>;
+    }) => Promise<unknown>;
   };
 }
 

@@ -106,7 +106,10 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
       const id = accountId ?? DEFAULT_ACCOUNT_ID;
       const qq = cfg.channels?.napcat;
       const accountConfig = id === DEFAULT_ACCOUNT_ID ? qq : qq?.accounts?.[id];
-      const parsed = QQConfigSchema.safeParse(accountConfig ?? {});
+      const cleanConfig = accountConfig ? { ...accountConfig } : {};
+      delete (cleanConfig as Record<string, unknown>)._selfId;
+      delete (cleanConfig as Record<string, unknown>)._selfName;
+      const parsed = QQConfigSchema.safeParse(cleanConfig ?? {});
       const rawConfig = parsed.success ? parsed.data : (accountConfig || {});
       // safeParse 不填充 .default()，手动合并默认值（用户显式设置的优先）
       const config: QQConfig = { ...getQQConfigDefaults(), ...rawConfig };
@@ -295,7 +298,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
           log: ctx.log ?? console,
           getStatus: ctx.getStatus,
           setStatus: ctx.setStatus,
-          channelRuntime: ctx.channelRuntime,
+          channelRuntime: ctx.channelRuntime as any,
           runtime: ctx.runtime,
         },
         { clients, knownGroupIds: getKnownGroupIds(ctx.accountId), inboundStores, passiveMode, setBotSelfId, startingPromises },

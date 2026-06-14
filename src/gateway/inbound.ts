@@ -364,9 +364,9 @@ export function installMessageHandler(
       }
 
       // ── 派发回复（3.31: dispatchReplyWithBufferedBlockDispatcher）────────────────
-      // 旧: createReplyDispatcherWithTyping + dispatchReplyFromConfig
-      // 新: 直接传 deliver 给 dispatcherOptions，一步完成派发
-      const ctxPayload = channelRuntime.reply.finalizeInboundContext({
+      // 旧: createReplyDispatcherWithTyping + dispatchReplyFromConfig + finalizeInboundContext
+      // 新: 直接构造 ctx 对象，一步完成派发
+      const ctxPayload: Record<string, unknown> = {
         Provider: "napcat",
         Channel: "napcat",
         From: fromId,
@@ -396,7 +396,7 @@ export function installMessageHandler(
           ReplyToBody: replyToBody,
           ReplyToSender: replyToSender,
         } : {}),
-      });
+      };
 
       await channelRuntime.session.recordInboundSession({
         storePath: channelRuntime.session.resolveStorePath(
@@ -415,24 +415,29 @@ export function installMessageHandler(
       });
 
       // ── Typing 状态 ───────────────────────────────────
-      const typing = new TypingKeepAlive(client, isGroup || isGuild, groupId, userId);
+      const typing = new TypingKeepAlive(client, isGroup || isGuild, groupId, userId, log);
       typing.start();
 
       // 旁观模式冷却 key
       const passiveCooldownKey = isPassiveModeFlag ? `${account.accountId}:${fromId}` : null;
 
       // ── 停止意图决策 ─────────────────────────────────
-      if (isUserStopIntent && config.botStopReplyEnabled !== false) {
-        const selfIdStr = String(client.getSelfId() ?? "");
-        const ratio = config.botStopReplyRatio ?? 0.66;
-        if (!shouldBotReplyToStop(selfIdStr, ratio)) {
-          typing.stop();
-          return;
+      try {
+        if (isUserStopIntent && config.botStopReplyEnabled !== false) {
+          const selfIdStr = String(client.getSelfId() ?? "");
+          const ratio = config.botStopReplyRatio ?? 0.66;
+          if (!shouldBotReplyToStop(selfIdStr, ratio)) {
+            typing.stop();
+            return;
+          }
+          const delay = getBotStopDelay(selfIdStr, config.botStopReplyDelayMaxMs ?? 300);
+          if (delay > 0) {
+            await sleep(delay);
+          }
         }
-        const delay = getBotStopDelay(selfIdStr, config.botStopReplyDelayMaxMs ?? 300);
-        if (delay > 0) {
-          await sleep(delay);
-        }
+      } catch (err) {
+        log.warn("[napcat-QQ] stop-intent decision failed:", err);
+        // 降级：不拦截消息，继续正常派发（dispatch 的 finally 会停止 typing）
       }
 
       try {
@@ -447,7 +452,7 @@ export function installMessageHandler(
                 mediaUrls: (dp.MediaUrls ?? dp.mediaUrls) as string[] | undefined,
                 mediaUrl: (dp.MediaUrl ?? dp.mediaUrl) as string | undefined,
                 replyToId: (dp.ReplyToId ?? dp.replyToId) as string | undefined,
-                replyMsg,
+                replyMsgId,
                 historyContext,
                 isPassiveMode: isPassiveModeFlag,
                 isBot,
@@ -455,7 +460,7 @@ export function installMessageHandler(
                 event,
               } as any);
             },
-            onError: (err) => log.error("[napcat-QQ] dispatch error:", err),
+            onError: (err: unknown) => log.error("[napcat-QQ] dispatch error:", err),
           },
           replyOptions: {
             onReplyStart: undefined,

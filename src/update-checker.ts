@@ -35,7 +35,7 @@ export interface UpdateInfo {
 }
 
 let _log:
-  | { info: (msg: string) => void; error: (msg: string) => void; debug?: (msg: string) => void }
+  | { info: (...args: unknown[]) => void; error: (...args: unknown[]) => void; debug?: (...args: unknown[]) => void }
   | undefined;
 
 function fetchJson(url: string, timeoutMs: number): Promise<any> {
@@ -100,9 +100,9 @@ function buildUpdateInfo(tags: Record<string, string>): UpdateInfo {
 
 /** startAccount 时调用，保存 log 引用并触发后台预热 */
 export function triggerUpdateCheck(log?: {
-  info: (msg: string) => void;
-  error: (msg: string) => void;
-  debug?: (msg: string) => void;
+  info: (...args: unknown[]) => void;
+  error: (...args: unknown[]) => void;
+  debug?: (...args: unknown[]) => void;
 }): void {
   if (log) _log = log;
   // fire-and-forget
