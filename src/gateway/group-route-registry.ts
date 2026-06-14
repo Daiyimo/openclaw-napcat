@@ -72,9 +72,9 @@ export async function registerGroupRoute(params: RegisterGroupRouteParams): Prom
   }
 
   if (!sessionKey) {
-    log?.warn?.(`[napcat-QQ] Cannot resolve session key for group ${groupId}, skipping route registration`);
-    knownGroupIds.add(String(groupId));
-    return false;
+    // resolveAgentRoute 失败时（框架路由未激活、无 session 记录），
+    // 使用与 inbound.ts 相同的 fallback key，确保 cron 投递能找到 session。
+    sessionKey = `agent:default:napcat:group:${groupId}`;
   }
 
   await channelRuntime.session.recordInboundSession({

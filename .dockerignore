@@ -1,37 +1,12 @@
-# Dependencies
-node_modules/
-
-# Git
-.git/
-.github/
-
-# IDE
-.vscode/
-.idea/
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Test coverage
-coverage/
-*.test.ts
-*.spec.ts
-test-utils/
-test-helpers/
-
-# Docs (not needed in image)
-docs/
-
-# Scripts (not needed in image)
-scripts/
-
-# Skills (optional, can be mounted)
-skills/
-
-# Docker (not needed inside image)
-docker/
-
-# Misc config not needed for build
-CONTRIBUTING.md
-CHANGELOG.md
+node_modules
+dist
+.git
+.vscode
+.idea
+*.md
+!README.md
+.env
+.env.*
+*.log
+coverage
+.nyc_output

@@ -92,7 +92,7 @@
 
 - [X] T010 [P] Update `src/constants.ts` if any rate-limit-related constants needed (not needed — config handles it)
 - [X] T011 Run existing test suite to verify no regressions (758 tests pass)
-- [X] T012 Update `docs/CONFIG.md` with `inboundRateLimitMs` documentation (deferred to next step)
+- [X] T012 Update `docs/CONFIG.md` and `docs/COMMANDS.md` with `inboundRateLimitMs`, `silentKeywords`, `/ratelimit`, `/unratelimit` documentation
 
 ---
 

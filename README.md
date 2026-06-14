@@ -55,9 +55,9 @@
 - **群路由按需刷新**：`/groups` 命令手动注册群路由，解决 cron 投递问题
 - **HTTP 重试**：指数退避自动重试，5xx/网络错误不丢消息
 - **智能表情**：15 种关键词场景自动贴表情
-- **管理命令**：`/ping` `/status` `/version` `/logs` `/reload` `/groups` `/sendto` `/mute` `/kick`
+- **管理命令**：`/ping` `/status` `/version` `/logs` `/reload` `/groups` `/sendto` `/mute` `/kick` `/temperature`
 - **安全管控**：Token 鉴权、群组白名单、用户黑名单、入站频控、静默关键词
-- **Docker 部署**：`curl | bash` 一键安装
+- **Docker 部署**：`curl | bash` 一键安装，跨服务器远程一键升级
 
 ---
 
@@ -142,13 +142,28 @@ QQ_RESPONSE_GUIDELINES: ""  # 留空 = 用默认硬约束;设 "" = 关闭
 
 AI 监听群聊所有消息，自主判断是否参与对话，无需 @：
 
+**推荐：使用 `temperature` 快速调节**
+
+```json
+{
+  "passiveMode": {
+    "enabled": true,
+    "temperature": 50
+  }
+}
+```
+
+`temperature` 是 0–100 的整数，控制主动程度：`0`=几乎不插话，`50`=均衡（默认），`100`=很活跃。等价于手动设置 `cooldownMs` / `minIntervalMs` / `botSuppressionMs` 三个毫秒参数。
+
+也可继续使用细粒度参数：
 ```json
 {
   "passiveMode": {
     "enabled": true,
     "cooldownMs": 10000,
     "minIntervalMs": 30000,
-    "botSuppressionMs": 120000
+    "botSuppressionMs": 120000,
+    "systemPrompt": "你是一个观察者，仅在值得发言时回复，否则输出 [SILENT]"
   }
 }
 ```
@@ -156,6 +171,7 @@ AI 监听群聊所有消息，自主判断是否参与对话，无需 @：
 - `cooldownMs`：实质回复后的冷却时间（默认 10 秒）
 - `minIntervalMs`：最小触发间隔，含 [SILENT] 响应（默认 30 秒），防止 AI 被频繁调用
 - `botSuppressionMs`：友军识别抑制时长（默认 120 秒），检测到其他 bot 回复后静默
+- `temperature`：主动回复温度（0–100），设置后覆盖上述三个毫秒参数
 
 ### 群组白名单
 
@@ -253,6 +269,7 @@ services:
       QQ_PASSIVE_MODE_ENABLED: "false" # 是否启用旁观模式
       QQ_PASSIVE_MODE_COOLDOWN_MS: "10000"      # 实质回复冷却（ms）
       QQ_PASSIVE_MODE_MIN_INTERVAL_MS: "30000"  # 最小触发间隔（ms）
+      QQ_PASSIVE_MODE_TEMPERATURE: "50"         # 主动回复温度（0-100），覆盖三个毫秒参数
     restart: unless-stopped
 ```
 
@@ -272,6 +289,7 @@ services:
 | `QQ_KNOWN_BOT_IDS` | ❌ | 手动 bot 白名单（QQ 号），适用于不支持签名的 bot |
 | `QQ_BOT_SIGNATURE_STYLE` | ❌ | 签名样式：`visible`（默认）或 `zero-width` |
 | `QQ_PASSIVE_MODE_ENABLED` | ❌ | 旁观模式，默认 `false` |
+| `QQ_PASSIVE_MODE_TEMPERATURE` | ❌ | 主动回复温度（0–100），覆盖三个毫秒参数 |
 
 **NapCat 侧配置**（`onebot11_<QQ号>.json`）：
 
@@ -302,6 +320,30 @@ docker exec -it openclaw openclaw onboard   # 配置 AI 模型
 docker compose restart openclaw
 ```
 
+### 远程一键升级（跨服务器）
+
+已有实例的升级，在**宿主机**上执行一行命令即可：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/scripts/remote-upgrade.sh | bash
+```
+
+**国内加速（raw.githubusercontent.com 被墙时）：**
+
+```bash
+curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/scripts/remote-upgrade.sh | bash
+```
+
+**自定义容器名或数据目录：**
+
+```bash
+CONTAINER_NAME=my-bot DATA_DIR=/my/data curl -fsSL ... | bash
+```
+
+升级流程：下载源码 → 备份 → 容器内编译 → 部署 → 重启。失败自动回滚。
+
+---
+
 详细部署指南见 [docs/DOCKER.md](docs/DOCKER.md)。
 
 ---
@@ -321,6 +363,54 @@ docker compose restart openclaw
     }
   }
 }
+```
+
+---
+
+## Cron 定时任务
+
+OpenClaw 的 cron 系统支持定时执行任务并投递结果到 QQ 群。NapCat 插件提供两种投递模式：
+
+| 模式 | 说明 | 适用场景 |
+|------|------|----------|
+| `default` | OpenClaw announce 投递（走 message tool → napcat 插件） | 简单文本消息 |
+| `napcat` | 直接调用 NapCat HTTP API 发送（delivery=none，cron 内部 curl） | 需要可靠群发、避免 message tool 路由问题 |
+
+### 交互式创建
+
+在 OpenClaw 容器内执行：
+
+```bash
+node scripts/new-cron.cjs
+```
+
+按提示输入任务名、cron 表达式，选择投递模式。
+
+### 修复现有任务
+
+如果已有 cron 任务出现投递失败（`Channel napcat is unavailable for message actions`），执行：
+
+```bash
+node scripts/fix-cron.cjs
+```
+
+该脚本会自动将所有 NapCat 相关 cron 任务修复为 `delivery=none` + curl 直发模式，并注入完整的 HA Token。
+
+### 手动修复（单任务）
+
+```bash
+openclaw cron edit <job-id> \
+  --no-deliver \
+  --command-argv '["sh","-lc","curl -s -X POST http://napcat:3000/send_group_msg ..."]' \
+  --command-env HA_TOKEN=<你的完整token>
+```
+
+### 查看 cron 列表
+
+```bash
+openclaw cron list
+# 或 JSON 格式
+openclaw cron list --json
 ```
 
 ---
@@ -345,7 +435,7 @@ docker compose restart openclaw
 | `silentKeywords` | string[] | `[]` | 静默关键词（命中即丢弃） |
 | `historyLimit` | number | `5` | 携带历史消息条数 |
 | `rateLimitMs` | number | `1000` | 发送限速（ms） |
-| `passiveMode` | object | - | 旁观模式配置 |
+| `passiveMode` | object | - | 旁观模式配置，支持 `temperature`（0–100）快速调节 |
 | `deliverDebounce` | object | - | 消息防抖配置 |
 
 完整配置见 [docs/CONFIG.md](docs/CONFIG.md)。
@@ -358,6 +448,7 @@ docker compose restart openclaw
 - [CONFIG.md](docs/CONFIG.md) — 完整配置项
 - [COMMANDS.md](docs/COMMANDS.md) — 管理员指令
 - [DOCKER.md](docs/DOCKER.md) — Docker 部署指南
+- [UPGRADE.md](docs/UPGRADE.md) — 远程一键升级指南
 - [MODULES.md](docs/MODULES.md) — 模块职责
 - [CHANGELOG.md](docs/CHANGELOG.md) — 更新日志
 

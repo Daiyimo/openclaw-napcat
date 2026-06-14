@@ -62,6 +62,7 @@ vi.mock("../log-buffer.js", () => ({
 }));
 
 import { installMessageHandler } from "../gateway/inbound.js";
+import { invalidateOtherBotNamesCache } from "../gateway/trigger.js";
 import { resetDialogState } from "../dialog-state.js";
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -114,10 +115,10 @@ function makeConfig(overrides: Partial<QQConfig> = {}): QQConfig {
 function makeCtx(configOverrides: Partial<QQConfig> = {}): {
   client: OneBotClient;
   ctx: InboundContext;
-  dispatchReplyFromConfig: ReturnType<typeof vi.fn>;
+  dispatchReplyWithBufferedBlockDispatcher: ReturnType<typeof vi.fn>;
 } {
   const client = makeClient();
-  const dispatchReplyFromConfig = vi.fn().mockResolvedValue(undefined);
+  const dispatchReplyWithBufferedBlockDispatcher = vi.fn().mockResolvedValue(undefined);
 
   const channelRuntime: PluginRuntimeChannel = {
     activity: { record: vi.fn() },
@@ -126,12 +127,8 @@ function makeCtx(configOverrides: Partial<QQConfig> = {}): {
       recordInboundSession: vi.fn().mockResolvedValue(undefined),
     },
     reply: {
-      createReplyDispatcherWithTyping: vi.fn().mockReturnValue({
-        dispatcher: {},
-        replyOptions: {},
-      }),
       finalizeInboundContext: vi.fn().mockImplementation((c) => c),
-      dispatchReplyFromConfig,
+      dispatchReplyWithBufferedBlockDispatcher,
     },
   };
 
@@ -148,14 +145,14 @@ function makeCtx(configOverrides: Partial<QQConfig> = {}): {
     cfg: {} as any,
     channelRuntime,
     uploadCache: new UploadCache(),
-    inboundStore: { lastTrigger: new Map(), rateLimiter, config },
+    inboundStore: { lastTrigger: new Map(), rateLimiter, config, processedMsgIds: new Set<string>() },
     processedMsgIds: new Set(),
     knownGroupIds: new Set(),
     passiveMode: new PassiveModeManager(),
     log: { log: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
   };
 
-  return { client, ctx, dispatchReplyFromConfig };
+  return { client, ctx, dispatchReplyWithBufferedBlockDispatcher };
 }
 
 let _msgId = 1000;
@@ -201,26 +198,27 @@ async function flush(): Promise<void> {
 describe("installMessageHandler — inbound pipeline integration (28 cases)", () => {
   beforeEach(() => {
     resetDialogState();
+    invalidateOtherBotNamesCache();
   });
   afterEach(() => {
     vi.clearAllMocks();
   });
 
   // 1. Private message triggers AI
-  it("1. private message triggers dispatchReplyFromConfig", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx();
+  it("1. private message triggers dispatchReplyWithBufferedBlockDispatcher", async () => {
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx();
     installMessageHandler(client, ctx);
 
     client.emit("message", makePrivateEvent());
 
-    await vi.waitFor(() => expect(dispatchReplyFromConfig).toHaveBeenCalledOnce(), {
+    await vi.waitFor(() => expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce(), {
       timeout: 2000,
     });
   });
 
   // 2. Group message without @mention does NOT trigger
   it("2. group message without @mention does not trigger (requireMention=true)", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({ requireMention: true });
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({ requireMention: true });
     installMessageHandler(client, ctx);
 
     client.emit(
@@ -232,12 +230,12 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
     );
     await flush();
 
-    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+    expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
   });
 
   // 3. Group message WITH @mention triggers
-  it("3. group message with @mention triggers dispatchReplyFromConfig", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({ requireMention: true });
+  it("3. group message with @mention triggers dispatchReplyWithBufferedBlockDispatcher", async () => {
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({ requireMention: true });
     installMessageHandler(client, ctx);
 
     client.emit(
@@ -251,14 +249,14 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
       }),
     );
 
-    await vi.waitFor(() => expect(dispatchReplyFromConfig).toHaveBeenCalledOnce(), {
+    await vi.waitFor(() => expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce(), {
       timeout: 2000,
     });
   });
 
   // 3b. @mention of OTHER user (not bot) does NOT trigger
   it("3b. group message @mentioning other user (not bot) does not trigger", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({ requireMention: true });
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({ requireMention: true });
     installMessageHandler(client, ctx);
 
     client.emit(
@@ -273,12 +271,12 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
     );
     await flush();
 
-    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+    expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
   });
 
   // 3b-2. @mention of OTHER user does NOT trigger even with keyword trigger
   it("3b-2. group message @mentioning other user does not trigger even with keyword match", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({
       requireMention: true,
       keywordTriggers: ["wake up"],
     });
@@ -296,12 +294,12 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
     );
     await flush();
 
-    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+    expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
   });
 
   // 3c. @bot @other — bot is also mentioned, should trigger
   it("3c. group message @mentioning both bot and other user triggers (bot is @-mentioned)", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({ requireMention: true });
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({ requireMention: true });
     installMessageHandler(client, ctx);
 
     client.emit(
@@ -316,14 +314,14 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
       }),
     );
 
-    await vi.waitFor(() => expect(dispatchReplyFromConfig).toHaveBeenCalledOnce(), {
+    await vi.waitFor(() => expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce(), {
       timeout: 2000,
     });
   });
 
   // 3b-3. @mention of OTHER user does NOT trigger even with passive mode enabled
   it("3b-3. group message @mentioning other user does not trigger even with passive mode enabled", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({
       requireMention: true,
       passiveMode: { enabled: true, cooldownMs: 1000, minIntervalMs: 0 },
     });
@@ -341,12 +339,12 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
     );
     await flush();
 
-    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+    expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
   });
 
   // 3c. Message with [BOT:ID] signature is identified as bot message
   it("3c. group message containing [BOT:99999] signature is dropped as bot message", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({ requireMention: true });
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({ requireMention: true });
     installMessageHandler(client, ctx);
 
     client.emit(
@@ -361,12 +359,12 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
     );
     await flush();
 
-    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+    expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
   });
 
   // 3d. Message with [BOT:ID] signature adds sender to knownBot cache
   it("3d. [BOT:ID] signature adds sender to knownBot cache", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({ requireMention: true });
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({ requireMention: true });
     installMessageHandler(client, ctx);
 
     // First message with signature → dropped, added to cache
@@ -379,10 +377,10 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
       }),
     );
     await flush();
-    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+    expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
 
     // Second message from same user WITHOUT signature → still identified via cache
-    (dispatchReplyFromConfig as any).mockClear();
+    (dispatchReplyWithBufferedBlockDispatcher as any).mockClear();
     client.emit(
       "message",
       makeGroupEvent({
@@ -392,12 +390,12 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
       }),
     );
     await flush();
-    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+    expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
   });
 
   // 3e. knownBotIds whitelist: manual bot ID is recognized without signature
   it("3e. knownBotIds whitelist recognizes bot without sender.bot or signature", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({
       requireMention: true,
       knownBotIds: [99999],  // manual whitelist
     });
@@ -414,12 +412,12 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
     );
     await flush();
 
-    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+    expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
   });
 
   // 3f. Zero-width signature is detected as bot message
   it("3f. zero-width signature (​ID‌) is detected as bot message", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({ requireMention: true });
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({ requireMention: true });
     installMessageHandler(client, ctx);
 
     // Zero-width signature: U+200B + ID + U+200C
@@ -434,7 +432,7 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
     );
     await flush();
 
-    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+    expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
   });
 
   // ── 3g-3j. 指向性门控（v1.11+）───────────────────────────────────
@@ -447,7 +445,7 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
     const { recordBotInfo } = await import("../known-bots-store.js");
     recordBotInfo(ACCOUNT_ID, { selfId: "99999", nickname: "云崽" });
 
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({
       requireMention: false,  // 即便不要求 @，门控也必须拦
       _selfName: "爱弥斯",    // 本 bot 是爱弥斯
       knownBotIds: [99999],   // 已知 bot: 云崽(99999)
@@ -465,7 +463,7 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
     );
     await flush();
 
-    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+    expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
     // 守卫拒绝也不应发（因为消息根本不到守卫）
     expect(client.sendGroupMsg).not.toHaveBeenCalledWith(
       GROUP_ID,
@@ -475,7 +473,7 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
 
   // 3h. 群聊人类消息 @段指向其他 bot → 本 bot 静默
   it("3h. group msg @-mentioning other known bot is silently dropped", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({
       requireMention: false,
       knownBotIds: [99999],  // 已知 bot: 云崽
     });
@@ -494,7 +492,7 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
     );
     await flush();
 
-    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+    expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
     expect(client.sendGroupMsg).not.toHaveBeenCalledWith(
       GROUP_ID,
       expect.stringContaining("敏感操作"),
@@ -503,7 +501,7 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
 
   // 3i. 群聊人类消息 @ + 名字都不命中 → 中性消息放行至被动模式（不再被门控拦截）
   it("3i. group msg with no @ and no bot name passes through gate (reaches passive mode)", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({
       requireMention: true,
       _selfName: "爱弥斯",
       knownBotIds: [99999],
@@ -522,12 +520,12 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
     await flush();
 
     // 消息到达框架，由被动模式的冷却/间隔策略决定是否回复
-    expect(dispatchReplyFromConfig).toHaveBeenCalled();
+    expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalled();
   });
 
   // 3j. 群聊人类消息 @本 bot → 放行（保持现有行为）
   it("3j. group msg @-mentioning this bot still dispatches (regression)", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({ requireMention: true });
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({ requireMention: true });
     installMessageHandler(client, ctx);
 
     client.emit(
@@ -542,7 +540,7 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
     );
 
     // @本 bot 命中 → 顶层门控放行 → 进守卫 → 非 admin 拒绝
-    // 但 dispatchReplyFromConfig 不会被调用（守卫拦截）
+    // 但 dispatchReplyWithBufferedBlockDispatcher 不会被调用（守卫拦截）
     await flush();
     expect(client.sendGroupMsg).toHaveBeenCalledWith(
       GROUP_ID,
@@ -552,46 +550,46 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
 
   // 4. Self-message filtered
   it("4. message from self (userId === selfId) is filtered out", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx();
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx();
     installMessageHandler(client, ctx);
 
     client.emit("message", makePrivateEvent({ user_id: SELF_ID }));
     await flush();
 
-    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+    expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
   });
 
   // 5. Deduplication — same message_id processed only once
   it("5. duplicate message_id is processed only once", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({ enableDeduplication: true });
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({ enableDeduplication: true });
     installMessageHandler(client, ctx);
 
     const event = makePrivateEvent({ message_id: 99901 });
     client.emit("message", event);
-    await vi.waitFor(() => expect(dispatchReplyFromConfig).toHaveBeenCalledOnce(), {
+    await vi.waitFor(() => expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce(), {
       timeout: 2000,
     });
 
     client.emit("message", { ...event }); // identical message_id
     await flush();
 
-    expect(dispatchReplyFromConfig).toHaveBeenCalledTimes(1);
+    expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1);
   });
 
   // 6. blockedUsers filter
   it("6. message from a blocked user is dropped", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({ blockedUsers: [USER_ID] });
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({ blockedUsers: [USER_ID] });
     installMessageHandler(client, ctx);
 
     client.emit("message", makePrivateEvent());
     await flush();
 
-    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+    expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
   });
 
   // 7. Admin /ping command — intercepted before AI dispatch
   it("7. admin /ping in private chat replies with Pong and does not dispatch AI", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({ admins: [USER_ID] });
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({ admins: [USER_ID] });
     installMessageHandler(client, ctx);
 
     client.emit(
@@ -610,12 +608,12 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
         ),
       { timeout: 2000 },
     );
-    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+    expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
   });
 
   // 8. Inbound rate limiting — pre-seed rate limiter to simulate a recent event
   it("8. message within rate-limit window is dropped", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({ inboundRateLimitMs: 5000 });
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({ inboundRateLimitMs: 5000 });
     installMessageHandler(client, ctx);
 
     // Simulate that this user just triggered (record 3 messages to fill window)
@@ -629,12 +627,12 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
     client.emit("message", makePrivateEvent());
     await flush();
 
-    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+    expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
   });
 
   // 9. Silent keyword filter
   it("9. message containing a silent keyword is silently dropped", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({ silentKeywords: ["badword"] });
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({ silentKeywords: ["badword"] });
     installMessageHandler(client, ctx);
 
     client.emit(
@@ -646,11 +644,11 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
     );
     await flush();
 
-    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+    expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
   });
 
   it("9b. keyword as standalone word matches (ww in 'ww签到') but not in 'www'", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({ silentKeywords: ["ww"] });
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({ silentKeywords: ["ww"] });
     installMessageHandler(client, ctx);
 
     // "ww签到" → ww is a standalone word before Chinese chars → should match
@@ -662,10 +660,10 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
       }),
     );
     await flush();
-    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+    expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
 
     // reset mock call count
-    (dispatchReplyFromConfig as any).mockClear();
+    (dispatchReplyWithBufferedBlockDispatcher as any).mockClear();
 
     // "www" → ww is part of a longer word → should NOT match → dispatch should fire
     // use private event to bypass requireMention check
@@ -677,12 +675,12 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
       }),
     );
     await flush();
-    expect(dispatchReplyFromConfig).toHaveBeenCalled();
+    expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalled();
   });
 
   // 10. meta_event is ignored
   it("10. meta_event is ignored — no dispatch", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx();
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx();
     installMessageHandler(client, ctx);
 
     client.emit("message", {
@@ -693,13 +691,13 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
     } as unknown as OneBotEvent);
     await flush();
 
-    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+    expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
   });
 
   // 11. Keyword trigger fires when message is directed at bot
   it("11. group message matching a keywordTrigger fires dispatch when msg directed at bot", async () => {
     // v1.11+ 顶层门控：keyword 触发也要求消息语义指向本 bot（通过名字触发）
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({
       requireMention: true,
       keywordTriggers: ["help-me"],
       _selfName: "help-me",  // 消息文本 "help-me please!" 命中名字 → 通过门控
@@ -714,7 +712,7 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
       }),
     );
 
-    await vi.waitFor(() => expect(dispatchReplyFromConfig).toHaveBeenCalledOnce(), {
+    await vi.waitFor(() => expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce(), {
       timeout: 2000,
     });
   });
@@ -722,7 +720,7 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
   // 12. Group message updates knownGroupIds
   it("12. group message adds group_id to knownGroupIds", async () => {
     // v1.11+ 顶层门控：消息必须指向本 bot 才放行（@段）
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({ requireMention: false });
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({ requireMention: false });
     installMessageHandler(client, ctx);
 
     expect(ctx.knownGroupIds.has(String(GROUP_ID))).toBe(false);
@@ -738,7 +736,7 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
       }),
     );
 
-    await vi.waitFor(() => expect(dispatchReplyFromConfig).toHaveBeenCalledOnce(), {
+    await vi.waitFor(() => expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce(), {
       timeout: 2000,
     });
 
@@ -747,7 +745,7 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
 
   // 13. v1.8+ 新行为：bot sender 消息走对话控制（受轮数/stopped 约束），不再 100% 丢弃
   it("13. bot sender message passes through dialog control (not 100% dropped)", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({ requireMention: false });
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({ requireMention: false });
     installMessageHandler(client, ctx);
 
     client.emit(
@@ -758,14 +756,14 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
       }),
     );
 
-    await vi.waitFor(() => expect(dispatchReplyFromConfig).toHaveBeenCalledOnce(), {
+    await vi.waitFor(() => expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce(), {
       timeout: 2000,
     });
   });
 
   // 14. Bot sender in private chat is NOT filtered (only group)
   it("14. private message from bot sender is NOT filtered", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx();
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx();
     installMessageHandler(client, ctx);
 
     client.emit(
@@ -776,14 +774,14 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
       }),
     );
 
-    await vi.waitFor(() => expect(dispatchReplyFromConfig).toHaveBeenCalledOnce(), {
+    await vi.waitFor(() => expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce(), {
       timeout: 2000,
     });
   });
 
   // 15. ignoreSenderBot=false: bot 消息按普通用户消息处理（不 markBotActive，走完整派发）
   it("15. ignoreSenderBot=false treats bot messages as regular user messages", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({
       requireMention: false,
       ignoreSenderBot: false,
     });
@@ -798,7 +796,7 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
       }),
     );
 
-    await vi.waitFor(() => expect(dispatchReplyFromConfig).toHaveBeenCalledOnce(), {
+    await vi.waitFor(() => expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce(), {
       timeout: 2000,
     });
     // ignoreSenderBot=false 时不调用 markBotActive（不抑制友军）
@@ -807,7 +805,7 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
 
   // 16. ignoreSenderBot=true: 记录 bot 活跃 + 走对话控制
   it("16. bot message with ignoreSenderBot=true records bot activity and goes through dialog control", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({
       requireMention: false,
       ignoreSenderBot: true,
     });
@@ -823,7 +821,7 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
       }),
     );
 
-    await vi.waitFor(() => expect(dispatchReplyFromConfig).toHaveBeenCalledOnce(), {
+    await vi.waitFor(() => expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce(), {
       timeout: 2000,
     });
     expect(markSpy).toHaveBeenCalledWith("group:88888");
@@ -831,7 +829,7 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
 
   // 17. v1.8+ 新行为：bot 消息达到 botDialogMaxRounds 上限后被静默
   it("17. bot message dropped when dialog rounds exceed botDialogMaxRounds", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({
       requireMention: false,
       botDialogMaxRounds: 2,  // 设为 2 便于测试
     });
@@ -842,33 +840,33 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
       sender: { user_id: 99999, nickname: "BotA", bot: true },
       user_id: 99999,
     }));
-    await vi.waitFor(() => expect(dispatchReplyFromConfig).toHaveBeenCalledTimes(1), {
+    await vi.waitFor(() => expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1), {
       timeout: 2000,
     });
 
     // 第二条 bot 消息：rounds=1，< 2，通过，rounds 增至 2
-    dispatchReplyFromConfig.mockClear();
+    dispatchReplyWithBufferedBlockDispatcher.mockClear();
     client.emit("message", makeGroupEvent({
       sender: { user_id: 88888, nickname: "BotB", bot: true },
       user_id: 88888,
     }));
-    await vi.waitFor(() => expect(dispatchReplyFromConfig).toHaveBeenCalledTimes(1), {
+    await vi.waitFor(() => expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1), {
       timeout: 2000,
     });
 
     // 第三条 bot 消息：rounds=2，>= 2，静默
-    dispatchReplyFromConfig.mockClear();
+    dispatchReplyWithBufferedBlockDispatcher.mockClear();
     client.emit("message", makeGroupEvent({
       sender: { user_id: 77777, nickname: "BotC", bot: true },
       user_id: 77777,
     }));
     await flush();
-    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+    expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
   });
 
   // 18. v1.8+ 新行为：用户消息重置对话轮数
   it("18. user message resets dialog rounds counter", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({
       requireMention: false,
       botDialogMaxRounds: 1,
     });
@@ -879,22 +877,22 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
       sender: { user_id: 99999, nickname: "BotA", bot: true },
       user_id: 99999,
     }));
-    await vi.waitFor(() => expect(dispatchReplyFromConfig).toHaveBeenCalledTimes(1), {
+    await vi.waitFor(() => expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1), {
       timeout: 2000,
     });
 
     // 第二条 bot 消息：rounds=1，>= 1，静默
-    dispatchReplyFromConfig.mockClear();
+    dispatchReplyWithBufferedBlockDispatcher.mockClear();
     client.emit("message", makeGroupEvent({
       sender: { user_id: 88888, nickname: "BotB", bot: true },
       user_id: 88888,
     }));
     await flush();
-    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+    expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
 
     // 用户消息：重置 rounds=0
     // v1.11+ 顶层门控：消息必须指向本 bot 才放行（@段）
-    dispatchReplyFromConfig.mockClear();
+    dispatchReplyWithBufferedBlockDispatcher.mockClear();
     client.emit("message", makeGroupEvent({
       user_id: 55555,
       message: [
@@ -903,7 +901,7 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
       ],
       raw_message: `[CQ:at,qq=${SELF_ID}] 新话题`,
     }));
-    await vi.waitFor(() => expect(dispatchReplyFromConfig).toHaveBeenCalledTimes(1), {
+    await vi.waitFor(() => expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1), {
       timeout: 2000,
     });
   });
@@ -933,13 +931,13 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
     await flush();
 
     // 此后 bot 消息应被静默（stopped 状态生效）
-    // 不依赖 dispatchReplyFromConfig 调用次数（之前 bot 消息已派发）
+    // 不依赖 dispatchReplyWithBufferedBlockDispatcher 调用次数（之前 bot 消息已派发）
     // 验证：本次用户消息之后，再发 bot 消息应被 stop 拦截
   });
 
   // 20. 级联阻断：bot 消息（sender.bot=true）即使含敏感词也不触发守卫
   it("20. bot message with sensitive keywords is NOT blocked by sensitive guard", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({
       requireMention: false,
       admins: [99999],  // 当前用户非 admin
     });
@@ -958,7 +956,7 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
     await flush();
 
     // bot 消息应正常派发给 AI（走对话控制），不发送守卫拒绝
-    expect(dispatchReplyFromConfig).toHaveBeenCalled();
+    expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalled();
     // 守卫拒绝消息绝不能发给群
     expect(client.sendGroupMsg).not.toHaveBeenCalledWith(
       GROUP_ID,
@@ -968,7 +966,7 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
 
   // 21. 级联阻断：bot 消息带 [BOT:ID] 签名也跳过守卫
   it("21. bot message with [BOT:ID] signature and sensitive keywords is NOT blocked", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({
       requireMention: false,
       admins: [99999],
       knownBotIds: [99999],  // 手动白名单识别
@@ -987,13 +985,13 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
     );
     await flush();
 
-    expect(dispatchReplyFromConfig).toHaveBeenCalled();
+    expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalled();
     expect(client.sendGroupMsg).not.toHaveBeenCalled();
   });
 
   // 22. 级联阻断：bot 缓存的用户（无签名）也跳过守卫
   it("22. cached bot user (no signature) with sensitive keywords is NOT blocked", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({
       requireMention: false,
       admins: [99999],
     });
@@ -1013,13 +1011,13 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
     );
     await flush();
 
-    expect(dispatchReplyFromConfig).toHaveBeenCalled();
+    expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalled();
     expect(client.sendGroupMsg).not.toHaveBeenCalled();
   });
 
   // 23. 级联阻断：[SYS:GUARD] 标记消息仍被丢弃（向后兼容）
   it("23. message containing [SYS:GUARD] tag is still silently dropped", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({
       requireMention: false,
     });
     installMessageHandler(client, ctx);
@@ -1038,14 +1036,14 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
     await flush();
 
     // [SYS:GUARD] 消息被静默丢弃，不派发给 AI
-    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+    expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
     // 也不会再发一次守卫拒绝（避免死循环）
     expect(client.sendGroupMsg).not.toHaveBeenCalled();
   });
 
   // 24. 人类用户的敏感请求仍被正确拦截（回归验证）
   it("24. human user sensitive request is still blocked (regression)", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({
       requireMention: false,
       admins: [99999],  // USER_ID=55555 不是 admin
     });
@@ -1069,7 +1067,7 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
       GROUP_ID,
       expect.stringContaining("敏感操作"),
     );
-    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+    expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
   });
 });
 
@@ -1083,7 +1081,7 @@ describe("installMessageHandler — sensitive file guard (v1.10+)", () => {
   });
 
   it("test_non_admin_group_at_bot_modify_soul_md_is_blocked", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({
       requireMention: false,
       // 不在 admins 名单里，USER_ID=55555 非 admin
       admins: [99999],
@@ -1106,11 +1104,11 @@ describe("installMessageHandler — sensitive file guard (v1.10+)", () => {
       GROUP_ID,
       expect.stringContaining("敏感操作"),
     );
-    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+    expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
   });
 
   it("test_non_admin_private_modify_persona_intent_is_blocked", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({
       admins: [99999],
     });
     installMessageHandler(client, ctx);
@@ -1128,11 +1126,11 @@ describe("installMessageHandler — sensitive file guard (v1.10+)", () => {
       USER_ID,
       expect.stringContaining("敏感操作"),
     );
-    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+    expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
   });
 
   it("test_admin_modify_soul_md_is_not_blocked", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({
       admins: [USER_ID],  // USER_ID 是 admin
     });
     installMessageHandler(client, ctx);
@@ -1146,7 +1144,7 @@ describe("installMessageHandler — sensitive file guard (v1.10+)", () => {
     );
 
     // admin 走正常派发路径
-    await vi.waitFor(() => expect(dispatchReplyFromConfig).toHaveBeenCalledOnce(), {
+    await vi.waitFor(() => expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce(), {
       timeout: 2000,
     });
     // 拒绝消息绝对没发
@@ -1157,7 +1155,7 @@ describe("installMessageHandler — sensitive file guard (v1.10+)", () => {
   });
 
   it("test_guard_disabled_does_not_block_non_admin", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({
       admins: [99999],
       sensitiveFileGuard: { enabled: false },
     });
@@ -1171,14 +1169,14 @@ describe("installMessageHandler — sensitive file guard (v1.10+)", () => {
       }),
     );
 
-    await vi.waitFor(() => expect(dispatchReplyFromConfig).toHaveBeenCalledOnce(), {
+    await vi.waitFor(() => expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce(), {
       timeout: 2000,
     });
   });
 
   it("test_custom_reject_message_is_used", async () => {
     const customMsg = "🛑 这是自定义拒答文案，请联系管理员";
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({
       admins: [99999],
       sensitiveFileGuard: { enabled: true, rejectMessage: customMsg },
     });
@@ -1197,11 +1195,11 @@ describe("installMessageHandler — sensitive file guard (v1.10+)", () => {
       USER_ID,
       expect.stringContaining(customMsg),
     );
-    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+    expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
   });
 
   it("test_unrelated_chat_passes_through", async () => {
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({
       admins: [99999],
     });
     installMessageHandler(client, ctx);
@@ -1214,7 +1212,7 @@ describe("installMessageHandler — sensitive file guard (v1.10+)", () => {
       }),
     );
 
-    await vi.waitFor(() => expect(dispatchReplyFromConfig).toHaveBeenCalledOnce(), {
+    await vi.waitFor(() => expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce(), {
       timeout: 2000,
     });
     // 没有拒绝消息发出
@@ -1233,7 +1231,7 @@ describe("installMessageHandler — sharedAdmins cross-bot admin", () => {
 
   it("test_shared_admin_can_modify_soul_md_even_without_per_bot_admins", async () => {
     // 戴以沫(USER_ID) 不在 admins 里，但在 sharedAdmins 里
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({
       requireMention: false,
       admins: [],  // 空 per-bot admins
       sharedAdmins: [USER_ID],  // 通过 sharedAdmins 成为 admin
@@ -1249,7 +1247,7 @@ describe("installMessageHandler — sharedAdmins cross-bot admin", () => {
     );
 
     // sharedAdmins 用户应正常派发，不被守卫拦截
-    await vi.waitFor(() => expect(dispatchReplyFromConfig).toHaveBeenCalledOnce(), {
+    await vi.waitFor(() => expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce(), {
       timeout: 2000,
     });
     expect(client.sendPrivateMsg).not.toHaveBeenCalledWith(
@@ -1260,7 +1258,7 @@ describe("installMessageHandler — sharedAdmins cross-bot admin", () => {
 
   it("test_non_shared_non_per_bot_admin_is_still_blocked", async () => {
     // USER_ID 既不在 admins 也不在 sharedAdmins → 仍然被拦截
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({
       requireMention: false,
       admins: [99999],
       sharedAdmins: [88888],  // 另一个用户
@@ -1280,12 +1278,12 @@ describe("installMessageHandler — sharedAdmins cross-bot admin", () => {
       USER_ID,
       expect.stringContaining("敏感操作"),
     );
-    expect(dispatchReplyFromConfig).not.toHaveBeenCalled();
+    expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
   });
 
   it("test_per_bot_admins_still_work_alongside_sharedAdmins", async () => {
     // admins + sharedAdmins 叠加：任一命中即为 admin
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({
       requireMention: false,
       admins: [USER_ID],       // per-bot admin
       sharedAdmins: [88888],   // shared admin（另一个用户）
@@ -1300,14 +1298,14 @@ describe("installMessageHandler — sharedAdmins cross-bot admin", () => {
       }),
     );
 
-    await vi.waitFor(() => expect(dispatchReplyFromConfig).toHaveBeenCalledOnce(), {
+    await vi.waitFor(() => expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce(), {
       timeout: 2000,
     });
   });
 
   it("test_sharedAdmins_empty_does_not_grant_access", async () => {
     // sharedAdmins: [] 显式空数组 → 不授予任何额外权限
-    const { client, ctx, dispatchReplyFromConfig } = makeCtx({
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({
       requireMention: false,
       admins: [99999],
       sharedAdmins: [],

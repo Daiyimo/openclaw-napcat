@@ -9,17 +9,18 @@ import {
   migrateBaseNameToDefaultAccount,
 } from "openclaw/plugin-sdk";
 import { OneBotClient } from "./client.js";
-import { QQConfigSchema, type QQConfig, getQQConfigDefaults } from "./config.js";
+import { QQConfigSchema, type QQConfig, getQQConfigDefaults, resolvePassiveModeTemperature } from "./config.js";
 import { registerClientsMap } from "./proactive.js";
 import { normalizeTarget } from "./message-parser.js";
 import { PassiveModeManager } from "./passive-mode.js";
 import type { InboundRateLimitStore } from "./types/channel-types.js";
 import { resolveOutboundSessionRoute } from "./utils/resolve-session-route.js";
+import { initConfigRef } from "./config-watcher.js";
 
 // ── 子模块委托 ─────────────────────────────────────────────────────────────
 import { startAccount } from "./gateway/index.js";
 import { sendText } from "./outbound/send-text.js";
-import { sendMedia, deleteMessage } from "./outbound/send-media.js";
+import { sendMedia } from "./outbound/send-media.js";
 
 export type ResolvedQQAccount = ChannelAccountSnapshot & {
   config: QQConfig;
@@ -35,6 +36,8 @@ const clients = new Map<string, OneBotClient>();
 registerClientsMap(clients);
 
 const inboundStores = new Map<string, InboundRateLimitStore>();
+/** 并发启动锁（模块级共享，防止同一账号并发 startAccount 竞态） */
+export const startingPromises = new Map<string, Promise<void>>();
 /** 旁观模式冷却状态（模块级单例，startAccount 和 outbound.sendText 共享） */
 const passiveMode = new PassiveModeManager();
 /**
@@ -75,10 +78,6 @@ function setBotSelfId(accountId: string, selfId: number): void {
   botSelfIds.set(accountId, selfId);
 }
 
-// ============================================================
-// 插件定义
-// ============================================================
-
 export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
   id: "napcat",
   meta: {
@@ -92,7 +91,9 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
     chatTypes: ["direct", "group"],
     media: true,
     reactions: true,
+    reply: true,
     unsend: true,
+    nativeCommands: true,
   },
   configSchema: buildChannelConfigSchema(QQConfigSchema),
   config: {
@@ -106,10 +107,21 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
       const id = accountId ?? DEFAULT_ACCOUNT_ID;
       const qq = cfg.channels?.napcat;
       const accountConfig = id === DEFAULT_ACCOUNT_ID ? qq : qq?.accounts?.[id];
-      const parsed = QQConfigSchema.safeParse(accountConfig ?? {});
+      const cleanConfig = accountConfig ? { ...accountConfig } : {};
+      delete (cleanConfig as Record<string, unknown>)._selfId;
+      delete (cleanConfig as Record<string, unknown>)._selfName;
+      const parsed = QQConfigSchema.safeParse(cleanConfig ?? {});
       const rawConfig = parsed.success ? parsed.data : (accountConfig || {});
       // safeParse 不填充 .default()，手动合并默认值（用户显式设置的优先）
       const config: QQConfig = { ...getQQConfigDefaults(), ...rawConfig };
+      // passiveMode.temperature 优先映射到三个子参数
+      const pm = config.passiveMode;
+      if (pm?.temperature !== undefined && pm.temperature !== null) {
+        const mapped = resolvePassiveModeTemperature(pm.temperature);
+        if (mapped) {
+          config.passiveMode = { ...pm, ...mapped };
+        }
+      }
       return {
         accountId: id,
         name: accountConfig?.name ?? "QQ Default",
@@ -273,8 +285,8 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
       accountId: string;
       abortSignal: AbortSignal;
       log?: any;
-      getStatus?: () => any;
-      setStatus?: (next: any) => void;
+      getStatus: () => any;
+      setStatus: (next: any) => void;
       channelRuntime?: import("openclaw/plugin-sdk").PluginRuntimeChannel;
       runtime?: any;
     }) => {
@@ -287,10 +299,10 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
           log: ctx.log ?? console,
           getStatus: ctx.getStatus,
           setStatus: ctx.setStatus,
-          channelRuntime: ctx.channelRuntime,
+          channelRuntime: ctx.channelRuntime as any,
           runtime: ctx.runtime,
         },
-        { clients, knownGroupIds: getKnownGroupIds(ctx.accountId), inboundStores, passiveMode, setBotSelfId },
+        { clients, knownGroupIds: getKnownGroupIds(ctx.accountId), inboundStores, passiveMode, setBotSelfId, startingPromises },
       );
     },
     logoutAccount: async ({ accountId, cfg: _cfg }: { accountId: string; cfg: OpenClawConfig; account?: any; runtime?: any; log?: any }) => {
@@ -299,8 +311,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
   },
   outbound: {
     deliveryMode: "direct" as const,
-    sendText: async ({ to, text, accountId, replyToId, cfg }: { to: string; text: string; accountId?: string | null; replyToId?: string | null; cfg?: any }) => {
-      console.log(`[napcat-QQ][outbound.sendText] called with to=${to}, accountId=${accountId}`);
+    sendText: async ({ to, text, accountId, replyToId, cfg, log }: { to: string; text: string; accountId?: string | null; replyToId?: string | null; cfg?: any; log?: any }) => {
       const resolvedAid = accountId || DEFAULT_ACCOUNT_ID;
       // 提取本 bot 的 QQ 号和昵称用于生成友军签名
       // 优先用昵称（更可读），UID 作为兜底
@@ -308,8 +319,8 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
       const selfId = getBotSelfId(resolvedAid) ?? cfg?.channels?.napcat?._selfId;
       const selfName = accountCfg?._selfName;
       return sendText(
-        { to, text, accountId, botSelfId: selfId, botSelfName: selfName, cfg: accountCfg },
-        { getClient: getClientForAccount, knownGroupIds: getKnownGroupIds(resolvedAid), passiveMode },
+        { to, text, accountId, replyToId, botSelfId: selfId, botSelfName: selfName, cfg: accountCfg },
+        { getClient: getClientForAccount, knownGroupIds: getKnownGroupIds(resolvedAid), passiveMode, log },
       );
     },
     sendMedia: async ({ to, text, mediaUrl, accountId, replyToId }) => {
@@ -317,13 +328,6 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
       return sendMedia(
         { to, text, mediaUrl, accountId, replyToId },
         { getClient: getClientForAccount, knownGroupIds: getKnownGroupIds(resolvedAid) },
-      );
-    },
-    // @ts-ignore
-    deleteMessage: async ({ messageId, accountId }) => {
-      return deleteMessage(
-        { messageId, accountId },
-        { getClient: getClientForAccount },
       );
     },
   },

@@ -39,8 +39,10 @@ function parseBool(raw, fallback) {
 
 function parseIntOpt(raw) {
   if (!raw) return undefined;
-  const n = parseInt(raw, 10);
-  return isNaN(n) ? undefined : n;
+  const trimmed = raw.trim();
+  // 防御 parseInt 的部分匹配："50abc" → 50 静默接受；正则校验确保整串都是数字
+  if (!/^-?\d+$/.test(trimmed)) return undefined;
+  return parseInt(trimmed, 10);
 }
 
 const env = process.env;
@@ -55,6 +57,9 @@ if (env.QQ_REVERSE_WS_PORT)  qqEnv.reverseWsPort   = parseIntOpt(env.QQ_REVERSE_
 // 权限
 const admins = parseIntList(env.QQ_ADMINS);
 if (admins)                  qqEnv.admins          = admins;
+
+const sharedAdmins = parseIntList(env.QQ_SHARED_ADMINS);
+if (sharedAdmins)            qqEnv.sharedAdmins    = sharedAdmins;
 
 const allowedGroups = parseIntList(env.QQ_ALLOWED_GROUPS);
 if (allowedGroups)           qqEnv.allowedGroups   = allowedGroups;
@@ -100,6 +105,15 @@ if (env.QQ_PASSIVE_MODE_ENABLED !== undefined) {
   const minIntervalMs = parseIntOpt(env.QQ_PASSIVE_MODE_MIN_INTERVAL_MS);
   if (minIntervalMs !== undefined) passiveMode.minIntervalMs = minIntervalMs;
   if (env.QQ_PASSIVE_MODE_SYSTEM_PROMPT) passiveMode.systemPrompt = env.QQ_PASSIVE_MODE_SYSTEM_PROMPT;
+  // temperature：0-100 单一数值控制主动程度，覆盖三个毫秒参数
+  const temperature = parseIntOpt(env.QQ_PASSIVE_MODE_TEMPERATURE);
+  if (temperature !== undefined) {
+    if (temperature < 0 || temperature > 100) {
+      console.warn(`[setup-config] QQ_PASSIVE_MODE_TEMPERATURE=${temperature} out of range [0,100], ignoring`);
+    } else {
+      passiveMode.temperature = temperature;
+    }
+  }
   qqEnv.passiveMode = passiveMode;
 }
 

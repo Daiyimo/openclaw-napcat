@@ -80,6 +80,20 @@ export class InboundRateLimiter {
   }
 
   /**
+   * 更新窗口大小（配置热重载时调用）
+   */
+  updateWindowMs(windowMs: number): void {
+    this.config.windowMs = windowMs;
+  }
+
+  /**
+   * 获取当前限流配置（用于 /ratelimit 命令展示阈值参数）
+   */
+  getConfig(): { windowMs: number; maxMessages: number } {
+    return { windowMs: this.config.windowMs, maxMessages: this.config.maxMessages };
+  }
+
+  /**
    * 检查是否允许通过
    *
    * @param userId - 用户 QQ 号（用户级限流）
@@ -268,7 +282,7 @@ export class InboundRateLimiter {
       return aLast - bLast;
     });
 
-    const toRemove = Math.min(CLEANUP_BATCH, this.windows.size - MAX_ACTIVE_KEYS + CLEANUP_BATCH);
+    const toRemove = Math.min(CLEANUP_BATCH, this.windows.size - MAX_ACTIVE_KEYS);
     for (let i = 0; i < toRemove && i < entries.length; i++) {
       this.windows.delete(entries[i][0]);
     }

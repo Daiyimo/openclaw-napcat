@@ -5,11 +5,11 @@
  * handler 接收统一上下文，返回处理结果字符串或 null（未处理）。
  */
 
-import type { OneBotClient } from "../client.js";
-import type { OneBotMessage } from "../types.js";
+import type { OneBotClient } from "./client.js";
+import type { OneBotMessage } from "./types.js";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
-import type { ConfigRef } from "../config-watcher.js";
-import type { InboundRateLimiter } from "../rate-limiter.js";
+import type { ConfigRef } from "./config-watcher.js";
+import type { InboundRateLimiter } from "./rate-limiter.js";
 
 // ── 类型定义 ──────────────────────────────────────────────────────────
 

@@ -54,4 +54,69 @@ describe("updateConfigRef", () => {
     expect(result.success).toBe(true);
     expect(result.connectionChanged).toBe(false);
   });
+
+  // ── temperature 热更新映射 ──────────────────────────────────────────────
+
+  it("maps temperature to sub-parameters on reload", () => {
+    const initial = { passiveMode: { cooldownMs: 10000 } } as any;
+    const ref = createConfigRef(initial);
+    const result = updateConfigRef(ref, { passiveMode: { temperature: 0 } });
+    expect(result.success).toBe(true);
+    // temperature=0 → cooldown=60s, minInterval=120s, botSuppression=300s
+    expect(ref.current.passiveMode.cooldownMs).toBe(60_000);
+    expect(ref.current.passiveMode.minIntervalMs).toBe(120_000);
+    expect(ref.current.passiveMode.botSuppressionMs).toBe(300_000);
+  });
+
+  it("preserves temperature=50 defaults on reload", () => {
+    const initial = { passiveMode: { cooldownMs: 5000 } } as any;
+    const ref = createConfigRef(initial);
+    const result = updateConfigRef(ref, { passiveMode: { temperature: 50 } });
+    expect(result.success).toBe(true);
+    // temperature=50 → matches original defaults
+    expect(ref.current.passiveMode.cooldownMs).toBe(10_000);
+    expect(ref.current.passiveMode.minIntervalMs).toBe(30_000);
+    expect(ref.current.passiveMode.botSuppressionMs).toBe(120_000);
+  });
+
+  it("maps temperature=100 to most active settings on reload", () => {
+    const ref = createConfigRef({ passiveMode: { cooldownMs: 10000 } } as any);
+    const result = updateConfigRef(ref, { passiveMode: { temperature: 100 } });
+    expect(result.success).toBe(true);
+    expect(ref.current.passiveMode.cooldownMs).toBe(2_000);
+    expect(ref.current.passiveMode.minIntervalMs).toBe(5_000);
+    expect(ref.current.passiveMode.botSuppressionMs).toBe(30_000);
+  });
+
+  it("preserves systemPrompt when temperature is set on reload", () => {
+    const ref = createConfigRef({} as any);
+    const result = updateConfigRef(ref, {
+      passiveMode: { temperature: 75, systemPrompt: "自定义人设" },
+    });
+    expect(result.success).toBe(true);
+    expect(ref.current.passiveMode.systemPrompt).toBe("自定义人设");
+  });
+
+  it("reloads passiveMode to undefined when not specified in reload", () => {
+    // safeParse: passiveMode is optional, so it becomes undefined when not provided
+    const initial = {
+      passiveMode: { cooldownMs: 15000, minIntervalMs: 45000, botSuppressionMs: 180000 },
+    } as any;
+    const ref = createConfigRef(initial);
+    const result = updateConfigRef(ref, { rateLimitMs: 2000 });
+    expect(result.success).toBe(true);
+    // passiveMode not in reload config → undefined (optional field)
+    expect(ref.current.passiveMode).toBeUndefined();
+  });
+
+  it("preserves explicit sub-params when included in reload config", () => {
+    const ref = createConfigRef({ passiveMode: { cooldownMs: 15000 } } as any);
+    const result = updateConfigRef(ref, {
+      passiveMode: { cooldownMs: 15000, minIntervalMs: 45000, botSuppressionMs: 180000 },
+    });
+    expect(result.success).toBe(true);
+    expect(ref.current.passiveMode.cooldownMs).toBe(15000);
+    expect(ref.current.passiveMode.minIntervalMs).toBe(45000);
+    expect(ref.current.passiveMode.botSuppressionMs).toBe(180000);
+  });
 });

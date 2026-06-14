@@ -5,11 +5,32 @@
  * 使用 Zod schema 验证新配置，验证失败则保留旧值。
  */
 
-import { QQConfigSchema, type QQConfig } from "./config.js";
+import { QQConfigSchema, type QQConfig, resolvePassiveModeTemperature, getQQConfigDefaults } from "./config.js";
+import type { Logger } from "./types/channel-types.js";
 
 export interface ConfigRef {
   /** 当前生效的配置 */
   current: QQConfig;
+  /** 可选的 logger 实例 */
+  log?: Logger;
+}
+
+export function createConfigRef(initial: QQConfig, log?: Logger): ConfigRef {
+  return { current: initial, log };
+}
+
+let _configRef: ConfigRef | null = null;
+
+export function initConfigRef(initial: QQConfig, log?: Logger): void {
+  _configRef = createConfigRef(initial, log);
+}
+
+export function getConfigRef(): ConfigRef {
+  if (!_configRef) {
+    console.warn("[config-watcher] getConfigRef called before initConfigRef, returning defaults");
+    _configRef = createConfigRef(getQQConfigDefaults());
+  }
+  return _configRef;
 }
 
 export interface UpdateResult {
@@ -27,14 +48,6 @@ const CONNECTION_FIELDS: (keyof QQConfig)[] = [
 ];
 
 /**
- * 创建一个持有当前配置的引用对象。
- * @param initial 初始配置，必须已通过 Zod 验证
- */
-export function createConfigRef(initial: QQConfig): ConfigRef {
-  return { current: initial };
-}
-
-/**
  * 用新的原始配置更新 ConfigRef。
  *
  * 若 Zod 验证失败，保留旧配置并返回 success=false。
@@ -46,16 +59,27 @@ export function createConfigRef(initial: QQConfig): ConfigRef {
  */
 export function updateConfigRef(ref: ConfigRef, raw: unknown): UpdateResult {
   const parsed = QQConfigSchema.safeParse(raw ?? {});
+  const log = ref.log ?? console;
 
   if (!parsed.success) {
     const errMsg = parsed.error.issues
       .map((i) => `${i.path.join(".")}: ${i.message}`)
       .join("; ");
-    console.warn(`[config-watcher] Validation failed, keeping old config: ${errMsg}`);
+    log.warn(`[config-watcher] Validation failed, keeping old config: ${errMsg}`);
     return { success: false, connectionChanged: false, error: errMsg };
   }
 
   const newConfig = parsed.data;
+
+  // 热更新时也要映射 temperature → 三个子参数（与 resolveAccount 逻辑一致）
+  const pm = newConfig.passiveMode;
+  if (pm?.temperature !== undefined && pm.temperature !== null) {
+    const mapped = resolvePassiveModeTemperature(pm.temperature);
+    if (mapped) {
+      newConfig.passiveMode = { ...pm, ...mapped };
+    }
+  }
+
   const oldConfig = ref.current;
 
   const connectionChanged = CONNECTION_FIELDS.some(
@@ -63,7 +87,7 @@ export function updateConfigRef(ref: ConfigRef, raw: unknown): UpdateResult {
   );
 
   if (connectionChanged) {
-    console.warn(
+    log.warn(
       "[config-watcher] Connection parameters changed (wsUrl/httpUrl/reverseWsPort/accessToken). " +
         "These require a restart to take effect.",
     );

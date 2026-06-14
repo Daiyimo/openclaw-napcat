@@ -9,6 +9,7 @@ import type { OneBotClient } from "./client.js";
 import type { QQConfig } from "./config.js";
 import type { OneBotMessage } from "./types.js";
 import type { UploadCache } from "./upload-cache.js";
+import type { Logger } from "./types/channel-types.js";
 import {
   splitMessage,
   stripMarkdown,
@@ -55,6 +56,7 @@ export interface MessageSenderContext {
   userId: number | undefined;
   guildId: string | undefined;
   channelId: string | undefined;
+  log?: Logger;
 }
 
 export class MessageSender {
@@ -82,7 +84,7 @@ export class MessageSender {
         markStopped(this.ctx.accountId, `group:${this.ctx.groupId}`);
       }
       // 真 silent:什么都不发,仅 log 留痕(便于 /logs 命令查)
-      console.log(`[napcat-QQ][silent] dropped token "${trimmed}" (to=${this.ctx.isGroup ? `group:${this.ctx.groupId}` : `private:${this.ctx.userId}`})`);
+      (this.ctx.log ?? console).log(`[napcat-QQ][silent] dropped token "${trimmed}" (to=${this.ctx.isGroup ? `group:${this.ctx.groupId}` : `private:${this.ctx.userId}`})`);
       return;
     }
     if (payload.text) await this.sendText(payload.text);
@@ -107,7 +109,7 @@ export class MessageSender {
    * 优先使用媒体标签系统（<qqimg>path</qqimg>），回退到 URL 正则提取。
    */
   private async sendText(text: string): Promise<void> {
-    const { client, config, isGroup, isGuild, groupId, userId, guildId, channelId } = this.ctx;
+    const { client, config, log, isGroup, isGuild, groupId, userId, guildId, channelId } = this.ctx;
 
     let processed = text;
     const effectiveMarkdownMode =
@@ -151,7 +153,7 @@ export class MessageSender {
             const imgSeg: OneBotMessage = [{ type: "image", data: { file: resolvedUrl } }];
             await sendByTarget(client, imgSeg, this.ctx);
           } catch (err) {
-            console.warn(`[message-sender] Failed to send media tag image ${item.content}:`, err);
+            (this.ctx.log ?? console).warn(`[message-sender] Failed to send media tag image ${item.content}:`, err);
           }
           if (config.rateLimitMs > 0) await sleep(config.rateLimitMs);
         }
@@ -179,7 +181,7 @@ export class MessageSender {
     markdownMode: string,
     isFirst: boolean,
   ): Promise<void> {
-    const { client, config, isGroup, isGuild, groupId, userId, guildId, channelId } = this.ctx;
+    const { client, config, log, isGroup, isGuild, groupId, userId, guildId, channelId } = this.ctx;
 
     // ── 发送文本 ──
     // 双保险:即便上游 [SILENT] 拦截失败,silent token 也不加 @ 段(避免"@user [SILENT]"泄漏)
@@ -255,7 +257,7 @@ export class MessageSender {
         }
         if (config.rateLimitMs > 0) await sleep(config.rateLimitMs);
       } catch (mediaErr) {
-        console.warn(`[message-sender] Failed to send extracted media ${media.url}:`, mediaErr);
+        (this.ctx.log ?? console).warn(`[message-sender] Failed to send extracted media ${media.url}:`, mediaErr);
       }
     }
   }
@@ -305,7 +307,7 @@ export class MessageSender {
     const cachedFileId = uploadCache.get(cacheKey);
 
     if (cachedFileId) {
-      console.log(`[message-sender] Upload cache hit for ${rawUrl}`);
+      (this.ctx.log ?? console).log(`[message-sender] Upload cache hit for ${rawUrl}`);
       const fileSegment: OneBotMessage = [{ type: "file", data: { file: cachedFileId, name: name || "file" } }];
       if (isGuild) {
         await client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${rawUrl}`);

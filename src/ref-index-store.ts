@@ -9,6 +9,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { getQQBotDataDir } from "./utils/platform.js";
+import type { Logger } from "./types/channel-types.js";
 
 // ============ 类型 ============
 
@@ -31,6 +32,7 @@ export interface RefEntry {
 
 let _storageDir: string | null = null;
 let _refIndexFile: string | null = null;
+let _log: Logger = console;
 
 function getStorageDir(): string {
   if (!_storageDir) _storageDir = getQQBotDataDir("data");
@@ -92,13 +94,13 @@ function loadFromFile(): Map<string, RefEntry & { _createdAt: number }> {
       }
     }
 
-    console.log(
+    (_log ?? console).log(
       `[ref-index-store] Loaded ${cache.size} entries from ${totalLinesOnDisk} lines (${expired} expired)`,
     );
 
     scheduleCompactIfNeeded();
   } catch (err) {
-    console.error(`[ref-index-store] Failed to load: ${err}`);
+    (_log ?? console).error(`[ref-index-store] Failed to load: ${err}`);
     cache = new Map();
   }
 
@@ -124,7 +126,7 @@ function queueLine(line: RefIndexLine): void {
   if (writeQueue.length > MAX_WRITE_QUEUE_SIZE) {
     const dropped = writeQueue.length - MAX_WRITE_QUEUE_SIZE;
     writeQueue = writeQueue.slice(dropped);
-    console.warn(`[ref-index-store] Write queue overflow, dropped ${dropped} oldest entries`);
+    (_log ?? console).warn(`[ref-index-store] Write queue overflow, dropped ${dropped} oldest entries`);
   }
   if (!flushTimer) {
     flushTimer = setTimeout(flushWriteQueue, 100);
@@ -143,7 +145,7 @@ async function flushWriteQueue(): Promise<void> {
       "utf-8",
     );
   } catch (err) {
-    console.error(`[ref-index-store] Failed to flush write queue: ${err}`);
+    (_log ?? console).error(`[ref-index-store] Failed to flush write queue: ${err}`);
     // 写入失败时放回，但受 MAX_WRITE_QUEUE_SIZE 限制不会无限增长
     writeQueue.unshift(...batch);
     if (writeQueue.length > MAX_WRITE_QUEUE_SIZE) {
@@ -216,14 +218,14 @@ async function compactFile(): Promise<void> {
 
     await fs.promises.rename(tmpPath, getRefIndexFile());
     totalLinesOnDisk = cache.size;
-    console.log(`[ref-index-store] Compacted: ${before} lines → ${totalLinesOnDisk} lines`);
+    (_log ?? console).log(`[ref-index-store] Compacted: ${before} lines → ${totalLinesOnDisk} lines`);
 
     // rename 后立即 flush 可能在 compact 期间积累的写队列（追加到新文件）
     if (writeQueue.length > 0) {
       await flushWriteQueue();
     }
   } catch (err) {
-    console.error(`[ref-index-store] Compact failed: ${err}`);
+    (_log ?? console).error(`[ref-index-store] Compact failed: ${err}`);
   }
 }
 
@@ -250,7 +252,7 @@ function evictIfNeeded(): void {
     const sorted = [...cache.entries()].sort((a, b) => a[1]._createdAt - b[1]._createdAt);
     const toRemove = sorted.slice(0, Math.max(1000, cache.size - MAX_ENTRIES + 1000));
     for (const [key] of toRemove) cache.delete(key);
-    console.log(`[ref-index-store] Evicted ${toRemove.length} oldest entries`);
+    (_log ?? console).log(`[ref-index-store] Evicted ${toRemove.length} oldest entries`);
   }
 }
 
@@ -259,7 +261,8 @@ function evictIfNeeded(): void {
 /**
  * 初始化（懒加载，首次调用时读取文件）
  */
-export function initRefIndexStore(): void {
+export function initRefIndexStore(log?: Logger): void {
+  if (log) _log = log;
   loadFromFile();
 }
 
@@ -271,7 +274,7 @@ export function recordRef(entry: RefEntry): void {
   try {
     evictIfNeeded();
   } catch (e) {
-    console.error(`[ref-index-store] Eviction failed: ${e}`);
+    (_log ?? console).error(`[ref-index-store] Eviction failed: ${e}`);
   }
 
   const now = Date.now();

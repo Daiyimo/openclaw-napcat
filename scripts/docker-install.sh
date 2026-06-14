@@ -1,4 +1,12 @@
 #!/bin/bash
+# Self-heal CRLF line endings (Windows compatibility)
+_byte_count=$(wc -c < "$0")
+_line_count=$(wc -l < "$0")
+if [ "$_byte_count" -gt "$_line_count" ]; then
+    tmpf=$(mktemp) && cat "$0" | tr -d '\r' > "$tmpf" && mv "$tmpf" "$0"
+    exec bash "$0" "$@"
+fi
+
 # openclaw-napcat QQ 插件安装脚本
 #
 # ┌──────────────────────────────────────────────────────────────────────┐
@@ -29,6 +37,9 @@
 #   - 读取容器内 QQ_* 环境变量写入 openclaw.json
 #   - 多镜像加速下载（6 个镜像按稳定性优先级,单镜像 30s 超时）
 #   - ★ 本地 tarball 离线兜底（见上方 #4，2026-06-02 强化后作为受限网络推荐方案）
+#   - 自动修复 tools.profile / sessions.visibility / agentToAgent（兼容常见配置错误）
+#   - 自动修复 cron 投递：将 cron 任务改为 delivery=none + curl 直发 NapCat
+#   - 自动检测 openclaw.json 路径（适配不同镜像/安装方式）
 #   - 自动静默重启容器
 #   - 自动刷新群路由（重启后 connect handler 自动注册）
 
@@ -37,15 +48,6 @@ set -e
 BRANCH="${OPENCLAW_NAPCAT_BRANCH:-main}"
 EXT_DIR="${HOME:-/home/node}/.openclaw/extensions/napcat"
 TEMP_DIR="/tmp/openclaw-napcat-install-$$"
-# 检测运行方式：docker-compose 还是 docker run
-COMPOSE_FILE=""
-if [ -f "docker-compose.yml" ] || [ -f "compose.yml" ]; then
-  COMPOSE_CMD="docker compose"
-elif [ -n "$(docker ps --filter "name=openclaw" --format "{{.Names}}" 2>/dev/null)" ]; then
-  COMPOSE_CMD="docker compose"
-else
-  COMPOSE_CMD=""
-fi
 
 echo "=== OpenClaw NapCat 插件安装 ==="
 echo "分支: $BRANCH"
@@ -58,7 +60,7 @@ echo ""
 #  2. tarball 只含源码（~1-2 MB），比 `git clone --depth 1`（拉 git objects）快 5-10x
 #  3. curl 显示 HTTP 状态码，失败时用户能立即看到原因
 #  4. 任何 Linux 基础镜像都自带 tar + curl
-echo "[1/4] 正在下载源码（tarball 模式，无需 git）..."
+echo "[1/6] 正在下载源码（tarball 模式，无需 git）..."
 
 ARCHIVE="/tmp/openclaw-napcat-${BRANCH}.tar.gz"
 EXTRACT_DIR="/tmp/openclaw-napcat-extract-$$"
@@ -227,9 +229,9 @@ cd "$TEMP_DIR"
 
 # ── 2. 安装依赖并编译 TypeScript ──────────────────────────────────────────────
 echo ""
-echo "[2/4] 安装依赖并编译（约 60 秒）..."
+echo "[2/6] 安装依赖并编译（约 60 秒）..."
 
-npm install --registry=https://registry.npmmirror.com 2>/dev/null || npm install
+npm install --include=dev --registry=https://registry.npmmirror.com 2>/dev/null || npm install --include=dev
 npm run build
 npm prune --omit=dev
 
@@ -237,12 +239,12 @@ echo "✓ 编译完成"
 
 # ── 3. 安装到持久化扩展目录 ───────────────────────────────────────────────────
 echo ""
-echo "[3/4] 安装到 $EXT_DIR ..."
+echo "[3/6] 安装到 $EXT_DIR ..."
 
 rm -rf "$EXT_DIR"
 mkdir -p "$EXT_DIR/docker"
 
-cp -r dist node_modules package.json openclaw.plugin.json "$EXT_DIR/"
+cp -r dist node_modules package.json openclaw.plugin.json tsconfig.json "$EXT_DIR/"
 cp docker/setup-config.cjs "$EXT_DIR/docker/"
 
 # 验证核心文件
@@ -263,30 +265,92 @@ echo "✓ 插件文件已复制"
 
 # ── 4. 写入 NapCat 渠道配置 ────────────────────────────────────────────────────
 echo ""
-echo "[4/4] 写入 NapCat 渠道配置..."
+echo "[4/6] 写入 NapCat 渠道配置..."
 
 QQ_FORCE_RECONFIGURE=true node "$EXT_DIR/docker/setup-config.cjs"
 
 echo "✓ 配置写入完成"
 
-# ── 5. 静默重启容器并刷新群路由 ───────────────────────────────────────────────
+# -- 5. fix config compatibility ---------------------------------------------------
 echo ""
-echo "[5/5] 重启 OpenClaw 容器..."
+echo "[5/6] fix config compatibility (profile / visibility / agentToAgent)..."
 
-# 查找容器名称
-CONTAINER_NAME=$(docker ps --filter "name=openclaw" --format "{{.Names}}" 2>/dev/null | head -n 1)
+# auto-detect config path (different images / install methods)
+find_config() {
+    local candidates=(
+        "/home/node/.openclaw/openclaw.json"
+        "/root/.openclaw/openclaw.json"
+        "/home/openclaw/.openclaw/openclaw.json"
+        "/etc/openclaw/openclaw.json"
+        "/opt/openclaw/openclaw.json"
+    )
+    for p in "${candidates[@]}"; do
+        [ -f "$p" ] && echo "$p" && return 0
+    done
+    local found
+    found=$(find / -name "openclaw.json" -path "*/.openclaw/*" 2>/dev/null | head -n 1)
+    echo "${found:-}"
+}
 
-if [ -n "$CONTAINER_NAME" ] && [ -n "$COMPOSE_CMD" ]; then
-  # docker-compose 方式：静默重启
-  $COMPOSE_CMD restart openclaw 2>/dev/null || true
-  echo "✓ 容器已重启，群路由将在 connect handler 中自动注册"
-elif [ -n "$CONTAINER_NAME" ]; then
-  # docker run 方式：直接 restart
-  docker restart "$CONTAINER_NAME" 2>/dev/null || true
-  echo "✓ 容器已重启，群路由将在 connect handler 中自动注册"
+CONFIG_PATH=$(find_config)
+if [ -n "$CONFIG_PATH" ]; then
+    echo "  detected: ${CONFIG_PATH}"
+    # Copy helper .cjs from source and run it (no inline quoting issues)
+    if [ -f scripts/fix-config.cjs ]; then
+        cp scripts/fix-config.cjs /tmp/fix-config.cjs
+        result=$(node /tmp/fix-config.cjs "$CONFIG_PATH" 2>&1)
+        rm -f /tmp/fix-config.cjs
+        if echo "$result" | grep -q "__CHANGED__"; then
+            echo "$result" | grep "FIXED:" | while IFS= read -r line; do echo "  $line"; done
+        else
+            echo "  ✓ config ok, skip"
+        fi
+    else
+        echo "  ! fix-config.cjs not found, skip config fix"
+    fi
+fi
+
+# ── 5.5. fix cron jobs for NapCat direct delivery ─────────────────────────
+echo ""
+echo "[5.5/6] fix cron jobs (delivery=none + curl → NapCat)..."
+
+if [ -f scripts/fix-cron.cjs ]; then
+    cp scripts/fix-cron.cjs /tmp/fix-cron.cjs
+    # Temporarily disable set -e so a failed fix doesn't abort the install
+    set +e
+    FIX_RESULT=$(node /tmp/fix-cron.cjs 2>&1)
+    FIX_EXIT=$?
+    set -e
+    rm -f /tmp/fix-cron.cjs
+    # Show key summary lines (suppress verbose per-job detail)
+    echo "$FIX_RESULT" | grep -E "^(===|Config:|HA token:|NapCat:|CLI:|\s+Fixed:|\s+Skipped:|\s+Failed:|\s+\[)" || true
+    if [ $FIX_EXIT -ne 0 ]; then
+        echo "  ⚠ fix-cron exited with code $FIX_EXIT — check output above"
+    else
+        echo "  ✓ cron fix complete"
+    fi
 else
-  echo "⚠ 未检测到运行中的 openclaw 容器，请手动启动："
-  echo "   docker compose up -d"
+    echo "  ! fix-cron.cjs not found, skip"
+fi
+
+# ── 6. 重启 OpenClaw ─────────────────────────────────────────────────────────
+echo ""
+echo "[6/6] 重启 OpenClaw..."
+
+# 在容器内执行时，docker 命令不可用，跳过自动重启
+if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
+    # 宿主机执行：自动重启
+    CONTAINER_NAME=$(docker ps -a --filter "name=openclaw" --format "{{.Names}}" 2>/dev/null | head -n 1)
+    if [ -n "$CONTAINER_NAME" ]; then
+        docker restart "$CONTAINER_NAME" 2>/dev/null || true
+        echo "✓ 容器已重启"
+    else
+        echo "⚠ 未检测到 openclaw 容器，请手动重启"
+    fi
+else
+    # 容器内执行：配置直接写磁盘（bind mount），立即生效
+    echo "  （容器内执行，配置已直接生效，跳过自动重启）"
+    echo "  如需重启：docker restart <容器名>"
 fi
 
 # ── 清理 ─────────────────────────────────────────────────────────────────────
@@ -303,5 +367,6 @@ echo "      观察日志中是否出现以下内容："
 echo "        [napcat-QQ] Reverse WebSocket server listening on port 3002"
 echo "        [napcat-QQ] Reverse WS: NapCat connected"
 echo "      若 NapCat 尚未启动，请先启动 NapCat，等待约 1 分钟自动连上"
+echo "   3. 已自动修复 tools.profile / sessions.visibility / agentToAgent 三项配置（含 profile 对象/无效值 → full）"
 echo ""
-echo "提示：如需更新插件，重新运行此脚本即可。"
+echo "提示：如更新后功能未生效，请执行 docker restart openclaw 重启容器。"

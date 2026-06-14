@@ -13,9 +13,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { getQQBotDataDir } from "./utils/platform.js";
+import type { OneBotClient } from "./client.js";
+import type { Logger } from "./types/channel-types.js";
 
 const SAVE_THROTTLE_MS = 5_000;
 const MAX_BOT_IDS = 5_000;
+let globalLog: Logger = console;
 
 export interface BotInfo {
   selfId: string;
@@ -77,10 +80,10 @@ function loadCache(accountId: string): Map<string, BotInfo> {
           }
         }
       }
-      console.log(`[known-bots-store] Loaded ${cache.size} bot info entries for account ${accountId}`);
+      globalLog.log(`[known-bots-store] Loaded ${cache.size} bot info entries for account ${accountId}`);
     }
   } catch (err) {
-    console.error(`[known-bots-store] Failed to load for ${accountId}: ${err}`);
+    globalLog.error(`[known-bots-store] Failed to load for ${accountId}: ${err}`);
   }
   caches.set(accountId, cache);
   return cache;
@@ -108,11 +111,12 @@ function doSave(accountId: string): void {
     fs.renameSync(tmpPath, filePath);
     dirty.delete(accountId);
   } catch (err) {
-    console.error(`[known-bots-store] Failed to save for ${accountId}: ${err}`);
+    globalLog.error(`[known-bots-store] Failed to save for ${accountId}: ${err}`);
   }
 }
 
-export function initKnownBotsStore(accountId: string): void {
+export function initKnownBotsStore(accountId: string, log?: Logger): void {
+  if (log) globalLog = log;
   loadCache(accountId);
 }
 
@@ -142,7 +146,7 @@ export function recordBotInfo(accountId: string, info: Partial<Omit<BotInfo, "se
     return existing;
   }
   if (cache.size >= MAX_BOT_IDS) {
-    console.warn(`[known-bots-store] Max size ${MAX_BOT_IDS} reached, dropping ${idStr}`);
+    globalLog.warn(`[known-bots-store] Max size ${MAX_BOT_IDS} reached, dropping ${idStr}`);
     // 返回一个不存于 cache 的临时对象（不持久化）
     const { selfId: _drop, ...rest } = info;
     return { selfId: idStr, firstSeenAt: now, lastSeenAt: now, ...rest };
@@ -190,4 +194,53 @@ export function resetKnownBotsStore(): void {
 
 export function _getCacheForTest(accountId: string): Map<string, BotInfo> | undefined {
   return caches.get(accountId);
+}
+
+const BOT_INFO_FETCH_TIMEOUT_MS = 5_000;
+
+export async function fetchBotInfoAsync(
+  client: OneBotClient,
+  accountId: string,
+  botId: string,
+  groupId: number | undefined,
+  log?: { warn?: (msg: string) => void; info?: (msg: string) => void; error?: (msg: string) => void },
+): Promise<void> {
+  try {
+    let info: any = null;
+    if (groupId !== undefined) {
+      try {
+        info = await Promise.race([
+          client.getGroupMemberInfo(groupId, botId),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("timeout")), BOT_INFO_FETCH_TIMEOUT_MS),
+          ),
+        ]);
+      } catch {
+        info = await Promise.race([
+          client.getStrangerInfo(botId),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("timeout")), BOT_INFO_FETCH_TIMEOUT_MS),
+          ),
+        ]);
+      }
+    } else {
+      info = await Promise.race([
+        client.getStrangerInfo(botId),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("timeout")), BOT_INFO_FETCH_TIMEOUT_MS),
+        ),
+      ]);
+    }
+    if (info && (info.nickname || info.card)) {
+      recordBotInfo(accountId, {
+        selfId: botId,
+        nickname: info.nickname,
+        card: info.card,
+      });
+      log?.info?.(`[napcat-QQ] Updated bot info: ${botId} → ${info.card || info.nickname}`);
+    }
+  } catch (err) {
+    const errObj = err instanceof Error ? err : new Error(String(err));
+    log?.warn?.(`[napcat-QQ] fetchBotInfoAsync failed for ${botId}: ${errObj.message}`);
+  }
 }

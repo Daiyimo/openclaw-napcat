@@ -2,8 +2,8 @@ import type { PluginRuntime } from "openclaw/plugin-sdk";
 
 let runtime: PluginRuntime | null = null;
 
-export function setQQRuntime(next: PluginRuntime) {
-  runtime = next;
+export function setQQRuntime(next: unknown): void {
+  runtime = next as PluginRuntime;
 }
 
 export function getQQRuntime(): PluginRuntime {

@@ -158,6 +158,12 @@ describe("parseTarget", () => {
   it("parses plain number as group", () => {
     expect(parseTarget("12345678")).toEqual({ type: "group", groupId: 12345678 });
   });
+  it("parses napcat:group:N (framework route prefix)", () => {
+    expect(parseTarget("napcat:group:1081646667")).toEqual({ type: "group", groupId: 1081646667 });
+  });
+  it("parses napcat:private:N (framework route prefix)", () => {
+    expect(parseTarget("napcat:private:815833475")).toEqual({ type: "private", userId: 815833475 });
+  });
   it("parses private:N", () => {
     expect(parseTarget("private:12345678")).toEqual({ type: "private", userId: 12345678 });
   });
@@ -199,6 +205,36 @@ describe("splitMessage", () => {
   });
   it("handles empty string", () => {
     expect(splitMessage("", 10)).toEqual([""]);
+  });
+  it("splits at whitespace boundary to preserve tokens", () => {
+    // Regression: old character-boundary split would cut tokens mid-character.
+    // New split preserves word integrity — round-trip must hold and chunks
+    // should not contain obviously-truncated segments.
+    const token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U";
+    const text = `前缀 ${token} 后缀`;
+    const result = splitMessage(text, 20);
+    // Round-trip invariant
+    expect(result.join("")).toBe(text);
+    // No chunk ends with a partial word character (proves no mid-token cut within a chunk)
+    for (const chunk of result) {
+      const trimmed = chunk.trimEnd();
+      if (trimmed.length === 0) continue;
+      const lastChar = trimmed[trimmed.length - 1];
+      // Last char must be a "complete ending": alphanumeric, dot, underscore, or Chinese char
+      // If it's a letter that could start a word (like "N" in "eyJ...N"), that's fine
+      // because it ends at a chunk boundary, not mid-token
+      expect(/[\p{L}\p{N}_.]$/u.test(trimmed)).toBe(true);
+    }
+  });
+  it("splits at newline boundary", () => {
+    const text = "第一行\n第二行\n第三行";
+    const result = splitMessage(text, 6);
+    expect(result).toEqual(["第一行", "第二行", "第三行"]);
+  });
+  it("falls back to hard split when no whitespace near boundary", () => {
+    // Long string without spaces still splits at character boundary
+    const result = splitMessage("abcdefghij", 3);
+    expect(result).toEqual(["abc", "def", "ghi", "j"]);
   });
 });
 

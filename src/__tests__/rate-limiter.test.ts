@@ -291,6 +291,42 @@ describe("InboundRateLimiter", () => {
     });
   });
 
+  // ── _enforceKeyLimit 边界条件 ──────────────────────────────
+
+  describe("_enforceKeyLimit eviction (P1 回归)", () => {
+    it("超出上限 1 个时仅删除 1 个，保留恰好 MAX_ACTIVE_KEYS 个", () => {
+      // 使用私有方法访问（通过 record 触发）
+      vi.setSystemTime(new Date("2024-01-01T00:00:00.000Z"));
+      // 填充 5000 个 key（MAX_ACTIVE_KEYS = 5000）
+      for (let i = 0; i < 5000; i++) {
+        limiter.record(i, undefined);
+      }
+      expect(limiter.getStats().activeKeys).toBe(5000);
+
+      // 再添加 1 个，触发淘汰
+      limiter.record(5000, undefined);
+
+      // 应该恰好保留 5000 个（MAX_ACTIVE_KEYS），不是 4000
+      const stats = limiter.getStats();
+      expect(stats.activeKeys).toBe(5000);
+    });
+
+    it("超出上限 1200 个时删除 1000 个（不超过 CLEANUP_BATCH）", () => {
+      vi.setSystemTime(new Date("2024-01-01T00:00:00.000Z"));
+      // 填充 5000 个 key
+      for (let i = 0; i < 5000; i++) {
+        limiter.record(i, undefined);
+      }
+      // 再添加 1200 个，超出上限 1200
+      for (let i = 5000; i < 6200; i++) {
+        limiter.record(i, undefined);
+      }
+
+      // 应该保留 5000 个（删除 1200 个中的前 1000 个）
+      expect(limiter.getStats().activeKeys).toBe(5000);
+    });
+  });
+
   // ── getStats ──────────────────────────────────────────────
 
   describe("getStats()", () => {
@@ -337,6 +373,33 @@ describe("InboundRateLimiter", () => {
         if (r.allowed) limiter2.record(999, undefined);
       }
       expect(limiter2.check(999, undefined).allowed).toBe(false);
+    });
+  });
+
+  // ── 更新窗口大小 ────────────────────────────────────────────
+
+  describe("updateWindowMs()", () => {
+    it("updates window size for hot-reload", () => {
+      const limiter3 = new InboundRateLimiter(
+        { windowMs: 5000, maxMessages: 2 },
+        [],
+      );
+      vi.setSystemTime(new Date("2024-01-01T00:00:00.000Z"));
+      limiter3.record(1001, undefined);
+      limiter3.record(1001, undefined);
+      expect(limiter3.check(1001, undefined).allowed).toBe(false);
+
+      // Fast-forward past original window (5s)
+      vi.setSystemTime(new Date("2024-01-01T00:00:05.001Z"));
+      expect(limiter3.check(1001, undefined).allowed).toBe(true); // old entries expired
+
+      // Shrink window to 1000ms - records from t=0 are now outside the new window
+      limiter3.updateWindowMs(1000);
+      limiter3.record(1001, undefined);
+      // The old entries at t=0 are now outside 1s window from current time (5s ago)
+      // so user should be allowed (only 1 entry in new window)
+      const result = limiter3.check(1001, undefined);
+      expect(result.allowed).toBe(true);
     });
   });
 });

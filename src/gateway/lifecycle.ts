@@ -26,6 +26,8 @@ import {
   DEDUP_KEEP_SIZE,
   CLEANUP_INTERVAL_MS,
   PASSIVE_COOLDOWN_MAX_AGE_MS,
+  INBOUND_RATE_LIMIT_DEFAULT_MAX,
+  DIALOG_STATE_CLEANUP_MS,
 } from "../constants.js";
 import { installConnectHandler } from "./connection.js";
 import { installMessageHandler } from "./inbound.js";
@@ -49,127 +51,159 @@ export async function startAccount(
   const channelRuntime: PluginRuntimeChannel =
     (ctx.channelRuntime as PluginRuntimeChannel) ?? getQQRuntime().channel;
 
-  if (!config.wsUrl && !config.reverseWsPort)
-    throw new Error("QQ: either wsUrl or reverseWsPort is required");
-
-  // ── 初始化日志缓冲区 ────────────────────────────────
-  installGlobalInterceptor(config.logBufferSize ?? 200);
-
-  // ── 注册入站频控状态 ────────────────────────────────
-  const lastTrigger = new Map<string, number>();
-  const rateLimiter = new InboundRateLimiter(
-    {
-      windowMs: config.inboundRateLimitMs ?? 0,
-      maxMessages: 5, // 默认每窗口 5 条
-    },
-    config.admins ?? [],
-  );
-  const inboundStore: InboundRateLimitStore = { lastTrigger, rateLimiter, config };
-  shared.inboundStores.set(account.accountId, inboundStore);
-
-  // ── 版本检查 ────────────────────────────────────────
-  if (config.enableUpdateCheck !== false) {
-    triggerUpdateCheck(log);
-  }
-
-  // ── 初始化引用索引 ──────────────────────────────────
-  initRefIndexStore();
-
-  // ── 初始化已知 bot 持久化缓存（避免冷启动漏识别） ──
-  initKnownBotsStore(account.accountId);
-
-  // ── 上传缓存 ────────────────────────────────────────
-  const uploadCache = new UploadCache();
-
-  // ── 防止同账号重复启动 ──────────────────────────────
-  const existingClient = shared.clients.get(account.accountId);
-  if (existingClient) {
-    console.log(
-      `[napcat-QQ] Stopping existing client for account ${account.accountId} before restart`,
+  // ── 并发控制：防止同一账号并发 startAccount 导致竞态（P1 #7） ──
+  // 同一账号并发调用时，第二个调用 await 第一个的 Promise 并直接返回，
+  // 避免两个调用同时读到旧 client、同时 disconnect、同时创建新 client 导致双倍 disconnect。
+  const existingPromise = shared.startingPromises.get(account.accountId);
+  if (existingPromise) {
+    log.log(
+      `[napcat-QQ] startAccount already in progress for ${account.accountId}, awaiting existing startup...`,
     );
-    await existingClient.disconnect();
+    await existingPromise;
+    return;
   }
 
-  const client = new OneBotClient({
-    wsUrl: config.wsUrl,
-    httpUrl: config.httpUrl,
-    reverseWsPort: config.reverseWsPort,
-    accessToken: config.accessToken,
-  });
+  const thisStartPromise = (async () => {
+    if (!config.wsUrl && !config.reverseWsPort)
+      throw new Error("QQ: either wsUrl or reverseWsPort is required");
 
-  shared.clients.set(account.accountId, client);
+    // ── 初始化日志缓冲区 ────────────────────────────────
+    installGlobalInterceptor(config.logBufferSize ?? 200);
 
-  const processedMsgIds = new Set<string>();
-  let groupRouteRefreshTimer: ReturnType<typeof setInterval> | null = null;
-  const cleanupInterval = setInterval(() => {
-    if (trimDedupSet(processedMsgIds)) {
-      console.log(`[napcat-QQ] Dedup set trimmed: kept ${processedMsgIds.size} recent IDs`);
+    // ── 注册入站频控状态 ────────────────────────────────
+    const lastTrigger = new Map<string, number>();
+    const rateLimiter = new InboundRateLimiter(
+      { windowMs: config.inboundRateLimitMs ?? 0, maxMessages: INBOUND_RATE_LIMIT_DEFAULT_MAX },
+      config.admins ?? [],
+    );
+    const inboundStore: InboundRateLimitStore = {
+      lastTrigger,
+      rateLimiter,
+      config,
+      processedMsgIds: new Set<string>(),
+    };
+    shared.inboundStores.set(account.accountId, inboundStore);
+
+    // ── 版本检查 ────────────────────────────────────────
+    if (config.enableUpdateCheck !== false) {
+      triggerUpdateCheck(log);
     }
-    shared.passiveMode.cleanup(PASSIVE_COOLDOWN_MAX_AGE_MS);
-    cleanupDialogState(60 * 60 * 1000);  // 1 小时未活跃的群状态清理
-  }, CLEANUP_INTERVAL_MS);
 
-  // ── 安装 connect handler ────────────────────────────
-  const connResult = installConnectHandler(client, {
-    client,
-    account,
-    config,
-    cfg,
-    channelRuntime,
-    knownGroupIds: shared.knownGroupIds,
-    startAccountCtx: {
-      getStatus: ctx.getStatus,
-      setStatus: ctx.setStatus,
-    },
-    shared,
-  });
-  // connResult.groupRouteRefreshTimer 由 connect handler 内部设置
-  // 通过闭包引用 connResult 对象，cleanup 阶段读取最新值
+    // ── 初始化引用索引 ──────────────────────────────────
+    initRefIndexStore();
 
-  // ── 安装 message handler ────────────────────────────
-  installMessageHandler(client, {
-    client,
-    account,
-    config,
-    cfg,
-    channelRuntime,
-    uploadCache,
-    inboundStore,
-    processedMsgIds,
-    knownGroupIds: shared.knownGroupIds,
-    passiveMode: shared.passiveMode,
-    log,
-  });
+    // ── 初始化已知 bot 持久化缓存（避免冷启动漏识别） ──
+    initKnownBotsStore(account.accountId);
 
-  client.connect();
-  client.startReverseWs();
+    // ── 上传缓存 ────────────────────────────────────────
+    const uploadCache = new UploadCache();
 
-  // 等待 abort 信号（兜底：无 abortSignal 时直接返回避免永久挂起）
-  if (ctx.abortSignal) {
-    await new Promise<void>((resolve) => {
-      if (ctx.abortSignal!.aborted) {
-        resolve();
-        return;
-      }
-      ctx.abortSignal!.addEventListener("abort", () => resolve(), { once: true });
+    // ── 防止同账号重复启动 ──────────────────────────────
+    // 在锁保护下执行：确保不会有两个并发调用同时 disconnect 同一个 client
+    const existingClient = shared.clients.get(account.accountId);
+    if (existingClient) {
+      log.log(
+        `[napcat-QQ] Stopping existing client for account ${account.accountId} before restart`,
+      );
+      await existingClient.disconnect();
+    }
+
+    const client = new OneBotClient({
+      wsUrl: config.wsUrl,
+      httpUrl: config.httpUrl,
+      reverseWsPort: config.reverseWsPort,
+      accessToken: config.accessToken,
     });
-  } else {
-    console.warn("[napcat-QQ] No abortSignal provided, startAccount will not block");
-  }
 
-  // ── Cleanup ─────────────────────────────────────────
-  clearInterval(cleanupInterval);
-  if (connResult.groupRouteRefreshTimer) clearInterval(connResult.groupRouteRefreshTimer);
-  flushKnownBotsStore();
-  flushKnownUsers();
-  await flushRefIndex();
-  uploadCache.dispose();
-  await client.disconnect();
-  shared.clients.delete(account.accountId);
-  // 只删除本次启动注册的 store
-  const currentStore = shared.inboundStores.get(account.accountId);
-  if (currentStore?.lastTrigger === lastTrigger) {
-    shared.inboundStores.delete(account.accountId);
+    shared.clients.set(account.accountId, client);
+
+    const processedMsgIds = new Set<string>();
+    let groupRouteRefreshTimer: ReturnType<typeof setInterval> | null = null;
+    const cleanupInterval = setInterval(() => {
+      if (trimDedupSet(processedMsgIds)) {
+        log.log(`[napcat-QQ] Dedup set trimmed: kept ${processedMsgIds.size} recent IDs`);
+      }
+      shared.passiveMode.cleanup(PASSIVE_COOLDOWN_MAX_AGE_MS);
+      cleanupDialogState(DIALOG_STATE_CLEANUP_MS);
+    }, CLEANUP_INTERVAL_MS);
+
+    // ── 安装 connect handler ────────────────────────────
+    const connResult = installConnectHandler(client, {
+      client,
+      account,
+      config,
+      cfg,
+      channelRuntime,
+      knownGroupIds: shared.knownGroupIds,
+      log,
+      startAccountCtx: {
+        getStatus: ctx.getStatus,
+        setStatus: ctx.setStatus,
+      },
+      shared,
+    });
+
+    // ── 安装 message handler ────────────────────────────
+    installMessageHandler(client, {
+      client,
+      account,
+      config,
+      cfg,
+      channelRuntime,
+      uploadCache,
+      inboundStore,
+      processedMsgIds,
+      knownGroupIds: shared.knownGroupIds,
+      passiveMode: shared.passiveMode,
+      log,
+    });
+
+    client.connect();
+    client.startReverseWs();
+
+    // 等待 abort 信号（兜底：无 abortSignal 时直接返回避免永久挂起）
+    if (ctx.abortSignal) {
+      await new Promise<void>((resolve) => {
+        if (ctx.abortSignal!.aborted) {
+          resolve();
+          return;
+        }
+        ctx.abortSignal!.addEventListener("abort", () => resolve(), { once: true });
+      });
+    } else {
+      log.warn("[napcat-QQ] No abortSignal provided, startAccount will not block");
+    }
+
+    // ── Cleanup ─────────────────────────────────────────
+    clearInterval(cleanupInterval);
+    if (connResult.groupRouteRefreshTimer) clearInterval(connResult.groupRouteRefreshTimer);
+    flushKnownBotsStore();
+    flushKnownUsers();
+    await flushRefIndex();
+    uploadCache.dispose();
+    // disconnect 可能因 WebSocket 异常失败（如 terminate 在未连接时调用），不阻塞其余清理
+    try {
+      await client.disconnect();
+    } catch (disconnectErr) {
+      log.warn(`[napcat-QQ] Client disconnect for ${account.accountId} encountered an error:`, disconnectErr);
+    }
+    shared.clients.delete(account.accountId);
+    // 只删除本次启动注册的 store
+    const currentStore = shared.inboundStores.get(account.accountId);
+    if (currentStore?.lastTrigger === lastTrigger) {
+      shared.inboundStores.delete(account.accountId);
+    }
+  })();
+
+  shared.startingPromises.set(account.accountId, thisStartPromise);
+  try {
+    await thisStartPromise;
+  } finally {
+    // 只清理仍然是最新 Promise 的条目（避免清理后续重启的 Promise）
+    const current = shared.startingPromises.get(account.accountId);
+    if (current === thisStartPromise) {
+      shared.startingPromises.delete(account.accountId);
+    }
   }
 }
 

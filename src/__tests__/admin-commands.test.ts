@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { OneBotClient } from "../client.js";
 import type { OneBotMessage } from "../types.js";
+import { InboundRateLimiter } from "../rate-limiter.js";
 
 // vi.mock 必须在 import 之前（vitest 会将其提升到顶部）
 vi.mock("../utils/pkg-version.js", () => ({
@@ -171,6 +172,98 @@ describe("handleAdminCommand", () => {
         client, isGroup: false, userId: 1, text: "/help",
       });
       expect(result).toBe(true);
+    });
+  });
+
+  // ── /ratelimit ────────────────────────────────────────────────────────────
+
+  describe("/ratelimit", () => {
+    it("replies error when rateLimiter is absent", async () => {
+      await handleAdminCommand("/ratelimit", ["/ratelimit"], {
+        client, isGroup: false, userId: 1, text: "/ratelimit",
+      });
+      const reply = vi.mocked(client.sendPrivateMsg).mock.calls[0][1] as string;
+      expect(reply).toContain("限流器未初始化");
+    });
+
+    it("shows no active limits with threshold when enabled", async () => {
+      const limiter = new InboundRateLimiter({ windowMs: 10000, maxMessages: 5 });
+      await handleAdminCommand("/ratelimit", ["/ratelimit"], {
+        client, isGroup: false, userId: 1, text: "/ratelimit",
+        rateLimiter: limiter,
+      });
+      const reply = vi.mocked(client.sendPrivateMsg).mock.calls[0][1] as string;
+      expect(reply).toContain("当前无活跃限流");
+      expect(reply).toContain("当前阈值");
+      expect(reply).toContain("10s");
+    });
+
+    it("shows disabled status when windowMs is 0", async () => {
+      const limiter = new InboundRateLimiter({ windowMs: 0, maxMessages: 5 });
+      await handleAdminCommand("/ratelimit", ["/ratelimit"], {
+        client, isGroup: false, userId: 1, text: "/ratelimit",
+        rateLimiter: limiter,
+      });
+      const reply = vi.mocked(client.sendPrivateMsg).mock.calls[0][1] as string;
+      expect(reply).toContain("禁用");
+    });
+
+    it("shows active limits with remaining cooldown", async () => {
+      const limiter = new InboundRateLimiter({ windowMs: 10000, maxMessages: 2 });
+      limiter.record("123");
+      vi.advanceTimersByTime(100);
+      limiter.record("123");
+      vi.advanceTimersByTime(100);
+      limiter.record("123");
+      await handleAdminCommand("/ratelimit", ["/ratelimit"], {
+        client, isGroup: false, userId: 1, text: "/ratelimit",
+        rateLimiter: limiter,
+      });
+      const reply = vi.mocked(client.sendPrivateMsg).mock.calls[0][1] as string;
+      expect(reply).toContain("活跃限流");
+    });
+  });
+
+  // ── /unratelimit ──────────────────────────────────────────────────────────
+
+  describe("/unratelimit", () => {
+    it("replies error when rateLimiter is absent", async () => {
+      await handleAdminCommand("/unratelimit", ["/unratelimit", "123"], {
+        client, isGroup: false, userId: 1, text: "/unratelimit 123",
+      });
+      const reply = vi.mocked(client.sendPrivateMsg).mock.calls[0][1] as string;
+      expect(reply).toContain("限流器未初始化");
+    });
+
+    it("clears user rate limit", async () => {
+      const limiter = new InboundRateLimiter({ windowMs: 10000, maxMessages: 2 });
+      limiter.record("999", "888");
+      await handleAdminCommand("/unratelimit", ["/unratelimit", "user:999"], {
+        client, isGroup: false, userId: 1, text: "/unratelimit user:999",
+        rateLimiter: limiter,
+      });
+      const reply = vi.mocked(client.sendPrivateMsg).mock.calls[0][1] as string;
+      expect(reply).toContain("已解除");
+      expect(limiter.getActiveLimits()).toHaveLength(0);
+    });
+
+    it("replies with usage hint when no target provided", async () => {
+      const limiter = new InboundRateLimiter({ windowMs: 10000, maxMessages: 2 });
+      await handleAdminCommand("/unratelimit", ["/unratelimit"], {
+        client, isGroup: false, userId: 1, text: "/unratelimit",
+        rateLimiter: limiter,
+      });
+      expect(client.sendPrivateMsg).toHaveBeenCalledWith(1, expect.stringContaining("用法"));
+    });
+
+    it("replies not rate limited when target has no entry", async () => {
+      const limiter = new InboundRateLimiter({ windowMs: 10000, maxMessages: 2 });
+      await handleAdminCommand("/unratelimit", ["/unratelimit", "user:888"], {
+        client, isGroup: false, userId: 1, text: "/unratelimit user:888",
+        rateLimiter: limiter,
+      });
+      const reply = vi.mocked(client.sendPrivateMsg).mock.calls[0][1] as string;
+      expect(reply).toContain("未被限流");
     });
   });
 

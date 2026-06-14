@@ -2,6 +2,23 @@
 
 # 更新日志
 
+### [Unreleased] - 远程一键升级
+
+#### Added
+
+- **`scripts/remote-upgrade.sh`**：一行 curl 命令跨服务器升级 Docker 部署的 OpenClaw NapCat。
+  - 适用场景：你在任意设备（笔记本、朋友的服务器）上执行升级，无需手动 docker exec。
+  - 用法：`curl -fsSL https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/scripts/remote-upgrade.sh | bash`
+  - 特性：多镜像兜底下载、容器内编译、自动备份/回滚、支持自定义 CONTAINER_NAME / DATA_DIR / BRANCH。
+  - 国内加速：`curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/... | bash`
+
+### [Unreleased] - /temperature 显示优化
+
+#### Fixed
+
+- **`/temperature` 无参数时显示"未设 temperature，使用子参数模式"**：即使用户通过 `cooldownMs` / `minIntervalMs` / `botSuppressionMs` 子参数配置了被动模式，也会显示此提示，令人困惑。
+  - 修复：无参数时始终显示当前生效的子参数值，header 区分"显式设了 temperature"和"使用子参数"两种模式。
+
 ### [Unreleased] - docker-install.sh set -e 陷阱修复
 
 #### Fixed

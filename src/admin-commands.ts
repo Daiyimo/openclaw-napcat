@@ -10,7 +10,9 @@ import type { AdminCmdContext } from "./admin-registry.js";
 import { getUpdateInfo } from "./update-checker.js";
 import { getRecentLogs, formatLogEntry } from "./log-buffer.js";
 import { getPackageVersion } from "./utils/pkg-version.js";
-import { updateConfigRef } from "./config-watcher.js";
+import { updateConfigRef, getConfigRef, initConfigRef } from "./config-watcher.js";
+import { resolvePassiveModeTemperature } from "./config.js";
+import { invalidateOtherBotNamesCache } from "./gateway/trigger.js";
 import { requireConfirm } from "./utils/confirm-pending.js";
 import {
   getCwd,
@@ -740,9 +742,14 @@ export async function handleReload(ctx: AdminCmdContext, _parts: string[]): Prom
   const napcat = ctx.fullCfg.channels?.napcat;
   const result = updateConfigRef(ctx.configRef, napcat);
   if (result.success) {
+    invalidateOtherBotNamesCache();
     let msg = "✅ 配置已重载";
     if (result.connectionChanged) {
       msg += "\n⚠️ 连接参数有变更，需重启容器才能生效";
+    }
+    if (ctx.rateLimiter && napcat?.inboundRateLimitMs !== undefined) {
+      ctx.rateLimiter.updateWindowMs(napcat.inboundRateLimitMs);
+      ctx.rateLimiter.updateAdmins(napcat.admins ?? []);
     }
     return msg;
   }
@@ -761,14 +768,19 @@ export async function handleGroups(ctx: AdminCmdContext, _parts: string[]): Prom
 
 export async function handleRateLimit(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
   if (!ctx.rateLimiter) return "❌ 限流器未初始化";
+  const { windowMs, maxMessages } = ctx.rateLimiter.getConfig();
+  const configLine =
+    windowMs <= 0
+      ? "当前状态: 禁用 (windowMs=0)"
+      : `当前阈值: ${maxMessages} 条 / ${windowMs / 1000}s`;
   const limits = ctx.rateLimiter.getActiveLimits();
-  if (limits.length === 0) return "✅ 当前无活跃限流";
+  if (limits.length === 0) return `✅ 当前无活跃限流\n${configLine}`;
   const lines = limits.map((l: ActiveRateLimit) => {
     const remaining = (l.retryAfterMs / 1000).toFixed(1);
     const display = l.target.startsWith("user:") ? `用户 ${l.target.slice(5)}` : `群 ${l.target.slice(6)}`;
     return `  ${display}: 冷却 ${remaining}s (窗口内 ${l.count} 条, 累计阻断 ${l.blockedTotal} 次)`;
   });
-  return `⚠️ 活跃限流 (${limits.length}):\n${lines.join("\n")}`;
+  return `${configLine}\n⚠️ 活跃限流 (${limits.length}):\n${lines.join("\n")}`;
 }
 
 export async function handleUnrateLimit(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
@@ -778,6 +790,33 @@ export async function handleUnrateLimit(ctx: AdminCmdContext, parts: string[]): 
   const cleared = ctx.rateLimiter.clear(target);
   if (cleared) return `✅ 已解除 ${target} 的限流`;
   return `ℹ️ ${target} 当前未被限流`;
+}
+
+export async function handleTemperature(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
+  const configRef = getConfigRef();
+  if (!configRef) return "❌ 配置引用未初始化（需要重启后生效）";
+  const raw = ctx.text.trim();
+  const match = raw.match(/温度\s*[=:：]\s*(\d+)/i) ?? raw.match(/(\d+)\s*[=:：]\s*温度/i);
+  if (!match) {
+    const pm = configRef.current.passiveMode;
+    const t = pm?.temperature;
+    const sub = [
+      pm?.cooldownMs != null ? `冷却 ${pm.cooldownMs / 1000}s` : null,
+      pm?.minIntervalMs != null ? `最小间隔 ${pm.minIntervalMs / 1000}s` : null,
+      pm?.botSuppressionMs != null ? `Bot压制 ${pm.botSuppressionMs / 1000}s` : null,
+    ].filter(Boolean).join(" / ");
+    const header = t != null ? `🌡️ 当前温度: ${t}` : "🌡️ 当前配置:";
+    return `${header}\n${sub || "使用默认值（温度=50 对应冷却10s/间隔30s/压制120s）"}`;
+  }
+  const t = Number(match[1]);
+  if (!Number.isInteger(t) || t < 0 || t > 100) return "❌ 温度需为 0-100 的整数";
+  const current = configRef.current;
+  const pm = current.passiveMode ?? {};
+  const updated = { ...current, passiveMode: { ...pm, temperature: t } };
+  const result = updateConfigRef(configRef, updated);
+  if (!result.success) return `❌ 设置失败: ${result.error}`;
+  const mapped = resolvePassiveModeTemperature(t) ?? {};
+  return `✅ 温度设为 ${t}\n冷却 ${(mapped.cooldownMs ?? 0) / 1000}s / 最小间隔 ${(mapped.minIntervalMs ?? 0) / 1000}s / Bot压制 ${(mapped.botSuppressionMs ?? 0) / 1000}s`;
 }
 
 // ============ /help 文本 ============
@@ -911,6 +950,7 @@ adminCommandRegistry.register("reload", "热重载配置", handleReload);
 adminCommandRegistry.register("groups", "刷新群路由", handleGroups);
 adminCommandRegistry.register("ratelimit", "查看限流", handleRateLimit);
 adminCommandRegistry.register("unratelimit", "解除限流", handleUnrateLimit);
+adminCommandRegistry.register("temperature", "调整被动模式温度", handleTemperature);
 
 /**
  * 管理命令统一入口。
@@ -942,7 +982,7 @@ export async function handleAdminCommand(
     if (!matchedCmd) return false;
 
     context = {
-      client: ctx.client,
+      client: ctx.client!,
       isGroup: ctx.isGroup ?? false,
       groupId: ctx.groupId,
       userId: ctx.userId,
@@ -982,7 +1022,7 @@ function findCommand(input: string): string | null {
   // 再找前缀匹配（最长的）
   let best: string | null = null;
   for (const name of names) {
-    if (name.startsWith(input) && (!best || name.length > best.length)) {
+    if (name.startsWith(input) && input.length >= 3 && (!best || name.length > best.length)) {
       best = name;
     }
   }

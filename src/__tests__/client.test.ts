@@ -44,7 +44,6 @@ vi.mock("ws", () => {
 vi.mock("../utils/retry.js", () => ({
   withRetry: vi.fn((fn: Function) => fn()),
   isRetryableError: vi.fn(() => false),
-  isNapcatApiErrorRetryable: vi.fn(() => false),
 }));
 
 vi.mock("../utils/log-sanitize.js", () => ({
@@ -52,7 +51,8 @@ vi.mock("../utils/log-sanitize.js", () => ({
   maskBearerToken: vi.fn((text: string) => text),
 }));
 
-import { OneBotClient, NapcatApiError } from "../client.js";
+import { OneBotClient } from "../client.js";
+import { ClientApiError } from "../errors/napcat-error.js";
 
 describe("OneBotClient", () => {
   let client: OneBotClient;
@@ -626,12 +626,16 @@ describe("OneBotClient", () => {
       (client as any).parseIncomingMessage(
         Buffer.from(JSON.stringify({ echo, status: "failed", msg: "error msg", retcode: 100 }))
       );
-      expect(reject).toHaveBeenCalledWith(expect.objectContaining({
-        name: "NapcatApiError",
-        statusCode: 100,
-        statusText: "error msg",
-        action: "unknown",
-      }));
+      expect(reject).toHaveBeenCalledWith(
+        expect.objectContaining({
+          statusCode: 100,
+          statusText: "error msg",
+          action: "unknown",
+        })
+      );
+      const errArg = reject.mock.calls[0][0] as Error;
+      expect(errArg).toBeInstanceOf(ClientApiError);
+      expect(errArg.name).toBe("ClientApiError");
     });
   });
 });

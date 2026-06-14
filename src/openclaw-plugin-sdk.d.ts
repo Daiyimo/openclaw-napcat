@@ -8,15 +8,18 @@ declare module "openclaw/plugin-sdk" {
   /** channel 子命名空间（对应 PluginRuntimeChannel） */
   export interface PluginRuntimeChannel {
     reply: {
+      /** @deprecated 3.31: 推荐使用 dispatchReplyWithBufferedBlockDispatcher（仅传 deliver） */
       createReplyDispatcherWithTyping: (params: {
         deliver: (payload: ReplyPayload) => Promise<void>;
       }) => { dispatcher: any; replyOptions: any };
+      /** @deprecated 3.31: 推荐使用 inbound.dispatchReply */
       dispatchReplyFromConfig: (params: {
         ctx: any;
         cfg: any;
         dispatcher: any;
         replyOptions: any;
       }) => Promise<void>;
+      /** @deprecated 3.31: 推荐使用 inbound.buildContext */
       finalizeInboundContext: <T extends Record<string, unknown>>(
         ctx: T,
         opts?: {
@@ -26,12 +29,19 @@ declare module "openclaw/plugin-sdk" {
           forceConversationLabel?: boolean;
         },
       ) => T & Record<string, unknown>;
-      dispatchReplyWithBufferedBlockDispatcher?: (params: any) => Promise<void>;
+      dispatchReplyWithBufferedBlockDispatcher?: (params: {
+        ctx: any;
+        cfg: any;
+        dispatcherOptions: { deliver: (payload: any) => Promise<void>; onError?: (err: unknown, info: any) => void };
+        replyOptions?: { onReplyStart?: () => Promise<void> | void };
+      }) => Promise<void>;
       withReplyDispatcher?: (params: any) => Promise<void>;
       formatAgentEnvelope?: (params: any) => string;
     };
     session: {
+      /** @deprecated 3.31: 推荐使用 channel turn helpers */
       resolveStorePath: (store?: any, opts?: { agentId?: string }) => string;
+      /** @deprecated 3.31: 推荐使用 channel turn helpers */
       recordInboundSession: (params: {
         storePath: string;
         sessionKey: string;
@@ -80,6 +90,14 @@ declare module "openclaw/plugin-sdk" {
       shouldHandleTextCommands?: (params: any) => boolean;
     };
     outbound?: any;
+    /** 3.31 新增：入站事件处理（推荐替代 reply.dispatchReplyFromConfig） */
+    inbound?: {
+      buildContext?: (params: any) => any;
+      run?: (params: any) => Promise<any>;
+      /** @deprecated 推荐使用 run */
+      runPreparedReply?: (params: any) => Promise<any>;
+      dispatchReply?: (params: any) => Promise<any>;
+    };
     threadBindings?: any;
     pairing?: any;
     discord?: any;
@@ -152,9 +170,9 @@ declare module "openclaw/plugin-sdk" {
       error: (msg: string) => void;
       debug?: (msg: string) => void;
     };
-    getStatus?: () => ChannelAccountSnapshot;
-    /** 3.31: setStatus 接收完整 ChannelAccountSnapshot，不再是 Partial */
-    setStatus?: (next: ChannelAccountSnapshot) => void;
+    getStatus: () => ChannelAccountSnapshot;
+    /** 3.31: setStatus 接收完整 ChannelAccountSnapshot，不再是 Partial；两者均已改为必选 */
+    setStatus: (next: ChannelAccountSnapshot) => void;
     /**
      * Channel runtime helpers 注入到外部插件（@since 2026.2.19）
      * 替代全局 PluginRuntime 单例的首选访问方式
@@ -183,8 +201,18 @@ declare module "openclaw/plugin-sdk" {
     to: string;
     text: string;
     mediaUrl?: string;
+    audioAsVoice?: boolean;
+    mediaAccess?: any;
+    mediaLocalRoots?: readonly string[];
+    mediaReadFile?: (filePath: string) => Promise<Buffer>;
+    gifPlayback?: boolean;
+    /** Send image, GIF, or video as document to avoid channel compression. */
+    forceDocument?: boolean;
     /** 替代旧版 replyTo（3.31）*/
     replyToId?: string | null;
+    replyToIdSource?: "explicit" | "implicit";
+    replyToMode?: any;
+    formatting?: any;
     threadId?: string | number | null;
     accountId?: string | null;
     identity?: any;
@@ -206,6 +234,8 @@ declare module "openclaw/plugin-sdk" {
     sessionId?: string | null;
     agentId?: string | null;
     requesterSenderId?: string | null;
+    /** 3.31 新增：请求者是否为 owner */
+    senderIsOwner?: boolean;
     [key: string]: any;
   };
 
@@ -230,7 +260,7 @@ declare module "openclaw/plugin-sdk" {
 
   // ── Directory ───────────────────────────────────────────────────────────────
 
-  /** 3.31: runtime 字段已新增为必选 */
+  /** 3.31: runtime 字段为必选 */
   export type ChannelDirectoryListParams = {
     cfg: OpenClawConfig;
     accountId?: string | null;
@@ -268,6 +298,8 @@ declare module "openclaw/plugin-sdk" {
     lastDisconnect?: string | { at: number; status?: number; error?: string; loggedOut?: boolean } | null;
     lastMessageAt?: number | null;
     lastEventAt?: number | null;
+    /** 3.31 新增：最后传输活动时间 */
+    lastTransportActivityAt?: number | null;
     lastError?: string | null;
     healthState?: string;
     lastStartAt?: number | null;
@@ -278,6 +310,9 @@ declare module "openclaw/plugin-sdk" {
     activeRuns?: number;
     lastRunActivityAt?: number | null;
     mode?: string;
+    /** 3.31 新增 */
+    dmPolicy?: string;
+    allowFrom?: string[];
     tokenSource?: string;
     botTokenSource?: string;
     probe?: unknown;
@@ -383,9 +418,15 @@ declare module "openclaw/plugin-sdk" {
         accountId: string;
         input: any;
       }) => OpenClawConfig;
-      afterAccountConfigWritten?: (params: any) => Promise<void> | void;
+      afterAccountConfigWritten?: (params: {
+        previousCfg: OpenClawConfig;
+        cfg: OpenClawConfig;
+        accountId: string;
+        input: any;
+        runtime: any;
+      }) => Promise<void> | void;
     };
-    /** 3.31 起 startAccount 不再提供 onReady/onError，使用 setStatus */
+    /** 3.31 起 startAccount 不再提供 onReady/onError，使用 setStatus；getStatus/setStatus 为必选 */
     gateway?: {
       startAccount?: (ctx: ChannelGatewayContext<TAccount>) => Promise<unknown>;
       stopAccount?: (ctx: ChannelGatewayContext<TAccount>) => Promise<void>;
@@ -426,7 +467,7 @@ declare module "openclaw/plugin-sdk" {
       }) => Promise<any>;
       auditAccount?: (params: any) => Promise<any>;
       buildCapabilitiesDiagnostics?: (params: any) => Promise<any>;
-      /** 3.31: cfg 为必选 */
+      /** 3.31: cfg 为必选，建议使用 probe/audit 做健康诊断 */
       buildAccountSnapshot?: (params: {
         account?: TAccount;
         cfg: OpenClawConfig;

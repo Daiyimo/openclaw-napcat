@@ -12,6 +12,7 @@ import type { UploadCache } from "../upload-cache.js";
 export interface Logger {
   log: (...args: unknown[]) => void;
   info: (...args: unknown[]) => void;
+  debug: (...args: unknown[]) => void;
   warn: (...args: unknown[]) => void;
   error: (...args: unknown[]) => void;
 }
@@ -35,6 +36,8 @@ import type { InboundRateLimiter } from "../rate-limiter.js";
 export interface InboundRateLimitStore {
   /** @deprecated Replaced by rateLimiter for sliding window support */
   lastTrigger: Map<string, number>;
+  /** 消息去重集合 */
+  processedMsgIds: Set<string>;
   /** 滑动窗口限流器 */
   rateLimiter?: InboundRateLimiter;
   config: QQConfig;
@@ -48,8 +51,17 @@ export interface SharedState {
   setBotSelfId: (accountId: string, selfId: number) => void;
   /** 每账号冷启动握手回填是否已执行（避免定时器重复触发） */
   handshakeBackfillDone?: Set<string>;
+  /**
+   * 并发锁：防止同一账号并发 startAccount 导致竞态
+   * @see P1 #7
+   */
+  startingPromises: Map<string, Promise<void>>;
 }
 
+/**
+ * 本地 channel runtime 类型（与 openclaw SDK PluginRuntimeChannel 对齐）。
+ * 只声明 napcat 实际使用的方法，避免直接依赖 SDK 内部类型。
+ */
 export interface PluginRuntimeChannel {
   activity: {
     record: (params: { channel: string; accountId: string; direction: "inbound" | "outbound" }) => void;
@@ -65,17 +77,16 @@ export interface PluginRuntimeChannel {
     }) => Promise<void>;
   };
   reply: {
-    createReplyDispatcherWithTyping: (params: { deliver: (payload: unknown) => Promise<void> }) => {
-      dispatcher: unknown;
-      replyOptions: unknown;
-    };
     finalizeInboundContext: (ctx: Record<string, unknown>) => Record<string, unknown>;
-    dispatchReplyFromConfig: (params: {
+    dispatchReplyWithBufferedBlockDispatcher: (params: {
       ctx: Record<string, unknown>;
       cfg: OpenClawConfig;
-      dispatcher: unknown;
-      replyOptions: unknown;
-    }) => Promise<void>;
+      dispatcherOptions: {
+        deliver: (payload: unknown) => Promise<void>;
+        onError?: (err: unknown) => void;
+      };
+      replyOptions?: Record<string, unknown>;
+    }) => Promise<unknown>;
   };
 }
 
@@ -100,9 +111,10 @@ export interface ConnectionContext {
   cfg: OpenClawConfig;
   channelRuntime: PluginRuntimeChannel;
   knownGroupIds: Set<string>;
+  log: Logger;
   startAccountCtx: {
-    getStatus?: () => AccountStatus | undefined;
-    setStatus?: (next: AccountStatus) => void;
+    getStatus: () => AccountStatus;
+    setStatus: (next: AccountStatus) => void;
   };
   shared: SharedState;
 }
@@ -113,8 +125,8 @@ export interface StartAccountContext {
   accountId: string;
   abortSignal: AbortSignal;
   log: Logger;
-  getStatus?: () => AccountStatus | undefined;
-  setStatus?: (next: AccountStatus) => void;
+  getStatus: () => AccountStatus;
+  setStatus: (next: AccountStatus) => void;
   channelRuntime?: PluginRuntimeChannel;
   runtime?: unknown;
 }

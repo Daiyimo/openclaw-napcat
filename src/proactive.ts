@@ -10,6 +10,8 @@ import type { KnownUser } from "./known-users.js";
 import { parseTarget, isImageFile, dispatchMessage } from "./message-parser.js";
 import type { OneBotMessage } from "./types.js";
 
+import type { Logger } from "./types/channel-types.js";
+
 // Re-export for convenience
 export { listKnownUsers, getKnownUsersStats };
 
@@ -32,6 +34,7 @@ export interface ProactiveSendOptions {
   mediaUrl?: string;
   /** 指定使用哪个账户 ID（不指定则使用默认账户） */
   accountId?: string;
+  log?: Logger;
 }
 
 export interface ProactiveSendResult {
@@ -85,7 +88,7 @@ export async function sendProactive(options: ProactiveSendOptions): Promise<Proa
     return { success: true };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    console.error(`[proactive] sendProactive failed: to=${options.to}, error=${errorMsg}`);
+    (options.log ?? console).error(`[proactive] sendProactive failed: to=${options.to}, error=${errorMsg}`);
     return { success: false, error: errorMsg };
   }
 }

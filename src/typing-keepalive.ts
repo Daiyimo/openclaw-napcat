@@ -19,6 +19,7 @@ export class TypingKeepAlive {
     private readonly isGroup: boolean,
     private readonly groupId?: number,
     private readonly userId?: number,
+    private readonly log?: { warn: (...args: unknown[]) => void },
   ) {}
 
   /** 启动定时 typing 状态发送 */
@@ -51,6 +52,8 @@ export class TypingKeepAlive {
         user_id: String(this.userId),
         event_type: 1,
       })
-      .catch(() => {});
+      .catch((err) => {
+        this.log?.warn?.("[napcat-QQ] set_input_status failed:", err);
+      });
   }
 }
