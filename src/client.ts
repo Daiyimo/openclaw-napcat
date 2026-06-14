@@ -42,6 +42,7 @@ export class OneBotClient extends EventEmitter {
     resolve: (value: any) => void;
     reject: (reason: any) => void;
     timer: ReturnType<typeof setTimeout>;
+    action: string;
   }>();
   /** echo ID 递增计数器，避免 Math.random() 碰撞风险 */
   private echoCounter = 0;
@@ -165,7 +166,7 @@ export class OneBotClient extends EventEmitter {
     // 拒绝所有等待中的请求
     for (const [echo, pending] of this.pendingRequests) {
       clearTimeout(pending.timer);
-      pending.reject(new ConnectionError("unknown", "WebSocket disconnected"));
+      pending.reject(new ConnectionError(pending.action, "WebSocket disconnected"));
     }
     this.pendingRequests.clear();
     this.log.log("[napcat-QQ] Disconnected from OneBot server");
@@ -712,6 +713,7 @@ export class OneBotClient extends EventEmitter {
           reject(reason);
         },
         timer,
+        action,
       });
 
       try {
@@ -731,7 +733,11 @@ export class OneBotClient extends EventEmitter {
   private sendWs(action: string, params: any) {
     const activeWs = this.getActiveWs();
     if (activeWs) {
-      activeWs.send(JSON.stringify({ action, params }));
+      try {
+        activeWs.send(JSON.stringify({ action, params }));
+      } catch (err) {
+        throw new ConnectionError(action, err instanceof Error ? err.message : String(err));
+      }
     } else {
       throw new ConnectionError(action, "No WebSocket connection available");
     }
@@ -762,7 +768,8 @@ export class OneBotClient extends EventEmitter {
         return null;
       }
       return payload as OneBotEvent;
-    } catch {
+    } catch (err) {
+      this.log.debug("[napcat-QQ] parse error:", err);
       return null;
     }
   }

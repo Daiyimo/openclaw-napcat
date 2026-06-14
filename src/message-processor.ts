@@ -476,8 +476,11 @@ export function buildBodyWithReply(opts: {
   const cleanText = cleanCQCodes(text);
   // 剥离友军签名 [BOT:${selfId}]，防止 AI 学到签名并复现
   const botId = opts.botSelfId;
-  const strippedText = botId
-    ? cleanText.replace(new RegExp(`\\[BOT:${botId}\\]`, "g"), "")
+  const strippedText = botId != null
+    ? cleanText.replace(
+        new RegExp(`\\[BOT:${String(botId).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\]`, "g"),
+        "",
+      )
     : cleanText;
   const bodyWithReply = strippedText + replySuffix;
 

@@ -73,11 +73,13 @@ export async function sendMedia(
     if (text) message.push({ type: "text", data: { text } });
     if (isImageFile(mediaUrl) || isImageFile(finalUrl))
       message.push({ type: "image", data: { file: finalUrl } });
-    else
+    else {
+      const fileName = finalUrl ? finalUrl.split("/").pop() || "file" : "file";
       message.push({
         type: "file",
-        data: { file: finalUrl, name: finalUrl.split("/").pop() || "file" },
+        data: { file: finalUrl, name: fileName },
       });
+    }
     await dispatchMessage(client, target, message);
     return { channel: "napcat", sent: true };
   } catch (err) {

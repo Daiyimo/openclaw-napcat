@@ -177,7 +177,8 @@ export class DeliverDebouncer {
       await this.executor({ text: merged }, info);
       this.retryCount = 0; // 成功后重置重试计数
     } catch (err) {
-      // 归还缓冲内容，防止静默丢失
+      // flushing=true 标志位保证本 catch 不会被并发 flush 重复触发
+      // 因此 [...texts, ...this.bufferedTexts] 不会产生重复条目
       this.bufferedTexts = [...texts, ...this.bufferedTexts];
       this.lastInfo = info;
       this.retryCount++;
