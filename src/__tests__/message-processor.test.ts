@@ -632,4 +632,52 @@ describe("resolveMessageText", () => {
     expect(event.message[0].data).toBe(fileSeg.data);
     expect(event.message[0].data.url).toBeUndefined();
   });
+
+  // ============ SSRF 防护回归测试 ============
+
+  it("record 段 SSRF 防护：file:// URL 被拦截，不调用 fetch", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: true, arrayBuffer: () => Buffer.from("") });
+    globalThis.fetch = fetchSpy as any;
+
+    const event = {
+      raw_message: "",
+      message: [{ type: "record", data: { url: "file:///etc/passwd" } }],
+    } as any;
+    const result = await resolveMessageText(event, makeClient(), makeConfig({ enableSTT: true }));
+    expect(result).toContain("[语音消息: URL 不允许]");
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    delete (globalThis as any).fetch;
+  });
+
+  it("record 段 SSRF 防护：gopher:// URL 被拦截", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: true, arrayBuffer: () => Buffer.from("") });
+    globalThis.fetch = fetchSpy as any;
+
+    const event = {
+      raw_message: "",
+      message: [{ type: "record", data: { url: "gopher://evil.com/_hax" } }],
+    } as any;
+    const result = await resolveMessageText(event, makeClient(), makeConfig({ enableSTT: true }));
+    expect(result).toContain("[语音消息: URL 不允许]");
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    delete (globalThis as any).fetch;
+  });
+
+  it("record 段：http(s) URL 允许通过", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: true, arrayBuffer: () => Buffer.from("") });
+    globalThis.fetch = fetchSpy as any;
+
+    const event = {
+      raw_message: "",
+      message: [{ type: "record", data: { url: "https://example.com/voice.amr" } }],
+    } as any;
+    // 使用最小化 config 避免完整的 STT 流程
+    const result = await resolveMessageText(event, makeClient(), makeConfig({ enableSTT: true }));
+    // fetch 应该被调用（http URL 通过校验）
+    expect(fetchSpy).toHaveBeenCalledWith("https://example.com/voice.amr", expect.any(Object));
+
+    delete (globalThis as any).fetch;
+  });
 });

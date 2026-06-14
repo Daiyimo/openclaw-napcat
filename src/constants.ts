@@ -77,6 +77,9 @@ export const OUTBOUND_MULTI_CHUNK_SLEEP_MS = 1_000;
 
 // === HTTP 重试 ===
 
+/** HTTP API 调用超时（ms）。防止慢速攻击耗尽连接池 */
+export const HTTP_RESPONSE_TIMEOUT_MS = 10_000;
+
 /** HTTP API 最大重试次数（不含首次调用） */
 export const HTTP_MAX_RETRIES = 3;
 
@@ -147,6 +150,9 @@ export const BOT_SUPPRESSION_JITTER_MS = 2_000;
 
 /** 入站频控默认每窗口最大消息数 */
 export const INBOUND_RATE_LIMIT_DEFAULT_MAX = 5;
+
+/** 群消息历史缓存 TTL（ms）。减少热路径中重复调用 getGroupMsgHistory 的网络 I/O */
+export const GROUP_HISTORY_CACHE_TTL_MS = 30_000;
 
 // === 对话状态 ===
 

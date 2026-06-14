@@ -15,6 +15,7 @@ import type { Logger } from "./types/channel-types.js";
 import {
   WS_HEARTBEAT_INTERVAL_MS,
   WS_RESPONSE_TIMEOUT_MS,
+  HTTP_RESPONSE_TIMEOUT_MS,
   HTTP_MAX_RETRIES,
   HTTP_RETRY_BASE_DELAY_MS,
 } from "./constants.js";
@@ -58,11 +59,11 @@ export class OneBotClient extends EventEmitter {
     return this.selfId;
   }
 
-  setSelfId(id: number) {
+  setSelfId(id: number): void {
     this.selfId = id;
   }
 
-  connect() {
+  connect(): void {
     if (!this.options.wsUrl) return;
     this.cleanup();
 
@@ -96,7 +97,7 @@ export class OneBotClient extends EventEmitter {
     });
   }
 
-  private cleanup() {
+  private cleanup(): void {
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
@@ -105,13 +106,13 @@ export class OneBotClient extends EventEmitter {
       try {
         this.ws.removeAllListeners();
       } catch (err) {
-        this.log.debug("[napcat-QQ] removeAllListeners error during cleanup:", err);
+        this.log.warn("[napcat-QQ] removeAllListeners error during cleanup:", err);
       }
       if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
         try {
           this.ws.terminate();
         } catch (err) {
-          this.log.debug("[napcat-QQ] WebSocket terminate error during cleanup:", err);
+          this.log.warn("[napcat-QQ] WebSocket terminate error during cleanup:", err);
         }
       }
       this.ws = null;
@@ -175,23 +176,23 @@ export class OneBotClient extends EventEmitter {
     // Do not self-reconnect here to avoid racing with the host framework.
   }
 
-  async sendPrivateMsg(userId: number, message: OneBotMessage | string) {
+  async sendPrivateMsg(userId: number, message: OneBotMessage | string): Promise<void> {
     await this.sendAction("send_private_msg", { user_id: String(userId), message });
   }
 
-  async sendGroupMsg(groupId: number, message: OneBotMessage | string) {
+  async sendGroupMsg(groupId: number, message: OneBotMessage | string): Promise<void> {
     await this.sendAction("send_group_msg", { group_id: String(groupId), message });
   }
 
-  deleteMsg(messageId: number | string) {
+  deleteMsg(messageId: number | string): void {
     this.sendWs("delete_msg", { message_id: String(messageId) });
   }
 
-  setGroupAddRequest(flag: string, subType: string, approve: boolean = true, reason: string = "") {
+  setGroupAddRequest(flag: string, subType: string, approve: boolean = true, reason: string = ""): void {
     this.sendWs("set_group_add_request", { flag, sub_type: subType, approve, reason });
   }
 
-  setFriendAddRequest(flag: string, approve: boolean = true, remark: string = "") {
+  setFriendAddRequest(flag: string, approve: boolean = true, remark: string = ""): void {
     this.sendWs("set_friend_add_request", { flag, approve, remark });
   }
 
@@ -243,15 +244,15 @@ export class OneBotClient extends EventEmitter {
     catch (err) { this.log.warn("get_guild_service_profile failed", err); return null; }
   }
 
-  sendGroupPoke(groupId: number, userId: number) {
+  sendGroupPoke(groupId: number, userId: number): void {
     this.sendWs("group_poke", { group_id: String(groupId), user_id: String(userId) });
   }
 
-  sendFriendPoke(userId: number) {
+  sendFriendPoke(userId: number): void {
     this.sendWs("friend_poke", { user_id: String(userId), target_id: String(userId) });
   }
 
-  async setMsgEmojiLike(messageId: number | string, emojiId: string) {
+  async setMsgEmojiLike(messageId: number | string, emojiId: string): Promise<void> {
     await this.sendAction("set_msg_emoji_like", { message_id: String(messageId), emoji_id: emojiId, set: true });
   }
 
@@ -304,23 +305,23 @@ export class OneBotClient extends EventEmitter {
     return this.sendWithResponse("get_ai_characters", {});
   }
 
-  async sendGroupAiRecord(groupId: number, text: string, voiceId: string) {
+  async sendGroupAiRecord(groupId: number, text: string, voiceId: string): Promise<void> {
     await this.sendAction("send_group_ai_record", { group_id: String(groupId), text, character: voiceId });
   }
 
-  async uploadGroupFile(groupId: number, file: string, name: string) {
+  async uploadGroupFile(groupId: number, file: string, name: string): Promise<void> {
     await this.sendAction("upload_group_file", { group_id: String(groupId), file, name });
   }
 
-  async uploadPrivateFile(userId: number, file: string, name: string) {
+  async uploadPrivateFile(userId: number, file: string, name: string): Promise<void> {
     await this.sendAction("upload_private_file", { user_id: String(userId), file, name });
   }
 
-  setGroupBan(groupId: number, userId: number, duration: number = 1800) {
+  setGroupBan(groupId: number, userId: number, duration: number = 1800): void {
     this.sendWs("set_group_ban", { group_id: String(groupId), user_id: String(userId), duration });
   }
 
-  setGroupKick(groupId: number, userId: number, rejectAddRequest: boolean = false) {
+  setGroupKick(groupId: number, userId: number, rejectAddRequest: boolean = false): void {
     this.sendWs("set_group_kick", { group_id: String(groupId), user_id: String(userId), reject_add_request: rejectAddRequest });
   }
 
@@ -335,27 +336,27 @@ export class OneBotClient extends EventEmitter {
   // ── A. OneBot v11 原生群管 ──────────────────────────────
 
   /** 设置/取消群管理员（仅群主可用） */
-  setGroupAdmin(groupId: number, userId: number, enable: boolean = true) {
+  setGroupAdmin(groupId: number, userId: number, enable: boolean = true): void {
     this.sendWs("set_group_admin", { group_id: String(groupId), user_id: String(userId), enable });
   }
 
   /** 全员禁言开关 */
-  setGroupWholeBan(groupId: number, enable: boolean = true) {
+  setGroupWholeBan(groupId: number, enable: boolean = true): void {
     this.sendWs("set_group_whole_ban", { group_id: String(groupId), enable });
   }
 
   /** 设置群名片（card 空串 = 清除名片） */
-  setGroupCard(groupId: number, userId: number, card: string = "") {
+  setGroupCard(groupId: number, userId: number, card: string = ""): void {
     this.sendWs("set_group_card", { group_id: String(groupId), user_id: String(userId), card });
   }
 
   /** 修改群名称 */
-  setGroupName(groupId: number, name: string) {
+  setGroupName(groupId: number, name: string): void {
     this.sendWs("set_group_name", { group_id: String(groupId), group_name: name });
   }
 
   /** 设置专属头衔（仅群主可用） */
-  setGroupSpecialTitle(groupId: number, userId: number, specialTitle: string) {
+  setGroupSpecialTitle(groupId: number, userId: number, specialTitle: string): void {
     this.sendWs("set_group_special_title", {
       group_id: String(groupId),
       user_id: String(userId),
@@ -364,12 +365,12 @@ export class OneBotClient extends EventEmitter {
   }
 
   /** 退群（isDismiss=true 且 bot 为群主时为解散） */
-  setGroupLeave(groupId: number, isDismiss: boolean = false) {
+  setGroupLeave(groupId: number, isDismiss: boolean = false): void {
     this.sendWs("set_group_leave", { group_id: String(groupId), is_dismiss: isDismiss });
   }
 
   /** 批量踢人 */
-  setGroupKickMembers(groupId: number, userIds: number[], rejectAddRequest: boolean = false) {
+  setGroupKickMembers(groupId: number, userIds: number[], rejectAddRequest: boolean = false): void {
     this.sendWs("set_group_kick_members", {
       group_id: String(groupId),
       user_id: userIds.map((id) => String(id)),
@@ -378,12 +379,12 @@ export class OneBotClient extends EventEmitter {
   }
 
   /** 设为群精华消息 */
-  async setEssenceMsg(messageId: number | string) {
+  async setEssenceMsg(messageId: number | string): Promise<void> {
     await this.sendAction("set_essence_msg", { message_id: String(messageId) });
   }
 
   /** 移出群精华消息 */
-  async deleteEssenceMsg(messageId: number | string) {
+  async deleteEssenceMsg(messageId: number | string): Promise<void> {
     await this.sendAction("delete_essence_msg", { message_id: String(messageId) });
   }
 
@@ -446,17 +447,17 @@ export class OneBotClient extends EventEmitter {
   }
 
   /** 删除群文件 */
-  async deleteGroupFile(groupId: number, fileId: string) {
+  async deleteGroupFile(groupId: number, fileId: string): Promise<void> {
     await this.sendAction("delete_group_file", { group_id: String(groupId), file_id: fileId });
   }
 
   /** 新建群子文件夹 */
-  async createGroupFileFolder(groupId: number, folderName: string) {
+  async createGroupFileFolder(groupId: number, folderName: string): Promise<void> {
     await this.sendAction("create_group_file_folder", { group_id: String(groupId), folder_name: folderName });
   }
 
   /** 删除群子文件夹 */
-  async deleteGroupFolder(groupId: number, folderId: string) {
+  async deleteGroupFolder(groupId: number, folderId: string): Promise<void> {
     await this.sendAction("delete_group_folder", { group_id: String(groupId), folder_id: folderId });
   }
 
@@ -466,7 +467,7 @@ export class OneBotClient extends EventEmitter {
     fileId: string,
     currentParentDirectory: string,
     targetParentDirectory: string,
-  ) {
+  ): Promise<void> {
     await this.sendAction("move_group_file", {
       group_id: String(groupId),
       file_id: fileId,
@@ -481,7 +482,7 @@ export class OneBotClient extends EventEmitter {
     fileId: string,
     currentParentDirectory: string,
     newName: string,
-  ) {
+  ): Promise<void> {
     await this.sendAction("rename_group_file", {
       group_id: String(groupId),
       file_id: fileId,
@@ -493,37 +494,37 @@ export class OneBotClient extends EventEmitter {
   // ── C. NapCat 扩展群管 ─────────────────────────────────
 
   /** 设置群头像（file 可为本地路径 / URL / base64） */
-  async setGroupPortrait(groupId: number, file: string) {
+  async setGroupPortrait(groupId: number, file: string): Promise<void> {
     await this.sendAction("set_group_portrait", { group_id: String(groupId), file });
   }
 
   /** 设置群备注（备注仅自己可见） */
-  async setGroupRemark(groupId: number, remark: string) {
+  async setGroupRemark(groupId: number, remark: string): Promise<void> {
     await this.sendAction("set_group_remark", { group_id: String(groupId), remark });
   }
 
   /** 群一键签到 */
-  async setGroupSign(groupId: number) {
+  async setGroupSign(groupId: number): Promise<void> {
     await this.sendAction("set_group_sign", { group_id: String(groupId) });
   }
 
   /** 设置群待办（消息标 todo） */
-  async setGroupTodo(groupId: number, messageId: number | string) {
+  async setGroupTodo(groupId: number, messageId: number | string): Promise<void> {
     await this.sendAction("set_group_todo", { group_id: String(groupId), message_id: String(messageId) });
   }
 
   /** 完成群待办 */
-  async completeGroupTodo(groupId: number, messageId: number | string) {
+  async completeGroupTodo(groupId: number, messageId: number | string): Promise<void> {
     await this.sendAction("complete_group_todo", { group_id: String(groupId), message_id: String(messageId) });
   }
 
   /** 取消群待办 */
-  async cancelGroupTodo(groupId: number, messageId: number | string) {
+  async cancelGroupTodo(groupId: number, messageId: number | string): Promise<void> {
     await this.sendAction("cancel_group_todo", { group_id: String(groupId), message_id: String(messageId) });
   }
 
   /** Try HTTP API first, fall back to WebSocket */
-  async sendAction(action: string, params: any) {
+  async sendAction(action: string, params: any): Promise<void> {
     if (this.options.httpUrl) {
       try {
         this.log.log(`[napcat-QQ][sendAction] trying HTTP: ${maskUrl(this.options.httpUrl)}/${action}`);
@@ -555,6 +556,7 @@ export class OneBotClient extends EventEmitter {
         method: "POST",
         headers,
         body: JSON.stringify(params),
+        signal: AbortSignal.timeout(HTTP_RESPONSE_TIMEOUT_MS),
       });
       if (!resp.ok) {
         if (resp.status >= 500) throw new ServerApiError(resp.status, resp.statusText, action);
@@ -577,7 +579,7 @@ export class OneBotClient extends EventEmitter {
 
   // --- Reverse WebSocket Server ---
 
-  startReverseWs() {
+  startReverseWs(): void {
     const port = this.options.reverseWsPort;
     if (!port) return;
     // 幂等保护：已启动则不重复创建
@@ -730,7 +732,7 @@ export class OneBotClient extends EventEmitter {
     });
   }
 
-  private sendWs(action: string, params: any) {
+  private sendWs(action: string, params: any): void {
     const activeWs = this.getActiveWs();
     if (activeWs) {
       try {
@@ -743,7 +745,7 @@ export class OneBotClient extends EventEmitter {
     }
   }
 
-  async disconnect() {
+  async disconnect(): Promise<void> {
     this.cleanup();
     await this.stopReverseWs();
   }

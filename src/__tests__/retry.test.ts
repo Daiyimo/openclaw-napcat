@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { withRetry, isRetryableError } from "../utils/retry.js";
+import { withRetry, isRetryableError, CircuitBreaker, createCircuitBreaker } from "../utils/retry.js";
 import { NapcatApiError, ServerApiError, ClientApiError } from "../errors/napcat-error.js";
 
 describe("isRetryableError", () => {
@@ -101,5 +101,134 @@ describe("withRetry", () => {
     const result = await promise;
     expect(result).toBe("ok");
     expect(fn).toHaveBeenCalledTimes(4);
+  });
+});
+
+describe("CircuitBreaker", () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  // Helper: advance both timers and system time
+  const advanceMs = (ms: number) => {
+    const now = Date.now();
+    vi.setSystemTime(now + ms);
+    vi.advanceTimersByTime(ms);
+  };
+
+  it("starts in closed state and allows calls", async () => {
+    const breaker = new CircuitBreaker({ failureThreshold: 3, recoveryTimeoutMs: 1000 });
+    expect(breaker.currentState).toBe("closed");
+    expect(breaker.isClosed).toBe(true);
+
+    const fn = vi.fn().mockResolvedValue("ok");
+    await breaker.execute(fn);
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens after threshold failures", async () => {
+    const breaker = new CircuitBreaker({ failureThreshold: 3, recoveryTimeoutMs: 1000 });
+    const fn = vi.fn().mockRejectedValue(new Error("fail"));
+
+    // 前 threshold 次: closed -> call fn -> throw original error
+    for (let i = 0; i < 3; i++) {
+      await expect(breaker.execute(fn)).rejects.toThrow("fail");
+    }
+    // 第 threshold+1 次: open -> fast fail
+    await expect(breaker.execute(fn)).rejects.toThrow("Circuit breaker is OPEN");
+    expect(breaker.currentState).toBe("open");
+    expect(breaker.isClosed).toBe(false);
+  });
+
+  it("transitions to half_open after recovery timeout", async () => {
+    const breaker = new CircuitBreaker({ failureThreshold: 2, recoveryTimeoutMs: 1000 });
+    const fn = vi.fn().mockRejectedValue(new Error("fail"));
+
+    // Open the breaker (threshold failures + 1 fast-fail call)
+    await expect(breaker.execute(fn)).rejects.toThrow("fail");
+    await expect(breaker.execute(fn)).rejects.toThrow("fail");
+    await expect(breaker.execute(fn)).rejects.toThrow("Circuit breaker is OPEN");
+    expect(breaker.currentState).toBe("open");
+
+    // Advance past recovery timeout
+    advanceMs(1001);
+    expect(breaker.currentState).toBe("half_open");
+    expect(breaker.isClosed).toBe(true);
+  });
+
+  // P1 regression: HalfOpen should trip to Open on single failure
+  it("half_open single failure trips back to open (P1 fix)", async () => {
+    const breaker = new CircuitBreaker({ failureThreshold: 3, recoveryTimeoutMs: 1000 });
+    const failFn = vi.fn().mockRejectedValue(new Error("still failing"));
+
+    // Open the breaker
+    await expect(breaker.execute(failFn)).rejects.toThrow("still failing");
+    await expect(breaker.execute(failFn)).rejects.toThrow("still failing");
+    await expect(breaker.execute(failFn)).rejects.toThrow("still failing");
+    await expect(breaker.execute(failFn)).rejects.toThrow("Circuit breaker is OPEN");
+    expect(breaker.currentState).toBe("open");
+
+    // Advance to half_open
+    advanceMs(1001);
+    expect(breaker.currentState).toBe("half_open");
+
+    // Single failure in half_open: fn rejects → recordFailure → back to open
+    // First call: fn is invoked, throws original error (not yet OPEN)
+    await expect(breaker.execute(failFn)).rejects.toThrow("still failing");
+    // recordFailure with threshold=1 in half_open → state → open
+    expect(breaker.currentState).toBe("open");
+    // Second call: fast fail
+    await expect(breaker.execute(failFn)).rejects.toThrow("Circuit breaker is OPEN");
+  });
+
+  it("half_open success closes the breaker", async () => {
+    const breaker = new CircuitBreaker({ failureThreshold: 2, recoveryTimeoutMs: 1000 });
+    const failFn = vi.fn().mockRejectedValue(new Error("fail"));
+    const okFn = vi.fn().mockResolvedValue("recovered");
+
+    // Open the breaker
+    await expect(breaker.execute(failFn)).rejects.toThrow("fail");
+    await expect(breaker.execute(failFn)).rejects.toThrow("fail");
+    await expect(breaker.execute(failFn)).rejects.toThrow("Circuit breaker is OPEN");
+
+    // Recover
+    advanceMs(1001);
+    await breaker.execute(okFn);
+    expect(breaker.currentState).toBe("closed");
+    expect(breaker.isClosed).toBe(true);
+  });
+
+  it("reset restores initial state", () => {
+    const breaker = new CircuitBreaker({ failureThreshold: 2 });
+    breaker.recordFailure();
+    breaker.recordFailure();
+    expect(breaker.currentState).toBe("open");
+
+    breaker.reset();
+    expect(breaker.currentState).toBe("closed");
+    expect(breaker.isClosed).toBe(true);
+  });
+
+  it("fallback returns degraded result when open", async () => {
+    // fastFail=false: open 状态不快速失败，而是走 fallback
+    const breaker = new CircuitBreaker({ failureThreshold: 2, recoveryTimeoutMs: 1000, fastFail: false });
+    const fn = vi.fn().mockRejectedValue(new Error("fail"));
+
+    // 两次失败后断路器打开
+    await expect(breaker.execute(fn)).rejects.toThrow("fail");
+    await expect(breaker.execute(fn)).rejects.toThrow("fail");
+    expect(breaker.currentState).toBe("open");
+
+    // Fallback 返回降级值（open 且未到恢复期 → fallback）
+    const result = await breaker.execute(
+      () => Promise.reject(new Error("fail")),
+      () => Promise.resolve("fallback"),
+    );
+    expect(result).toBe("fallback");
+  });
+
+  it("createCircuitBreaker factory function", () => {
+    const breaker = createCircuitBreaker({ failureThreshold: 5 });
+    expect(breaker.currentState).toBe("closed");
+    expect(breaker.getStats().failureCount).toBe(0);
   });
 });

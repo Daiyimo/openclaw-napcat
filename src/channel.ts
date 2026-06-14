@@ -150,7 +150,8 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
           name: f.remark || f.nickname,
           kind: "user" as const,
         }));
-      } catch {
+      } catch (err) {
+        console.debug(`[napcat-QQ] listPeers failed for ${params.accountId || DEFAULT_ACCOUNT_ID}:`, err);
         return [];
       }
     },
@@ -164,7 +165,8 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
           name: g.group_name,
           kind: "group" as const,
         }));
-      } catch {
+      } catch (err) {
+        console.debug(`[napcat-QQ] listGroups failed for ${params.accountId || DEFAULT_ACCOUNT_ID}:`, err);
         return [];
       }
     },

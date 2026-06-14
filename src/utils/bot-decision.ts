@@ -19,7 +19,9 @@ function stableHash(s: string): number {
     hash = ((hash << 5) + hash) + s.charCodeAt(i);
     hash |= 0; // 32-bit integer
   }
-  return Math.abs(hash);
+  // ⚠️ P0 修复：Math.abs 无法处理 Number.MIN_SAFE_INTEGER (-2147483648)，
+  // 因为 IEEE 754 双精度无法表示该值的正数。用 >>> 0 转为无符号 32 位整数。
+  return hash >>> 0;
 }
 
 /**

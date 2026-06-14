@@ -34,6 +34,7 @@ import { installMessageHandler } from "./inbound.js";
 import { initKnownBotsStore, flushKnownBotsStore } from "../known-bots-store.js";
 import { cleanupDialogState } from "../dialog-state.js";
 import { InboundRateLimiter } from "../rate-limiter.js";
+import { trimSet } from "../utils/cache-evict.js";
 
 /**
  * 启动单个 QQ 账号的完整生命周期。
@@ -54,6 +55,7 @@ export async function startAccount(
   // ── 并发控制：防止同一账号并发 startAccount 导致竞态（P1 #7） ──
   // 同一账号并发调用时，第二个调用 await 第一个的 Promise 并直接返回，
   // 避免两个调用同时读到旧 client、同时 disconnect、同时创建新 client 导致双倍 disconnect。
+  // ⚠️ P0 修复：set 必须在 IIFE 创建之前（同步阶段），否则两个并发调用可在 IIFE yield 前都通过检查。
   const existingPromise = shared.startingPromises.get(account.accountId);
   if (existingPromise) {
     log.log(
@@ -99,7 +101,6 @@ export async function startAccount(
     const uploadCache = new UploadCache();
 
     // ── 防止同账号重复启动 ──────────────────────────────
-    // 在锁保护下执行：确保不会有两个并发调用同时 disconnect 同一个 client
     const existingClient = shared.clients.get(account.accountId);
     if (existingClient) {
       log.log(
@@ -181,21 +182,18 @@ export async function startAccount(
     flushKnownUsers();
     await flushRefIndex();
     uploadCache.dispose();
-    // disconnect 可能因 WebSocket 异常失败（如 terminate 在未连接时调用），不阻塞其余清理
     try {
       await client.disconnect();
     } catch (disconnectErr) {
       log.warn(`[napcat-QQ] Client disconnect for ${account.accountId} encountered an error:`, disconnectErr);
     }
     shared.clients.delete(account.accountId);
-    // 只删除本次启动注册的 store
-    const currentStore = shared.inboundStores.get(account.accountId);
-    if (currentStore?.lastTrigger === lastTrigger) {
-      shared.inboundStores.delete(account.accountId);
-    }
+    shared.inboundStores.delete(account.accountId);
   })();
 
+  // set 在 IIFE 创建后立即执行（仍在同步阶段），确保 get/set 之间无 yield 点
   shared.startingPromises.set(account.accountId, thisStartPromise);
+
   try {
     await thisStartPromise;
   } finally {
@@ -220,9 +218,5 @@ export function trimDedupSet(
   maxSize: number = DEDUP_MAX_SIZE,
   keepSize: number = DEDUP_KEEP_SIZE,
 ): boolean {
-  if (set.size <= maxSize) return false;
-  const entries = [...set];
-  set.clear();
-  for (const id of entries.slice(-keepSize)) set.add(id);
-  return true;
+  return trimSet(set, maxSize, keepSize);
 }

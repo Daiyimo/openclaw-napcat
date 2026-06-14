@@ -182,4 +182,27 @@ describe("PassiveModeManager", () => {
     vi.advanceTimersByTime(5_001);
     expect(manager.isAllowed("k", 5_000)).toBe(true);
   });
+
+  // P0 回归测试：markActive 必须在 isAllowed 返回 true 后立即调用
+  // 否则并发消息可同时通过检查，同时派发到 AI
+  it("markActive 后并发 isAllowed 被阻塞", () => {
+    const key = "concurrent-test";
+    expect(manager.isAllowed(key, 10_000)).toBe(true);
+    // 模拟 trigger.ts 中 isAllowed 通过后设置哨兵
+    manager.markActive(key);
+    // 第二条消息立即检查 → 被哨兵拦截
+    expect(manager.isAllowed(key, 10_000)).toBe(false);
+    // 释放哨兵
+    manager.markDone(key);
+    expect(manager.isAllowed(key, 10_000)).toBe(false); // 冷却中
+  });
+
+  it("markCheck 记录检查时间戳，控制 minIntervalMs", () => {
+    const key = "interval-test";
+    expect(manager.isIntervalAllowed(key, 5_000)).toBe(true);
+    manager.markCheck(key);
+    expect(manager.isIntervalAllowed(key, 5_000)).toBe(false);
+    vi.advanceTimersByTime(5_001);
+    expect(manager.isIntervalAllowed(key, 5_000)).toBe(true);
+  });
 });

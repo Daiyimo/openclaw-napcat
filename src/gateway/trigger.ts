@@ -50,6 +50,8 @@ export interface TriggerInput {
 
 export interface TriggerResult extends TriggerInput {
   text: string;
+  isTriggered: boolean;
+  isMentioned: boolean;
   isBot: boolean;
   otherBotNames: string[];
   knownBotIdSet: Set<string>;
@@ -60,10 +62,58 @@ export interface TriggerResult extends TriggerInput {
   isPassiveMode: boolean;
 }
 
-const otherBotNamesResult = new Map<string, { names: string[]; idSet: Set<string> }>();
+// ── otherBotNames 缓存 ────────────────────────────────────────────────────
+
+/** 缓存条目：{ names, idSet, lastAccess } */
+interface CacheEntry {
+  names: string[];
+  idSet: Set<string>;
+  lastAccess: number;
+}
+
+/** 缓存最大条目数，超过时淘汰最久未使用的条目（LRU） */
+const OTHER_BOT_NAMES_CACHE_MAX = 500;
+
+/** 缓存 key → 条目 */
+const otherBotNamesCache = new Map<string, CacheEntry>();
+
+/**
+ * 获取缓存的 otherBotNames 结果，key 变更时自动重建。
+ * 使用 lastAccess 时间戳实现 LRU 淘汰。
+ */
+function getCachedOtherBotNames(cacheKey: string): { names: string[]; idSet: Set<string> } | null {
+  const entry = otherBotNamesCache.get(cacheKey);
+  if (!entry) return null;
+  entry.lastAccess = Date.now();
+  return { names: entry.names, idSet: entry.idSet };
+}
+
+function setCachedOtherBotNames(cacheKey: string, names: string[], idSet: Set<string>): void {
+  otherBotNamesCache.set(cacheKey, { names, idSet, lastAccess: Date.now() });
+  if (otherBotNamesCache.size > OTHER_BOT_NAMES_CACHE_MAX) {
+    evictLru(otherBotNamesCache, Math.floor(OTHER_BOT_NAMES_CACHE_MAX / 2));
+  }
+}
+
+/**
+ * LRU 淘汰：移除最久未访问的 N 个条目。
+ * @template K, V - Map 的 key/value 类型
+ */
+function evictLru<K, V extends { lastAccess: number }>(map: Map<K, V>, count: number): void {
+  if (map.size <= count) return;
+  const entries = [...map.entries()];
+  entries.sort((a, b) => a[1].lastAccess - b[1].lastAccess);
+  for (let i = 0; i < entries.length - count; i++) {
+    map.delete(entries[i][0]);
+  }
+}
+
+export function invalidateOtherBotNamesCache(): void {
+  otherBotNamesCache.clear();
+}
 
 // ── silentKeywords 正则缓存 ────────────────────────────────────────────
-// 每消息 new RegExp() 有 GC 开销，按关键词数组内容签名缓存，配置变更时自动重建
+
 let silentKeywordsCache: { key: string; regexes: RegExp[] } | null = null;
 
 function getSilentKeywordRegexes(keywords: string[]): RegExp[] {
@@ -77,9 +127,160 @@ function getSilentKeywordRegexes(keywords: string[]): RegExp[] {
   return regexes;
 }
 
-export function invalidateOtherBotNamesCache(): void {
-  otherBotNamesResult.clear();
+// ── 子函数：管理员命令处理 ──────────────────────────────────────────────
+
+interface HandleAdminResult {
+  handled: boolean;
 }
+
+async function handleAdminCommandStage(
+  input: TriggerInput,
+  client: OneBotClient,
+  ctx: InboundContext,
+  text: string,
+  isCmdMentioned: boolean,
+): Promise<HandleAdminResult> {
+  const { account, config, cfg, channelRuntime, knownGroupIds, log } = ctx;
+
+  if (!isCmdMentioned) {
+    // 自然语言温度调整（admin 专属）
+    const tempMatch = text.match(/(?:温度|活跃度|回复频率)\s*[=:：]?\s*(\d+)/i);
+    if (tempMatch && !input.isGuild) {
+      const t = Number(tempMatch[1]);
+      if (Number.isInteger(t) && t >= 0 && t <= 100) {
+        const configRef = getConfigRef();
+        if (configRef) {
+          const pm = configRef.current.passiveMode ?? {};
+          const updated = { ...configRef.current, passiveMode: { ...pm, temperature: t } };
+          const result = updateConfigRef(configRef, updated);
+          const mapped = resolvePassiveModeTemperature(t) ?? {};
+          const reply = result.success
+            ? `✅ 温度设为 ${t}\n冷却 ${(mapped.cooldownMs ?? 0) / 1000}s / 最小间隔 ${(mapped.minIntervalMs ?? 0) / 1000}s / Bot压制 ${(mapped.botSuppressionMs ?? 0) / 1000}s`
+            : `❌ 设置失败: ${result.error}`;
+          if (input.isGroup && input.groupId) {
+            await client.sendGroupMsg(input.groupId, reply);
+          } else if (input.userId) {
+            await client.sendPrivateMsg(input.userId, reply);
+          }
+          return { handled: true };
+        }
+      }
+    }
+    return { handled: false };
+  }
+
+  const parts = text.trim().split(/\s+/);
+  const cmd = parts[0];
+  const handled = await handleAdminCommand(cmd, parts, {
+    client,
+    isGroup: input.isGroup,
+    groupId: input.groupId,
+    userId: input.userId,
+    text,
+    message: input.event.message,
+    eventTime: input.event.time ? input.event.time * 1000 : undefined,
+    rateLimiter: ctx.inboundStore.rateLimiter,
+    refreshGroupRoutes: async () => {
+      const groups = await client.getGroupList();
+      const results = await Promise.allSettled(
+        groups.map((g) =>
+          registerGroupRoute({
+            client,
+            cfg: cfg as Record<string, unknown>,
+            accountId: account.accountId,
+            groupId: g.group_id,
+            channelRuntime,
+            knownGroupIds,
+            log,
+          }),
+        ),
+      );
+      const successCount = results.filter((r) => r.status === "fulfilled" && r.value).length;
+      log.info(`[napcat-QQ] /groups: refreshed ${successCount}/${groups.length} group routes`);
+      return successCount;
+    },
+  });
+  return { handled };
+}
+
+// ── 子函数：被动模式检查 ─────────────────────────────────────────────────
+
+interface PassiveModeResult {
+  isPassiveMode: boolean;
+}
+
+function checkPassiveMode(
+  input: TriggerInput,
+  ctx: InboundContext,
+  isTriggered: boolean,
+  isMentioned: boolean,
+  requireMention: boolean,
+): PassiveModeResult {
+  const { config, passiveMode } = ctx;
+  const isGroup = input.isGroup;
+
+  if (!isGroup || !requireMention || isTriggered || isMentioned) {
+    return { isPassiveMode: false };
+  }
+
+  if (!config.passiveMode?.enabled) {
+    return { isPassiveMode: false };
+  }
+
+  const cooldownKey = `${ctx.account.accountId}:${input.groupId}`;
+  const cooldownMs = config.passiveMode.cooldownMs ?? 10_000;
+  const minIntervalMs = config.passiveMode.minIntervalMs ?? 30_000;
+  const botSuppressionMs = config.passiveMode.botSuppressionMs ?? 120_000;
+
+  if (botSuppressionMs > 0 && passiveMode.isBotSuppressed(`group:${input.groupId}`, botSuppressionMs)) {
+    if (config.debug) {
+      ctx.log.log(`[napcat-QQ][debug-passive] bot suppression active, skipping`);
+    }
+    return { isPassiveMode: false };
+  }
+  // ⚠️ P0 修复：markCheck 必须在 isIntervalAllowed 之前调用，记录本次旁观检查时间戳
+  passiveMode.markCheck(cooldownKey);
+  if (!passiveMode.isIntervalAllowed(cooldownKey, minIntervalMs)) return { isPassiveMode: false };
+  if (!passiveMode.isAllowed(cooldownKey, cooldownMs)) return { isPassiveMode: false };
+
+  // ⚠️ P0 修复：isAllowed 通过后必须设置哨兵，防止并发消息同时派发到 AI
+  passiveMode.markActive(cooldownKey);
+
+  return { isPassiveMode: true };
+}
+
+// ── 子函数：停止意图检测 ─────────────────────────────────────────────────
+
+interface StopIntentResult {
+  isUserStopIntent: boolean;
+}
+
+function detectUserStopIntent(
+  input: TriggerInput,
+  ctx: InboundContext,
+  text: string,
+  isBot: boolean,
+): StopIntentResult {
+  const { config } = ctx;
+  const isGroup = input.isGroup;
+
+  if (!isGroup || !input.groupId || isBot) {
+    return { isUserStopIntent: false };
+  }
+
+  if (config.botStopReplyEnabled !== false) {
+    const stopKeywords = (config.botStopKeywords && config.botStopKeywords.length > 0)
+      ? config.botStopKeywords
+      : DEFAULT_STOP_KEYWORDS;
+    if (detectStopIntent(text, stopKeywords)) {
+      return { isUserStopIntent: true };
+    }
+  }
+
+  return { isUserStopIntent: false };
+}
+
+// ── 主函数 ──────────────────────────────────────────────────────────────
 
 export async function triggerStage(
   input: TriggerInput,
@@ -94,7 +295,7 @@ export async function triggerStage(
 
   const text = await resolveMessageText(event, client, config, cfg as Record<string, unknown>, log);
 
-  // 入站频控（滑动窗口）& 静默关键词过滤
+  // ── 入站频控（滑动窗口）& 静默关键词过滤 ─────────────────────────
   {
     const rateLimiter = ctx.inboundStore.rateLimiter;
     if (rateLimiter && config.inboundRateLimitMs > 0) {
@@ -126,12 +327,16 @@ export async function triggerStage(
     }
   }
 
-  // 高并发热路径：buildOtherBotNames 结果在运行期不变，按 (accountId, selfId, knownBotIds) 缓存一次
-  // 包含 selfId 避免多 bot 场景下缓存碰撞
-  const cacheKey = `${account.accountId}:${selfId}:${[...(config.knownBotIds ?? [])].sort().join(",")}`;
+  // ── otherBotNames 缓存（key 预计算）────────────────────────────────
+  // knownBotIds 在运行期不变，配置变更时 invalidateOtherBotNamesCache() 清理
+  // 因此只需在首次和 key 变更时计算
+  const knownBotIdsSorted = config.knownBotIds
+    ? [...config.knownBotIds].sort().join(",")
+    : "";
+  const cacheKey = `${account.accountId}:${selfId}:${knownBotIdsSorted}`;
   let otherBotNames: string[];
   let knownBotIdSet: Set<string>;
-  const cached = otherBotNamesResult.get(cacheKey);
+  const cached = getCachedOtherBotNames(cacheKey);
   if (cached) {
     ({ names: otherBotNames, idSet: knownBotIdSet } = cached);
   } else {
@@ -140,9 +345,10 @@ export async function triggerStage(
       config.knownBotIds,
       selfId,
     ));
-    otherBotNamesResult.set(cacheKey, { names: otherBotNames, idSet: knownBotIdSet });
+    setCachedOtherBotNames(cacheKey, otherBotNames, knownBotIdSet);
   }
 
+  // ── 友军识别 ────────────────────────────────────────────────────────
   let isBot = false;
   if (isGroup) {
     const userIdStr = input.userId != null ? String(input.userId) : null;
@@ -214,6 +420,7 @@ export async function triggerStage(
     }
   }
 
+  // ── 指向性门控 ──────────────────────────────────────────────────────
   if (!isBot) {
     if (!isMessageDirectedAtBot(event, selfId, text, config._selfName, otherBotNames)) {
       if (config.debug) {
@@ -225,6 +432,7 @@ export async function triggerStage(
     }
   }
 
+  // ── 级联阻断标记 ────────────────────────────────────────────────────
   if (text.includes("[SYS:GUARD]")) {
     if (config.debug) {
       log.log(`[napcat-QQ][debug-sensitive-guard] cascade blocked: msg contains [SYS:GUARD]`);
@@ -233,6 +441,7 @@ export async function triggerStage(
   }
   const effectiveSelfId = selfId;
 
+  // ── 敏感守卫 ────────────────────────────────────────────────────────
   const isKnownBotSender =
     isGroup &&
     (knownBotIdSet.has(String(input.userId)) ||
@@ -273,6 +482,7 @@ export async function triggerStage(
     }
   }
 
+  // ── 管理员命令 ──────────────────────────────────────────────────────
   if (!isGuild && isAdmin && text.trim().startsWith("/")) {
     const isCmdMentioned =
       !isGroup ||
@@ -292,66 +502,11 @@ export async function triggerStage(
         return text.includes(`[CQ:at,qq=${sid}]`);
       })();
 
-    if (isCmdMentioned) {
-      const parts = text.trim().split(/\s+/);
-      const cmd = parts[0];
-      const handled = await handleAdminCommand(cmd, parts, {
-        client,
-        isGroup,
-        groupId: input.groupId,
-        userId: input.userId,
-        text,
-        message: event.message,
-        eventTime: event.time ? event.time * 1000 : undefined,
-        rateLimiter: ctx.inboundStore.rateLimiter,
-        refreshGroupRoutes: async () => {
-          const groups = await client.getGroupList();
-          const results = await Promise.allSettled(
-            groups.map((g) =>
-              registerGroupRoute({
-                client,
-                cfg: cfg as Record<string, unknown>,
-                accountId: account.accountId,
-                groupId: g.group_id,
-                channelRuntime,
-                knownGroupIds,
-                log,
-              }),
-            ),
-          );
-          const successCount = results.filter((r) => r.status === "fulfilled" && r.value).length;
-          log.info(`[napcat-QQ] /groups: refreshed ${successCount}/${groups.length} group routes`);
-          return successCount;
-        },
-      });
-      if (handled) return null;
-    }
-
-    // ── 自然语言温度调整（admin 专属）──────────────────────
-    const tempMatch = text.match(/(?:温度|活跃度|回复频率)\s*[=:：]?\s*(\d+)/i);
-    if (tempMatch && !isGuild && isAdmin) {
-      const t = Number(tempMatch[1]);
-      if (Number.isInteger(t) && t >= 0 && t <= 100) {
-        const configRef = getConfigRef();
-        if (configRef) {
-          const pm = configRef.current.passiveMode ?? {};
-          const updated = { ...configRef.current, passiveMode: { ...pm, temperature: t } };
-          const result = updateConfigRef(configRef, updated);
-          const mapped = resolvePassiveModeTemperature(t) ?? {};
-          const reply = result.success
-            ? `✅ 温度设为 ${t}\n冷却 ${(mapped.cooldownMs ?? 0) / 1000}s / 最小间隔 ${(mapped.minIntervalMs ?? 0) / 1000}s / Bot压制 ${(mapped.botSuppressionMs ?? 0) / 1000}s`
-            : `❌ 设置失败: ${result.error}`;
-          if (isGroup && input.groupId) {
-            await client.sendGroupMsg(input.groupId, reply);
-          } else if (input.userId) {
-            await client.sendPrivateMsg(input.userId, reply);
-          }
-          return null;
-        }
-      }
-    }
+    const adminResult = await handleAdminCommandStage(input, client, ctx, text, isCmdMentioned);
+    if (adminResult.handled) return null;
   }
 
+  // ── 触发检测 ────────────────────────────────────────────────────────
   if (isGroup || isGuild) {
     if (selfId && !detectMention(event, selfId, text, null, config.debug, log)) {
       if (hasMentionOtherUser(event, selfId, otherBotNames)) {
@@ -386,65 +541,48 @@ export async function triggerStage(
     isTriggered = detectKeywordTrigger(text, config.keywordTriggers);
   }
 
-  let isPassiveMode = false;
+  // ── 被动模式 ────────────────────────────────────────────────────────
+  const requireMention = config.requireMention ?? true;
+  const passiveResult = checkPassiveMode(input, ctx, isTriggered, isMentioned, requireMention);
 
-  if (checkMention && config.requireMention && !isTriggered && !isMentioned) {
-    if (config.passiveMode?.enabled && isGroup) {
-      if (hasMentionOtherUser(event, selfId, otherBotNames)) {
-        if (config.debug) {
-          log.log(`[napcat-QQ][debug-mention-other] passive mode skipped: msg @ other user, not bot`);
-        }
-        return null;
+  if (checkMention && requireMention && !isTriggered && !isMentioned) {
+    if (hasMentionOtherUser(event, selfId, otherBotNames)) {
+      if (config.debug) {
+        log.log(`[napcat-QQ][debug-mention-other] passive mode skipped: msg @ other user, not bot`);
       }
-      const cooldownKey = `${account.accountId}:${input.groupId}`;
-      const cooldownMs = config.passiveMode.cooldownMs ?? 10_000;
-      const minIntervalMs = config.passiveMode.minIntervalMs ?? 30_000;
-      const botSuppressionMs = config.passiveMode.botSuppressionMs ?? 120_000;
-      if (botSuppressionMs > 0 && passiveMode.isBotSuppressed(`group:${input.groupId}`, botSuppressionMs)) {
-        if (config.debug) {
-          log.log(`[napcat-QQ][debug-passive] bot suppression active, skipping`);
-        }
-        return null;
-      }
-      if (!passiveMode.isIntervalAllowed(cooldownKey, minIntervalMs)) return null;
-      if (!passiveMode.isAllowed(cooldownKey, cooldownMs)) return null;
-      isPassiveMode = true;
-      passiveMode.markActive(cooldownKey);
-      passiveMode.markCheck(cooldownKey);
-    } else {
       return null;
+    }
+    if (!passiveResult.isPassiveMode) return null;
+  }
+
+  // ── 停止意图 ────────────────────────────────────────────────────────
+  const stopResult = detectUserStopIntent(input, ctx, text, isBot);
+  if (stopResult.isUserStopIntent) {
+    markStopped(account.accountId, `group:${input.groupId}`);
+    if (config.debug) {
+      log.log(`[napcat-QQ][debug-dialog] user stop intent detected`);
     }
   }
 
-  let isUserStopIntent = false;
+  // ── 对话状态记录 ────────────────────────────────────────────────────
   if (isGroup && input.groupId && !isBot) {
-    if (isTriggered || isMentioned || isPassiveMode || !config.requireMention) {
+    if (isTriggered || isMentioned || passiveResult.isPassiveMode || !requireMention) {
       recordUserMessage(account.accountId, `group:${input.groupId}`);
-    }
-    if (config.botStopReplyEnabled !== false) {
-      const stopKeywords = (config.botStopKeywords && config.botStopKeywords.length > 0)
-        ? config.botStopKeywords
-        : DEFAULT_STOP_KEYWORDS;
-      if (detectStopIntent(text, stopKeywords)) {
-        isUserStopIntent = true;
-        markStopped(account.accountId, `group:${input.groupId}`);
-        if (config.debug) {
-          log.log(`[napcat-QQ][debug-dialog] user stop intent detected`);
-        }
-      }
     }
   }
 
   return {
     ...input,
     text,
+    isTriggered,
+    isMentioned,
     isBot,
     otherBotNames,
     knownBotIdSet,
     isAdmin,
     effectiveSelfId,
     isKnownBotSender,
-    isUserStopIntent,
-    isPassiveMode,
+    isUserStopIntent: stopResult.isUserStopIntent,
+    isPassiveMode: passiveResult.isPassiveMode,
   };
 }

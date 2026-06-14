@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import path from "node:path";
 
 vi.mock("node:child_process", () => ({
   execFile: vi.fn((cmd: string, args: string[], opts: any, cb: Function) => {
@@ -69,6 +70,43 @@ describe("platform", () => {
     it("returns a string or null", async () => {
       const result = await detectFfmpeg();
       expect(result === null || typeof result === "string").toBe(true);
+    });
+
+    it("rejects FFMPEG_PATH pointing to a directory (security: path must be a file)", async () => {
+      const statMock = vi.fn().mockResolvedValue({ isFile: () => false });
+      vi.doMock("node:fs", () => ({
+        promises: { stat: statMock },
+      }));
+
+      // resetModules 清除模块级缓存（_ffmpegPath），确保走 FFMPEG_PATH 分支
+      vi.resetModules();
+      const { detectFfmpeg: detect2 } = await import("../utils/platform.js");
+
+      process.env.FFMPEG_PATH = "/some/directory";
+      const result = await detect2();
+      expect(result).not.toBe("/some/directory");
+      expect(statMock).toHaveBeenCalledWith(path.resolve("/some/directory"));
+
+      delete process.env.FFMPEG_PATH;
+      vi.doUnmock("node:fs");
+    });
+
+    it("rejects FFMPEG_PATH pointing to non-existent path", async () => {
+      const statMock = vi.fn().mockRejectedValue(new Error("ENOENT"));
+      vi.doMock("node:fs", () => ({
+        promises: { stat: statMock },
+      }));
+
+      vi.resetModules();
+      const { detectFfmpeg: detect3 } = await import("../utils/platform.js");
+
+      process.env.FFMPEG_PATH = "/nonexistent/ffmpeg";
+      const result = await detect3();
+      expect(result).not.toBe("/nonexistent/ffmpeg");
+      expect(statMock).toHaveBeenCalledWith(path.resolve("/nonexistent/ffmpeg"));
+
+      delete process.env.FFMPEG_PATH;
+      vi.doUnmock("node:fs");
     });
   });
 });

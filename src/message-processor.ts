@@ -21,6 +21,29 @@ import type { Logger } from "./types/channel-types.js";
 import { maskId } from "./utils/log-sanitize.js";
 import { DEFAULT_RESPONSE_GUIDELINES } from "./constants.js";
 
+// ============ 常量 ============
+
+/** 允许的 URL scheme：仅 http/https，防止 SSRF（file:///gopher:// 等内网扫描） */
+const ALLOWED_URL_SCHEMES = ["http:", "https:"];
+
+/**
+ * 校验 URL 是否在允许的 scheme 白名单内，防止 SSRF 攻击。
+ * 仅允许 http/https 协议的 URL，拒绝 file://、gopher:// 等危险 scheme。
+ */
+function validateFetchUrl(url: string, log?: Logger): boolean {
+  try {
+    const parsed = new URL(url);
+    if (!ALLOWED_URL_SCHEMES.includes(parsed.protocol)) {
+      (log ?? console).warn(`[message-processor] SSRF blocked: disallowed scheme "${parsed.protocol}" in URL: ${url.slice(0, 100)}`);
+      return false;
+    }
+    return true;
+  } catch {
+    (log ?? console).warn(`[message-processor] SSRF blocked: invalid URL: ${url.slice(0, 100)}`);
+    return false;
+  }
+}
+
 // ============ 文本提取 ============
 
 /**
@@ -66,6 +89,10 @@ export async function resolveMessageText(
         let wavPath: string | null = null;
         try {
           const voiceUrl = seg.data.url;
+          if (!validateFetchUrl(voiceUrl, log)) {
+            resolvedText += ` [语音消息: URL 不允许]`;
+            continue;
+          }
           const voiceResp = await fetch(voiceUrl, { signal: AbortSignal.timeout(30_000) });
           if (voiceResp.ok) {
             const buf = await voiceResp.arrayBuffer();

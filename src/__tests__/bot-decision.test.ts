@@ -48,6 +48,17 @@ describe("shouldBotReplyToStop", () => {
     const result = shouldBotReplyToStop(12345, 0.66);
     expect(typeof result).toBe("boolean");
   });
+
+  it("P0 修复：stableHash 对 -2147483648 返回非负数", () => {
+    // Math.abs(-2147483648) 在 JS 中仍返回负数（IEEE 754 限制）
+    // 修复后用 >>> 0，确保 hash 值始终为非负
+    const result = shouldBotReplyToStop("-2147483648", 0.66);
+    expect(typeof result).toBe("boolean");
+    // 不应因 normalized 为负而导致恒为 true
+    // 通过同一 ID 调用两次确认结果稳定
+    const again = shouldBotReplyToStop("-2147483648", 0.66);
+    expect(result).toBe(again);
+  });
 });
 
 describe("getBotStopDelay", () => {

@@ -122,25 +122,28 @@ export async function runHandshakeBackfill(
   log?: Logger,
 ): Promise<number> {
   const groups = await client.getGroupList();
+  // 并发拉取所有群历史（Promise.allSettled 避免单群失败影响其余）
+  const results = await Promise.allSettled(
+    groups.map((g) =>
+      client.getGroupMsgHistory(g.group_id, BACKFILL_HISTORY_COUNT).then((history) => ({ group: g, history })),
+    ),
+  );
   let discovered = 0;
-  for (const g of groups) {
-    try {
-      const history = await client.getGroupMsgHistory(g.group_id, BACKFILL_HISTORY_COUNT);
-      const messages = history?.messages ?? [];
-      for (const m of messages) {
-        const ids = extractBotIdsFromHistoryMessage(m.raw_message, m.message);
-        for (const id of ids) {
-          if (!isKnownBot(accountId, id)) {
-            recordKnownBot(accountId, id);
-            discovered += 1;
-            (log ?? console).log(
-              `[napcat-QQ][backfill] discovered bot ${maskId(id)} in group ${g.group_id} (msg from user ${m.sender?.user_id})`,
-            );
-          }
+  for (const result of results) {
+    if (result.status !== "fulfilled") continue;
+    const { group, history } = result.value;
+    const messages = history?.messages ?? [];
+    for (const m of messages) {
+      const ids = extractBotIdsFromHistoryMessage(m.raw_message, m.message);
+      for (const id of ids) {
+        if (!isKnownBot(accountId, id)) {
+          recordKnownBot(accountId, id);
+          discovered += 1;
+          (log ?? console).log(
+            `[napcat-QQ][backfill] discovered bot ${maskId(id)} in group ${group.group_id} (msg from user ${m.sender?.user_id})`,
+          );
         }
       }
-    } catch (err) {
-      (log ?? console).warn(`[napcat-QQ][backfill] group ${g.group_id} history fetch failed: ${err}`);
     }
   }
   return discovered;

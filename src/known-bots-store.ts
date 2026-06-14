@@ -207,28 +207,21 @@ export async function fetchBotInfoAsync(
 ): Promise<void> {
   try {
     let info: any = null;
+    // 并发 race：getGroupMemberInfo 和 getStrangerInfo 同时发起，
+    // 任一成功即返回，避免顺序回退导致 worst case 10s 延迟。
+    const timeout = () => new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("timeout")), BOT_INFO_FETCH_TIMEOUT_MS),
+    );
     if (groupId !== undefined) {
-      try {
-        info = await Promise.race([
-          client.getGroupMemberInfo(groupId, botId),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error("timeout")), BOT_INFO_FETCH_TIMEOUT_MS),
-          ),
-        ]);
-      } catch {
-        info = await Promise.race([
-          client.getStrangerInfo(botId),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error("timeout")), BOT_INFO_FETCH_TIMEOUT_MS),
-          ),
-        ]);
-      }
+      info = await Promise.race([
+        client.getGroupMemberInfo(groupId, botId),
+        client.getStrangerInfo(botId),
+        timeout(),
+      ]);
     } else {
       info = await Promise.race([
         client.getStrangerInfo(botId),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("timeout")), BOT_INFO_FETCH_TIMEOUT_MS),
-        ),
+        timeout(),
       ]);
     }
     if (info && (info.nickname || info.card)) {

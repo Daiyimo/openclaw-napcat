@@ -62,6 +62,16 @@ export interface MessageSenderContext {
 export class MessageSender {
   constructor(private readonly ctx: MessageSenderContext) {}
 
+  /** 发送 TTS 语音消息（群聊用 AI 语音或普通 TTS，私聊用普通 TTS） */
+  private async sendTts(text: string): Promise<void> {
+    const { client, config, isGroup, groupId, userId } = this.ctx;
+    if (isGroup && config.aiVoiceId) {
+      await client.sendGroupAiRecord(groupId!, text, config.aiVoiceId);
+    } else {
+      await sendByTarget(client, [{ type: "tts", data: { text } }], this.ctx);
+    }
+  }
+
   /**
    * 完整投递一个 ReplyPayload（text + mediaUrls / mediaUrl + files）。
    */
@@ -190,14 +200,14 @@ export class MessageSender {
 
     if (markdownMode === "native") {
       const mdSegments: OneBotMessage = [];
-      if (isGroup && isFirst && !isSilentChunk)
+      if (isGroup && isFirst && !isSilentChunk && userId != null)
         mdSegments.push({ type: "at", data: { qq: String(userId) } });
       mdSegments.push({ type: "markdown", data: { content: chunk } });
       await sendByTarget(client, mdSegments, this.ctx);
     } else {
       if (isGroup) {
         const segments: OneBotMessage = [];
-        if (isFirst && !isSilentChunk) {
+        if (isFirst && !isSilentChunk && userId != null) {
           segments.push({ type: "at", data: { qq: String(userId) } });
           segments.push({ type: "text", data: { text: " " + chunk } });
         } else {
@@ -216,15 +226,9 @@ export class MessageSender {
       const tts = chunk.replace(/\[CQ:.*?\]/g, "").trim();
       if (tts) {
         try {
-          if (isGroup && config.aiVoiceId) {
-            await client.sendGroupAiRecord(groupId!, tts, config.aiVoiceId);
-          } else if (isGroup) {
-            await client.sendGroupMsg(groupId!, [{ type: "tts", data: { text: tts } }]);
-          } else {
-            await client.sendPrivateMsg(userId!, [{ type: "tts", data: { text: tts } }]);
-          }
-        } catch {
-          // TTS 失败不影响消息投递
+          await this.sendTts(tts);
+        } catch (ttsErr) {
+          (this.ctx.log ?? console).debug("[message-sender] TTS failed (non-critical):", ttsErr instanceof Error ? ttsErr.message : ttsErr);
         }
       }
     }
@@ -246,7 +250,11 @@ export class MessageSender {
             if (isGroup) await client.uploadGroupFile(groupId!, resolvedUrl, fileName);
             else if (!isGuild) await client.uploadPrivateFile(userId!, resolvedUrl, fileName);
             else await client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${resolvedUrl}`);
-          } catch {
+          } catch (uploadErr) {
+            (this.ctx.log ?? console).warn(
+              `[message-sender] upload failed for ${resolvedUrl}, falling back to file segment:`,
+              uploadErr instanceof Error ? uploadErr.message : uploadErr,
+            );
             const fileSeg: OneBotMessage = [{ type: "file", data: { file: resolvedUrl, name: fileName } }];
             if (isGuild) {
               await client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${resolvedUrl}`);
@@ -285,7 +293,11 @@ export class MessageSender {
         if (isGroup) await client.uploadGroupFile(groupId!, url, name);
         else if (!isGuild) await client.uploadPrivateFile(userId!, url, name);
         else await client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${url}`);
-      } catch {
+      } catch (uploadErr) {
+        (this.ctx.log ?? console).warn(
+          `[message-sender] upload failed for ${url}, falling back to file segment:`,
+          uploadErr instanceof Error ? uploadErr.message : uploadErr,
+        );
         const fileSeg: OneBotMessage = [{ type: "file", data: { file: url, name } }];
         if (isGuild) {
           await client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${url}`);

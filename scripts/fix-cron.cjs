@@ -104,7 +104,7 @@ function findHaEndpoint(config) {
       return { host: u.hostname, port: parseInt(u.port) || 8123 };
     } catch { /* fall through */ }
   }
-  return { host: "192.168.110.185", port: 8123 };
+  return { host: process.env.HA_HOST ?? "127.0.0.1", port: parseInt(process.env.HA_PORT ?? "8123", 10) };
 }
 
 // ─── CLI execution ─────────────────────────────────────────────────────────

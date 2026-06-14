@@ -286,20 +286,55 @@ export function processAntiRisk(text: string): string {
 /** 允许访问的本地文件目录白名单（防止路径遍历） */
 const ALLOWED_LOCAL_DIRS: string[] = (() => {
   const dirs: string[] = [];
-  try { dirs.push(path.resolve(os.homedir())); } catch { /* ignore */ }
-  try { dirs.push(path.resolve(os.tmpdir())); } catch { /* ignore */ }
-  try { dirs.push(path.resolve(process.cwd())); } catch { /* ignore */ }
+  // 1. 项目数据目录（~/.openclaw/napcat-qq/）：插件自己的数据，最宽松
+  try {
+    const dataDir = path.resolve(os.homedir(), ".openclaw", "napcat-qq");
+    dirs.push(dataDir);
+  } catch { /* ignore */ }
+  // 2. 临时目录：仅用于运行时临时文件
+  try {
+    dirs.push(path.resolve(os.tmpdir()));
+  } catch { /* ignore */ }
+  // 3. workspace 目录：OpenClaw 框架的 workspaceOnly 限制范围
+  const workspace = process.env.HOME || "/home/node";
+  try {
+    dirs.push(path.resolve(workspace, ".openclaw", "workspace"));
+  } catch { /* ignore */ }
   // 去重并统一 trailing separator
   return [...new Set(dirs.map((d) => d + path.sep))];
 })();
 
+/** 敏感目录黑名单：即使父目录在白名单内，这些子目录也不允许访问 */
+const BLOCKED_SUB_PATTERNS: RegExp[] = [
+  /[\\/]\.ssh[\\/]/i,
+  /[\\/]\.env$/i,
+  /[\\/]\.env\.[a-z]+$/i,
+  /[\\/]\.config[\\/]/i,
+  /[\\/]\.gnupg[\\/]/i,
+  /[\\/]\.docker[\\/]/i,
+  /[\\/]\.kube[\\/]/i,
+  /[\\/]\.aws[\\/]/i,
+  /[\\/]\.npmrc$/i,
+  /[\\/]\.gitconfig$/i,
+  /[\\/]\.netrc$/i,
+];
+
 /**
- * 检查路径是否在允许的目录白名单内。
+ * 检查路径是否在允许的目录白名单内，且不命中敏感子目录黑名单。
  * 使用 path.resolve 解析后比对，防止 ../ 路径遍历。
  */
 function isPathAllowed(filePath: string): boolean {
   const resolved = path.resolve(filePath) + path.sep;
-  return ALLOWED_LOCAL_DIRS.some((dir) => resolved.startsWith(dir));
+  // 白名单检查
+  if (!ALLOWED_LOCAL_DIRS.some((dir) => resolved.startsWith(dir))) return false;
+  // 敏感目录黑名单检查
+  for (const pattern of BLOCKED_SUB_PATTERNS) {
+    if (pattern.test(resolved)) {
+      console.warn(`[napcat-QQ] Path traversal blocked (sensitive dir): ${filePath}`);
+      return false;
+    }
+  }
+  return true;
 }
 
 export async function resolveMediaUrl(url: string, log?: Logger): Promise<string> {

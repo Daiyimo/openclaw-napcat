@@ -70,13 +70,22 @@ export function detectFfmpeg(log?: Logger): Promise<string | null> {
     // 1. 环境变量自定义路径
     const envPath = process.env.FFMPEG_PATH;
     if (envPath) {
-      const ok = await testExecutable(envPath, ["-version"]);
-      if (ok) {
-        _ffmpegPath = envPath;
-        (log ?? console).log(`[platform] ffmpeg found via FFMPEG_PATH: ${envPath}`);
-        return _ffmpegPath;
+      // 先验证路径指向一个合法文件（防止命令注入：FFMPEG_PATH 可能被设为任意命令）
+      const resolved = path.resolve(envPath);
+      try {
+        const stat = await fs.promises.stat(resolved);
+        if (!stat.isFile()) {
+          (log ?? console).warn(`[platform] FFMPEG_PATH is not a regular file: ${resolved}`);
+        } else if (await testExecutable(resolved, ["-version"])) {
+          _ffmpegPath = resolved;
+          (log ?? console).log(`[platform] ffmpeg found via FFMPEG_PATH: ${resolved}`);
+          return _ffmpegPath;
+        } else {
+          (log ?? console).warn(`[platform] FFMPEG_PATH set but not working: ${resolved}`);
+        }
+      } catch (e) {
+        (log ?? console).warn(`[platform] FFMPEG_PATH validation failed: ${envPath}: ${e instanceof Error ? e.message : e}`);
       }
-      (log ?? console).warn(`[platform] FFMPEG_PATH set but not working: ${envPath}`);
     }
 
     // 2. 系统 PATH 中检测

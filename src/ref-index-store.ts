@@ -167,16 +167,24 @@ function shouldCompact(): boolean {
   return totalLinesOnDisk > cache.size * COMPACT_THRESHOLD_RATIO && totalLinesOnDisk > 1000;
 }
 
-let isCompacting = false;
+let isCompacting: Promise<void> | null = null;
 
 function scheduleCompactIfNeeded(): void {
-  if (!shouldCompact() || isCompacting) return;
-  isCompacting = true;
-  setImmediate(() => {
-    compactFile().finally(() => {
-      isCompacting = false;
-    });
-  });
+  if (!shouldCompact()) return;
+  // 用 Promise 链替代标志位，防止竞态：
+  // 即使 scheduleCompactIfNeeded 被多次调用，也保证同一时刻只有一个 compact 在执行
+  if (isCompacting) return;
+  isCompacting = (async () => {
+    try {
+      await compactFile();
+    } catch {
+      // compactFile 内部已记录错误日志
+    } finally {
+      isCompacting = null;
+      // compact 完成后检查是否需要再次 compact（期间可能有新写入）
+      scheduleCompactIfNeeded();
+    }
+  })();
 }
 
 async function compactFile(): Promise<void> {
