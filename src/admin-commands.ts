@@ -190,6 +190,14 @@ export async function handleStatus(ctx: AdminCmdContext, _parts: string[]): Prom
   const version = getPackageVersion(import.meta.url);
   const mem = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
   const uptime = formatUptime(process.uptime());
+
+  if (ctx.metrics) {
+    return ctx.metrics.formatReport(
+      ctx.client.getSelfId()?.toString() ?? "unknown",
+      version,
+    );
+  }
+
   return (
     `[OpenClaw QQ] v${version}\n` +
     `状态: 已连接\n` +
@@ -993,6 +1001,8 @@ export async function handleAdminCommand(
       fullCfg: ctx.fullCfg,
       refreshGroupRoutes: ctx.refreshGroupRoutes,
       rateLimiter: ctx.rateLimiter,
+      metrics: ctx.metrics,
+      alertCooldown: ctx.alertCooldown,
     };
   } else {
     // ── 新签名：handleAdminCommand(ctx) ──

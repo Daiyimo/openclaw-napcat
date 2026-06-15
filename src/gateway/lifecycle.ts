@@ -9,6 +9,7 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { OneBotClient } from "../client.js";
 import type { QQConfig } from "../config.js";
+import type { MetricsCollector, AlertCooldown } from "../metrics.js";
 import type {
   InboundRateLimitStore,
   PluginRuntimeChannel,
@@ -114,6 +115,7 @@ export async function startAccount(
       httpUrl: config.httpUrl,
       reverseWsPort: config.reverseWsPort,
       accessToken: config.accessToken,
+      requireReverseWsToken: config.requireReverseWsToken,
     });
 
     shared.clients.set(account.accountId, client);
@@ -145,7 +147,17 @@ export async function startAccount(
     });
 
     // ── 安装 message handler ────────────────────────────
-    installMessageHandler(client, {
+    const accountMetrics = shared.metrics?.get(account.accountId);
+    const accountAlertCooldown = shared.alertCooldown?.get(account.accountId);
+
+    // 防止重连时 message handler listener 累积：先卸载旧的
+    const oldUninstall = shared._messageHandlerCleanups?.get(account.accountId);
+    if (oldUninstall) {
+      oldUninstall();
+      shared._messageHandlerCleanups?.delete(account.accountId);
+    }
+
+    const uninstallMessageHandler = installMessageHandler(client, {
       client,
       account,
       config,
@@ -157,7 +169,20 @@ export async function startAccount(
       knownGroupIds: shared.knownGroupIds,
       passiveMode: shared.passiveMode,
       log,
+      metrics: accountMetrics,
+      alertCooldown: accountAlertCooldown,
     });
+
+    // 保存卸载函数
+    if (shared._messageHandlerCleanups) {
+      shared._messageHandlerCleanups.set(account.accountId, uninstallMessageHandler);
+    }
+
+    // 注册 gauge 实时查询（提供最新值）
+    if (accountMetrics) {
+      accountMetrics.registerGauge("knownGroups", () => shared.knownGroupIds.size);
+      accountMetrics.registerGauge("uploadCacheSize", () => uploadCache.size);
+    }
 
     client.connect();
     client.startReverseWs();
@@ -178,6 +203,14 @@ export async function startAccount(
     // ── Cleanup ─────────────────────────────────────────
     clearInterval(cleanupInterval);
     if (connResult.groupRouteRefreshTimer) clearInterval(connResult.groupRouteRefreshTimer);
+
+    // 卸载 message handler listener，防止重连时累积
+    const msgCleanup = shared._messageHandlerCleanups?.get(account.accountId);
+    if (msgCleanup) {
+      msgCleanup();
+      shared._messageHandlerCleanups?.delete(account.accountId);
+    }
+
     flushKnownBotsStore();
     flushKnownUsers();
     await flushRefIndex();

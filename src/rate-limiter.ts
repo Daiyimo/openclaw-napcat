@@ -242,17 +242,22 @@ export class InboundRateLimiter {
       return { allowed: true, retryAfterMs: 0, currentCount: 0 };
     }
 
-    // 清理过期时间戳
-    const valid = timestamps.filter((t) => t > windowStart);
-    if (valid.length !== timestamps.length) {
-      if (valid.length === 0) {
-        this.windows.delete(key);
-        return { allowed: true, retryAfterMs: 0, currentCount: 0 };
+    // 原地清理过期时间戳（热路径优化：避免 Array.filter 分配新数组）
+    let writeIdx = 0;
+    for (let readIdx = 0; readIdx < timestamps.length; readIdx++) {
+      if (timestamps[readIdx] > windowStart) {
+        timestamps[writeIdx++] = timestamps[readIdx];
       }
-      this.windows.set(key, valid);
+    }
+    if (writeIdx === 0) {
+      this.windows.delete(key);
+      return { allowed: true, retryAfterMs: 0, currentCount: 0 };
+    }
+    if (writeIdx < timestamps.length) {
+      timestamps.length = writeIdx; // 截断，保留有效部分
     }
 
-    const count = valid.length;
+    const count = writeIdx;
 
     // 未超限：允许
     if (count < this.config.maxMessages) {
@@ -261,7 +266,7 @@ export class InboundRateLimiter {
 
     // 已超限：计算剩余等待时间
     // 最早的条目过期后，该 key 即可通过
-    const oldestValid = valid[0];
+    const oldestValid = timestamps[0];
     const retryAfter = Math.max(0, this.config.windowMs - (now - oldestValid));
 
     // 记录限流次数

@@ -103,10 +103,12 @@ export function installMessageHandler(
     if (!filterResult) return;
 
     const { userId, groupId, guildId, channelId, isGroup, isGuild, selfId } = filterResult;
+    // 入站计数（filter 已放行）
+    ctx.metrics?.increment("inbound", "total");
 
     try {
       const triggerResult = await triggerStage(
-        { event, userId, groupId, guildId, channelId, isGroup, isGuild, selfId },
+        { event, userId, groupId, guildId, channelId, isGroup, isGuild, selfId, metrics: ctx.metrics },
         client,
         ctx,
       );
@@ -221,7 +223,6 @@ export function installMessageHandler(
       ) {
         try {
           const emojiId = config.reactionEmoji ?? matchEmojiId(text);
-          await client.setMsgEmojiLike(event.message_id, emojiId);
           await client.setMsgEmojiLike(event.message_id, emojiId);
         } catch (err) {
           log.error(`[napcat-QQ][debug-reaction] FAILED msgId=${event.message_id} err=`, err);
@@ -379,6 +380,7 @@ export function installMessageHandler(
       }
 
       try {
+        ctx.metrics?.increment("dispatch", "attempts");
         await channelRuntime.reply.dispatchReplyWithBufferedBlockDispatcher({
           ctx: ctxPayload,
           cfg,
@@ -407,6 +409,7 @@ export function installMessageHandler(
 
         // 派发成功：释放哨兵并写入冷却时间戳
         if (passiveCooldownKey) passiveMode.markDone(passiveCooldownKey);
+        ctx.metrics?.increment("dispatch", "succeeded");
 
         recordKnownUser({
           openid: String(userId),
@@ -418,9 +421,15 @@ export function installMessageHandler(
       } catch (error) {
         // 派发失败：释放哨兵（不写冷却，允许用户立即重试）
         if (passiveCooldownKey) passiveMode.markSilent(passiveCooldownKey);
+        ctx.metrics?.increment("dispatch", "failed");
 
         if (config.enableErrorNotify) {
-          await deliver({ text: "⚠️ 服务调用失败，请稍后重试。" });
+          // 告警冷却：同一错误模板在冷却窗口内不重复通知
+          const alertKey = `dispatch_error:${account.accountId}`;
+          if (ctx.alertCooldown?.shouldFire(alertKey)) {
+            ctx.alertCooldown.record(alertKey, "dispatch error notified");
+            await deliver({ text: "⚠️ 服务调用失败，请稍后重试。" });
+          }
         }
         log.error("[napcat-QQ] Reply dispatch error:", error);
       } finally {

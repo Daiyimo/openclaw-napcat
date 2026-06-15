@@ -51,6 +51,29 @@ export function getBotStopDelay(selfId: string | number, maxMs: number): number 
 }
 
 /**
+ * 停止意图关键词正则缓存：keywords JSON → RegExp[]
+ * 关键词列表不常变，缓存避免每条消息重新编译正则。
+ */
+const STOP_INTENT_REGEX_CACHE = new Map<string, RegExp[]>();
+
+function getStopIntentRegexes(keywords: readonly string[]): RegExp[] {
+  const key = JSON.stringify(keywords);
+  const cached = STOP_INTENT_REGEX_CACHE.get(key);
+  if (cached) return cached;
+  const regexes: RegExp[] = [];
+  for (const kw of keywords) {
+    const lowerKw = kw.toLowerCase();
+    const escaped = lowerKw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (/[a-z]/i.test(lowerKw)) {
+      regexes.push(new RegExp(`\\b${escaped}\\b`, "i"));
+    }
+    // 中文关键词用 substring 匹配，不缓存正则
+  }
+  STOP_INTENT_REGEX_CACHE.set(key, regexes);
+  return regexes;
+}
+
+/**
  * 检测用户消息是否含"停止对话"意图关键词。
  *
  * 匹配规则：不区分大小写、词边界匹配（避免 "stopwatch" 误命中 "stop"）。
@@ -58,15 +81,14 @@ export function getBotStopDelay(selfId: string | number, maxMs: number): number 
 export function detectStopIntent(text: string, keywords: readonly string[]): boolean {
   if (!text || keywords.length === 0) return false;
   const lower = text.toLowerCase();
+  const regexes = getStopIntentRegexes(keywords);
+  for (const re of regexes) {
+    if (re.test(lower)) return true;
+  }
+  // 中文关键词（不含拉丁字母）：直接 substring
   for (const kw of keywords) {
-    const lowerKw = kw.toLowerCase();
-    // 词边界匹配：\b 在 ASCII 下能工作；中文按 substring 处理
-    const escaped = lowerKw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    // 英文词用 \b 边界；中文（含 CJK）直接 substring（中文无词边界概念）
-    if (/[a-z]/i.test(lowerKw)) {
-      if (new RegExp(`\\b${escaped}\\b`, "i").test(lower)) return true;
-    } else {
-      if (lower.includes(lowerKw)) return true;
+    if (!/[a-z]/i.test(kw)) {
+      if (lower.includes(kw.toLowerCase())) return true;
     }
   }
   return false;

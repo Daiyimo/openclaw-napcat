@@ -4,12 +4,11 @@
  * send-text.ts 和 message-sender.ts 共用的签名追加逻辑,
  * 支持 visible / zero-width / none 三种样式。
  *
- * - visible:    在文本末尾追加 [BOT:<name>],用户可见,可靠
+ * - visible:    在文本末尾追加 [BOT:<id>],用户可见,可靠
  * - zero-width: 在文本末尾追加零宽字符签名,用户不可见,可能被平台剥
  * - none:       不追加任何文本签名(仅靠 sender.bot / knownBotIds / known-bots 缓存)
  *
- * v1.9.2 移除: 'metadata'(OneBot json 段握手),因 json 段在 QQ 客户端
- *   渲染为可见卡片消息,导致启动广播 spam。
+ * metadata（OneBot json 段握手）在 v1.9.2 移除（QQ 客户端渲染为卡片 spam）。
  *
  * v1.9.4 改动: 签名优先用 bot 昵称(更可读),UID 作为兜底
  * - 优先用 botName(由 connection.ts 启动时 getLoginInfo().nickname 注入)

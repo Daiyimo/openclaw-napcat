@@ -10,6 +10,8 @@ import type { OneBotMessage } from "./types.js";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { ConfigRef } from "./config-watcher.js";
 import type { InboundRateLimiter } from "./rate-limiter.js";
+import type { MetricsCollector } from "./metrics.js";
+import type { AlertCooldown } from "./metrics.js";
 
 // ── 类型定义 ──────────────────────────────────────────────────────────
 
@@ -25,6 +27,10 @@ export interface AdminCmdContext {
   fullCfg?: OpenClawConfig;
   refreshGroupRoutes?: () => Promise<number>;
   rateLimiter?: InboundRateLimiter;
+  /** 当前账号的指标收集器（可选，/status 等命令使用） */
+  metrics?: MetricsCollector;
+  /** 告警冷却管理器（可选） */
+  alertCooldown?: AlertCooldown;
 }
 
 export interface CommandHandler {

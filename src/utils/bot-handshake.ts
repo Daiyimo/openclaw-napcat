@@ -1,17 +1,12 @@
 /**
- * Bot 协议层识别（v1.9.2 精简版 — 仅保留读侧）
+ * Bot 协议层识别（仅保留读侧）
  *
- * 历史:
- *   v1.9.0 引入 Plan A 协议层握手(发送 json 段声明 bot 身份)。
- *   v1.9.1 加入 24h 心跳 + group_increase 触发。
- *   v1.9.2 删除发送侧:OneBot json 段在 QQ 客户端渲染为可见卡片消息,
- *         启动握手 / 24h 心跳 / 首次出站握手都会向所有群广播 spam 卡片。
- *
+ * 发送侧握手在 v1.9.2 移除（OneBot json 段在 QQ 客户端渲染为可见卡片 spam）。
  * 现仅保留:
- *   - parseBotHandshake: 解析入站消息中的握手 json 段(防御性,即便没有 bot 发也能识别)
- *   - runHandshakeBackfill: 冷启动时拉最近 30 条群历史,扫描握手 + 文本签名入 cache(只读不发)
+ *   - parseBotHandshake: 解析入站消息中的握手 json 段（防御性识别）
+ *   - runHandshakeBackfill: 冷启动拉群历史扫描签名入 cache（只读不发）
  *
- * 友军识别现依赖: sender.bot / knownBotIds / 持久化 known-bots cache / 文本签名([BOT:xxx])。
+ * 友军识别依赖: sender.bot / knownBotIds / 持久化 known-bots cache / 文本签名。
  */
 
 import type { OneBotMessage } from "../types.js";

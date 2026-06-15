@@ -8,6 +8,7 @@ import type { OneBotClient } from "../client.js";
 import type { QQConfig } from "../config.js";
 import type { PassiveModeManager } from "../passive-mode.js";
 import type { UploadCache } from "../upload-cache.js";
+import type { MetricsCollector, AlertCooldown } from "../metrics.js";
 
 export interface Logger {
   log: (...args: unknown[]) => void;
@@ -56,6 +57,12 @@ export interface SharedState {
    * @see P1 #7
    */
   startingPromises: Map<string, Promise<void>>;
+  /** 指标收集器（按账号隔离，可选） */
+  metrics?: Map<string, MetricsCollector>;
+  /** 告警冷却管理器（按账号隔离，可选） */
+  alertCooldown?: Map<string, AlertCooldown>;
+  /** message handler 卸载函数（防止重连时 listener 累积） */
+  _messageHandlerCleanups: Map<string, () => void>;
 }
 
 /**
@@ -102,6 +109,8 @@ export interface InboundContext {
   knownGroupIds: Set<string>;
   passiveMode: PassiveModeManager;
   log: Logger;
+  metrics?: MetricsCollector;
+  alertCooldown?: AlertCooldown;
 }
 
 export interface ConnectionContext {

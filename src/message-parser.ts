@@ -433,6 +433,20 @@ export async function downloadImages(urls: string[], log?: Logger): Promise<Down
   const results: DownloadedImage[] = [];
 
   for (const url of urls) {
+    // SSRF 防护：仅允许 http/https scheme，防止 file:///gopher:// 等内网扫描
+    try {
+      const parsed = new URL(url);
+      if (!["http:", "https:"].includes(parsed.protocol)) {
+        (log ?? console).warn(`[napcat-QQ][downloadImages] blocked non-http(s) URL: ${parsed.protocol}//${parsed.host}`);
+        results.push({ path: url, type: "image/jpeg" });
+        continue;
+      }
+    } catch {
+      (log ?? console).warn(`[napcat-QQ][downloadImages] blocked invalid URL: ${url.slice(0, 100)}`);
+      results.push({ path: url, type: "image/jpeg" });
+      continue;
+    }
+
     try {
       const resp = await fetch(url, {
         signal: AbortSignal.timeout(30_000),

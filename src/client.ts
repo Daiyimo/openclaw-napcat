@@ -25,6 +25,7 @@ interface OneBotClientOptions {
   httpUrl?: string;
   reverseWsPort?: number;
   accessToken?: string;
+  requireReverseWsToken?: boolean;
   log?: Logger;
 }
 
@@ -32,7 +33,8 @@ export class OneBotClient extends EventEmitter {
   private ws: WebSocket | null = null;
   private options: OneBotClientOptions;
   private selfId: number | null = null;
-  private isAlive = false;
+  private forwardAlive = false;
+  private reverseAlive = false;
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private reverseWss: WebSocketServer | null = null;
   private reverseWs: WebSocket | null = null;
@@ -76,14 +78,14 @@ export class OneBotClient extends EventEmitter {
     this.ws = new WebSocket(this.options.wsUrl, { headers });
 
     this.ws.on("open", () => {
-      this.isAlive = true;
+      this.forwardAlive = true;
       this.emit("connect");
       this.log.log("[napcat-QQ] Connected to OneBot server");
       this.startHeartbeat();
     });
 
     this.ws.on("message", (data) => {
-      this.isAlive = true;
+      this.forwardAlive = true;
       const payload = this.parseIncomingMessage(data);
       if (!payload) return;
       this.emit("message", payload);
@@ -125,12 +127,12 @@ export class OneBotClient extends EventEmitter {
     // through NAT/virtual network layers (which often have a 60s idle timeout).
     // If no message is received within one interval (45s), force a reconnect.
     this.heartbeatTimer = setInterval(() => {
-      if (this.isAlive === false) {
+      if (this.forwardAlive === false) {
         this.log.warn("[napcat-QQ] Heartbeat timeout, forcing reconnect...");
         this.handleDisconnect();
         return;
       }
-      this.isAlive = false;
+      this.forwardAlive = false;
       if (this.ws?.readyState === WebSocket.OPEN) this.ws.ping();
     }, WS_HEARTBEAT_INTERVAL_MS);
   }
@@ -141,16 +143,16 @@ export class OneBotClient extends EventEmitter {
    */
   private startReverseHeartbeat(ws: WebSocket) {
     this.stopReverseHeartbeat();
-    this.isAlive = true;
+    this.reverseAlive = true;
     this.reverseHeartbeatTimer = setInterval(() => {
-      if (this.isAlive === false) {
+      if (this.reverseAlive === false) {
         this.log.warn("[napcat-QQ] Reverse WS heartbeat timeout, closing stale connection...");
         ws.terminate();
-        this.isAlive = false;
+        this.reverseAlive = false;
         // terminate() 会触发 "close" 事件 → 走正常 disconnect 流程
         return;
       }
-      this.isAlive = false;
+      this.reverseAlive = false;
       if (ws.readyState === WebSocket.OPEN) ws.ping();
     }, WS_HEARTBEAT_INTERVAL_MS);
   }
@@ -164,6 +166,8 @@ export class OneBotClient extends EventEmitter {
 
   private handleDisconnect() {
     this.cleanup();
+    this.forwardAlive = false;
+    this.reverseAlive = false;
     // 拒绝所有等待中的请求
     for (const [echo, pending] of this.pendingRequests) {
       clearTimeout(pending.timer);
@@ -225,7 +229,8 @@ export class OneBotClient extends EventEmitter {
   async getGroupInfo(groupId: string | number): Promise<{ group_id: number; group_name?: string } | null> {
     try {
       return await this.sendWithResponse("get_group_info", { group_id: String(groupId) });
-    } catch {
+    } catch (err) {
+      this.log.warn("get_group_info failed:", err);
       return null;
     }
   }
@@ -592,7 +597,13 @@ export class OneBotClient extends EventEmitter {
     this.log.log(`[napcat-QQ] Reverse WebSocket server listening on port ${port}`);
 
     this.reverseWss.on("connection", (ws: WebSocket, req: IncomingMessage) => {
-      // Verify access token if configured
+      // 反向 WS 鉴权：requireReverseWsToken=true 时，必须配置 accessToken 否则拒绝
+      if (this.options.requireReverseWsToken && !this.options.accessToken) {
+        this.log.warn("[napcat-QQ] Reverse WS: connection rejected (no accessToken configured, requireReverseWsToken=true)");
+        ws.close(4001, "Unauthorized: accessToken required but not configured");
+        return;
+      }
+      // 配置了 accessToken 则验证 Bearer token
       if (this.options.accessToken) {
         const auth = req.headers["authorization"];
         if (auth !== `Bearer ${this.options.accessToken}`) {
@@ -613,7 +624,7 @@ export class OneBotClient extends EventEmitter {
 
       // 先注册 listeners，消除 emit("connect") 触发后响应消息的竞态
       ws.on("message", (data) => {
-        this.isAlive = true; // reverse WS 路径同样维护心跳存活标记
+        this.reverseAlive = true; // reverse WS 心跳存活标记
         const payload = this.parseIncomingMessage(data);
         if (!payload || !payload.post_type) return;
         if (payload.post_type === "meta_event" && payload.meta_event_type === "lifecycle" && payload.self_id) {
@@ -771,7 +782,7 @@ export class OneBotClient extends EventEmitter {
       }
       return payload as OneBotEvent;
     } catch (err) {
-      this.log.debug("[napcat-QQ] parse error:", err);
+      this.log.warn("[napcat-QQ] parse error:", err);
       return null;
     }
   }

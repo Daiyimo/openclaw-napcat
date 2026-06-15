@@ -208,36 +208,36 @@ describe("OneBotClient", () => {
     it("calls handleDisconnect after heartbeat timeout (2 intervals)", async () => {
       const mockWs = new MockWebSocket();
       (client as any).ws = mockWs;
-      (client as any).isAlive = true;
+      (client as any).forwardAlive = true;
 
       // Simulate connect → startHeartbeat
       (client as any).startHeartbeat();
 
-      // 1st tick: isAlive set to false, ws.ping() called
+      // 1st tick: forwardAlive set to false, ws.ping() called
       await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS);
       expect(mockWs.ping).toHaveBeenCalled();
-      expect((client as any).isAlive).toBe(false);
+      expect((client as any).forwardAlive).toBe(false);
 
-      // 2nd tick: isAlive is false → handleDisconnect → terminate
+      // 2nd tick: forwardAlive is false → handleDisconnect → terminate
       await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS);
       expect(mockWs.terminate).toHaveBeenCalled();
     });
 
-    it("resets isAlive when message received between heartbeats", async () => {
+    it("resets forwardAlive when message received between heartbeats", async () => {
       const mockWs = new MockWebSocket();
       (client as any).ws = mockWs;
-      (client as any).isAlive = true;
+      (client as any).forwardAlive = true;
 
       (client as any).startHeartbeat();
 
-      // 1st tick: isAlive → false
+      // 1st tick: forwardAlive → false
       await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS);
-      expect((client as any).isAlive).toBe(false);
+      expect((client as any).forwardAlive).toBe(false);
 
-      // Simulate receiving a message: directly set isAlive = true (message handler does this)
-      (client as any).isAlive = true;
+      // Simulate receiving a message: directly set forwardAlive = true (message handler does this)
+      (client as any).forwardAlive = true;
 
-      // 2nd tick: isAlive is true → just ping, no disconnect
+      // 2nd tick: forwardAlive is true → just ping, no disconnect
       await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS);
       expect(mockWs.terminate).not.toHaveBeenCalled();
     });
@@ -246,6 +246,60 @@ describe("OneBotClient", () => {
   describe("startReverseWs", () => {
     it("does nothing when reverseWsPort is not set", () => {
       expect(() => client.startReverseWs()).not.toThrow();
+    });
+
+    function getConnectionHandler(client: OneBotClient): Function | undefined {
+      const wss = (client as any).reverseWss;
+      if (!wss) return undefined;
+      const onCall = (wss.on as ReturnType<typeof vi.fn>).mock.calls.find((c: [string, Function]) => c[0] === "connection");
+      return onCall?.[1];
+    }
+
+    it("rejects connection when requireReverseWsToken=true and no accessToken configured", async () => {
+      const strictClient = new OneBotClient({
+        wsUrl: "ws://localhost:3001",
+        reverseWsPort: 3002,
+        requireReverseWsToken: true,
+      });
+      strictClient.startReverseWs();
+      const handler = getConnectionHandler(strictClient);
+      expect(handler).toBeDefined();
+      const mockWs = new MockWebSocket();
+      const mockReq = { headers: {} } as any;
+      handler(mockWs, mockReq);
+      expect(mockWs.close).toHaveBeenCalledWith(4001, "Unauthorized: accessToken required but not configured");
+    });
+
+    it("accepts connection when requireReverseWsToken=true and accessToken matches", async () => {
+      const strictClient = new OneBotClient({
+        wsUrl: "ws://localhost:3001",
+        reverseWsPort: 3002,
+        accessToken: "secret-token",
+        requireReverseWsToken: true,
+      });
+      strictClient.startReverseWs();
+      const handler = getConnectionHandler(strictClient);
+      expect(handler).toBeDefined();
+      const mockWs = new MockWebSocket();
+      const mockReq = { headers: { authorization: "Bearer secret-token" } } as any;
+      handler(mockWs, mockReq);
+      expect(mockWs.close).not.toHaveBeenCalled();
+    });
+
+    it("rejects connection when requireReverseWsToken=true and token mismatch", async () => {
+      const strictClient = new OneBotClient({
+        wsUrl: "ws://localhost:3001",
+        reverseWsPort: 3002,
+        accessToken: "secret-token",
+        requireReverseWsToken: true,
+      });
+      strictClient.startReverseWs();
+      const handler = getConnectionHandler(strictClient);
+      expect(handler).toBeDefined();
+      const mockWs = new MockWebSocket();
+      const mockReq = { headers: { authorization: "Bearer wrong-token" } } as any;
+      handler(mockWs, mockReq);
+      expect(mockWs.close).toHaveBeenCalledWith(4001, "Unauthorized");
     });
   });
 

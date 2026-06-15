@@ -10,6 +10,7 @@ import type { QQConfig } from "./config.js";
 import type { OneBotMessage } from "./types.js";
 import type { UploadCache } from "./upload-cache.js";
 import type { Logger } from "./types/channel-types.js";
+import type { MetricsCollector } from "./metrics.js";
 import {
   splitMessage,
   stripMarkdown,
@@ -57,6 +58,8 @@ export interface MessageSenderContext {
   guildId: string | undefined;
   channelId: string | undefined;
   log?: Logger;
+  /** 指标收集器（可选） */
+  metrics?: MetricsCollector;
 }
 
 export class MessageSender {
@@ -95,21 +98,31 @@ export class MessageSender {
       }
       // 真 silent:什么都不发,仅 log 留痕(便于 /logs 命令查)
       (this.ctx.log ?? console).log(`[napcat-QQ][silent] dropped token "${trimmed}" (to=${this.ctx.isGroup ? `group:${this.ctx.groupId}` : `private:${this.ctx.userId}`})`);
+      this.ctx.metrics?.increment("outbound", "silentDropped");
       return;
     }
-    if (payload.text) await this.sendText(payload.text);
-
-    const urls: string[] = [];
-    if (payload.mediaUrls?.length) urls.push(...payload.mediaUrls);
-    else if (payload.mediaUrl) urls.push(payload.mediaUrl);
-    for (const url of urls) {
-      await this.sendMediaUrl(url);
-    }
-
-    if (payload.files) {
-      for (const f of payload.files) {
-        if (f.url) await this.sendFile(f.url, f.name);
+    try {
+      if (payload.text) {
+        await this.sendText(payload.text);
+        this.ctx.metrics?.increment("outbound", "sent");
       }
+
+      const urls: string[] = [];
+      if (payload.mediaUrls?.length) urls.push(...payload.mediaUrls);
+      else if (payload.mediaUrl) urls.push(payload.mediaUrl);
+      for (const url of urls) {
+        await this.sendMediaUrl(url);
+        this.ctx.metrics?.increment("outbound", "mediaSent");
+      }
+
+      if (payload.files) {
+        for (const f of payload.files) {
+          if (f.url) await this.sendFile(f.url, f.name);
+        }
+      }
+    } catch (err) {
+      this.ctx.metrics?.increment("outbound", "failed");
+      throw err;
     }
   }
 
@@ -132,8 +145,6 @@ export class MessageSender {
     const botSelfId = isGroup ? client.getSelfId() : null;
     const botName = isGroup ? (config._selfName ?? null) : null;
     const style = config.botSignatureStyle ?? DEFAULT_BOT_SIGNATURE_STYLE;
-
-    // v1.9.2 移除 metadata 模式:发文本前补握手 json 段会变成可见卡片消息 = spam
 
     // ── 媒体标签优先路径 ──
     const { hasMediaTags, sendQueue } = parseMediaTagsToSendQueue(processed);
@@ -194,9 +205,9 @@ export class MessageSender {
     const { client, config, log, isGroup, isGuild, groupId, userId, guildId, channelId } = this.ctx;
 
     // ── 发送文本 ──
-    // 双保险:即便上游 [SILENT] 拦截失败,silent token 也不加 @ 段(避免"@user [SILENT]"泄漏)
-    const isSilentChunk = chunk.trim() === "[END_DIALOG]" || chunk.trim() === "[SILENT]" ||
-      /^NO[_\s]?REPLY[.!?。!！,，;；…]*$/i.test(chunk.trim());
+    // deliver() 已拦截纯 silent token；此处仅判断是否跳过 @ 段（避免"@user [SILENT]"泄漏）
+    const trimmed = chunk.trim();
+    const isSilentChunk = trimmed === "[END_DIALOG]" || trimmed === "[SILENT]";
 
     if (markdownMode === "native") {
       const mdSegments: OneBotMessage = [];

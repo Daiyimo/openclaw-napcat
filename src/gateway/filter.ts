@@ -28,12 +28,14 @@ export function filterStage(
   client: OneBotClient,
   ctx: InboundContext,
 ): FilterResult | null {
-  const { config, knownGroupIds, inboundStore, log } = ctx;
+  const { config, knownGroupIds, inboundStore, log, metrics } = ctx;
   if (config.debug) {
     log.log(
       `[napcat-QQ][debug-filter] start, post_type=${event.post_type} user_id=${maskId(String(event.user_id))} self_id=${event.self_id}`,
     );
   }
+  // 入站计数
+  metrics?.increment("inbound", "total");
   const userId = event.user_id;
   const groupId = event.group_id;
   const guildId = event.guild_id != null ? String(event.guild_id) : undefined;
@@ -51,6 +53,7 @@ export function filterStage(
     ) {
       client.setSelfId(event.self_id);
     }
+    metrics?.increment("inbound", "filtered");
     return null;
   }
 
@@ -84,13 +87,17 @@ export function filterStage(
     }
   }
 
-  if (event.post_type !== "message") return null;
+  if (event.post_type !== "message") {
+    metrics?.increment("inbound", "filtered");
+    return null;
+  }
 
   const rawSelfId = client.getSelfId() ?? event.self_id;
   if (!rawSelfId) {
     log.warn(
       `[napcat-QQ] selfId not available yet, dropping message from user ${event.user_id}`,
     );
+    metrics?.increment("inbound", "filtered");
     return null;
   }
   const selfId = String(rawSelfId);
@@ -101,17 +108,25 @@ export function filterStage(
         `[napcat-QQ][debug-self-filter] dropping self message event.user_id=${maskId(String(event.user_id))} selfId=${selfId}`,
       );
     }
+    metrics?.increment("inbound", "filtered");
     return null;
   }
 
-  if (config.blockedUsers?.includes(userId!)) return null;
+  if (config.blockedUsers?.includes(userId!)) {
+    metrics?.increment("inbound", "filtered");
+    return null;
+  }
   if (isGroup && config.allowedGroups?.length && !config.allowedGroups.includes(groupId!)) {
+    metrics?.increment("inbound", "filtered");
     return null;
   }
 
   if (config.enableDeduplication !== false && event.message_id) {
     const msgIdKey = String(event.message_id);
-    if (inboundStore.processedMsgIds.has(msgIdKey)) return null;
+    if (inboundStore.processedMsgIds.has(msgIdKey)) {
+      metrics?.increment("inbound", "filtered");
+      return null;
+    }
     inboundStore.processedMsgIds.add(msgIdKey);
   }
 

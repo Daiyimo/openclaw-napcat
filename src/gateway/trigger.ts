@@ -25,6 +25,7 @@ import {
   resolveMessageText,
 } from "../message-processor.js";
 import { parseBotHandshake } from "../utils/bot-handshake.js";
+import { evictLru } from "../utils/cache-evict.js";
 import { handleAdminCommand } from "../admin-commands.js";
 import { getConfigRef, updateConfigRef } from "../config-watcher.js";
 import { resolvePassiveModeTemperature } from "../config.js";
@@ -37,6 +38,8 @@ import {
   DEFAULT_STOP_KEYWORDS,
 } from "../constants.js";
 
+import type { MetricsCollector } from "../metrics.js";
+
 export interface TriggerInput {
   event: OneBotEvent;
   userId: number | undefined;
@@ -46,6 +49,8 @@ export interface TriggerInput {
   isGroup: boolean;
   isGuild: boolean;
   selfId: string;
+  /** 指标收集器（可选） */
+  metrics?: MetricsCollector;
 }
 
 export interface TriggerResult extends TriggerInput {
@@ -92,19 +97,6 @@ function setCachedOtherBotNames(cacheKey: string, names: string[], idSet: Set<st
   otherBotNamesCache.set(cacheKey, { names, idSet, lastAccess: Date.now() });
   if (otherBotNamesCache.size > OTHER_BOT_NAMES_CACHE_MAX) {
     evictLru(otherBotNamesCache, Math.floor(OTHER_BOT_NAMES_CACHE_MAX / 2));
-  }
-}
-
-/**
- * LRU 淘汰：移除最久未访问的 N 个条目。
- * @template K, V - Map 的 key/value 类型
- */
-function evictLru<K, V extends { lastAccess: number }>(map: Map<K, V>, count: number): void {
-  if (map.size <= count) return;
-  const entries = [...map.entries()];
-  entries.sort((a, b) => a[1].lastAccess - b[1].lastAccess);
-  for (let i = 0; i < entries.length - count; i++) {
-    map.delete(entries[i][0]);
   }
 }
 
@@ -180,6 +172,8 @@ async function handleAdminCommandStage(
     message: input.event.message,
     eventTime: input.event.time ? input.event.time * 1000 : undefined,
     rateLimiter: ctx.inboundStore.rateLimiter,
+    metrics: input.metrics,
+    alertCooldown: ctx.alertCooldown,
     refreshGroupRoutes: async () => {
       const groups = await client.getGroupList();
       const results = await Promise.allSettled(
@@ -287,15 +281,13 @@ export async function triggerStage(
   client: OneBotClient,
   ctx: InboundContext,
 ): Promise<TriggerResult | null> {
-  const { event, isGroup, isGuild, selfId } = input;
+  const { event, isGroup, isGuild, selfId, metrics } = input;
   const { account, config, cfg, channelRuntime, knownGroupIds, passiveMode, log } = ctx;
   let isAdmin =
     (config.admins?.includes(input.userId!) ?? false) ||
     (config.sharedAdmins?.includes(input.userId!) ?? false);
 
-  const text = await resolveMessageText(event, client, config, cfg as Record<string, unknown>, log);
-
-  // ── 入站频控（滑动窗口）& 静默关键词过滤 ─────────────────────────
+  // ── 入站频控（滑动窗口）— 在 resolveMessageText 之前检查，避免浪费 STT I/O ──
   {
     const rateLimiter = ctx.inboundStore.rateLimiter;
     if (rateLimiter && config.inboundRateLimitMs > 0) {
@@ -307,22 +299,27 @@ export async function triggerStage(
               `retryAfter=${result.retryAfterMs}ms count=${result.currentCount}`,
           );
         }
+        metrics?.increment("inbound", "rateLimited");
         return null;
       }
       if (!isAdmin) {
         rateLimiter.record(input.userId, isGroup ? input.groupId : undefined);
       }
     }
+  }
 
-    if (config.silentKeywords?.length) {
-      const regexes = getSilentKeywordRegexes(config.silentKeywords);
-      for (const re of regexes) {
-        if (re.test(text)) {
-          if (config.debug) {
-            log.log(`[napcat-QQ][silent_keyword] matched, dropping message`);
-          }
-          return null;
+  const text = await resolveMessageText(event, client, config, cfg as Record<string, unknown>, log);
+
+  // ── 静默关键词过滤 ─────────────────────────────────────
+  if (config.silentKeywords?.length) {
+    const regexes = getSilentKeywordRegexes(config.silentKeywords);
+    for (const re of regexes) {
+      if (re.test(text)) {
+        if (config.debug) {
+          log.log(`[napcat-QQ][silent_keyword] matched, dropping message`);
         }
+        metrics?.increment("inbound", "silentDropped");
+        return null;
       }
     }
   }
@@ -358,6 +355,9 @@ export async function triggerStage(
     const sigMatch = BOT_SIGNATURE_PATTERN.exec(text);
     const zwSigMatch = BOT_SIGNATURE_ZW_PATTERN.exec(text);
     const matchedBotId = sigMatch?.[1] ?? zwSigMatch?.[1] ?? null;
+    if (matchedBotId) {
+      metrics?.increment("cache", "botSigHits");
+    }
     let handshakeMatch: string | null = null;
     if (Array.isArray(event.message)) {
       const hs = parseBotHandshake(event.message);
@@ -570,6 +570,8 @@ export async function triggerStage(
       recordUserMessage(account.accountId, `group:${input.groupId}`);
     }
   }
+
+  metrics?.increment("inbound", "triggered");
 
   return {
     ...input,

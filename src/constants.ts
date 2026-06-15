@@ -61,11 +61,9 @@ export function makeZeroWidthSignature(botId: string | number): string {
   return `​${botId}‌`;
 }
 
-// === 协议层握手（v1.9.2 已删除） ===
-
-// v1.9.0/1.9.1 引入的握手常量已删除,原因:
-// OneBot json 段在 QQ 客户端渲染成可见卡片消息,启动握手相当于向所有群广播 spam。
-// 友军识别仅依赖: sender.bot / knownBotIds / 持久化 known-bots cache / 文本签名([BOT:xxx])。
+// 协议层握手（json 段 / metadata 模式）在 v1.9.2 移除：
+// OneBot json 段在 QQ 客户端渲染为可见卡片消息，启动握手 = 群广播 spam。
+// 友军识别依赖 sender.bot / knownBotIds / 持久化 known-bots cache / 文本签名。
 
 // === 投递 ===
 
@@ -103,11 +101,8 @@ export const DEFAULT_STOP_KEYWORDS = [
   "别吵了",
 ];
 
-/** 默认 bot 签名样式
- *  v1.9.2 起彻底移除 "metadata" 选项（v1.9.0/1.9.1 试过用 OneBot json 段做协议层握手），
- *  但 json 段在 QQ 客户端会渲染成可见的卡片消息，启动时向所有群广播 spam 卡片。
- *  现仅保留 visible / zero-width / none 三种纯文本策略。
- */
+/** 默认 bot 签名样式。metadata（OneBot json 段握手）在 v1.9.2 移除（会导致群广播 spam），
+ *  现仅保留 visible / zero-width / none 三种纯文本策略。 */
 export const DEFAULT_BOT_SIGNATURE_STYLE: "none" | "visible" | "zero-width" = "visible";
 
 // === 回复格式硬约束（v1.9.1+） ===

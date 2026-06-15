@@ -23,6 +23,10 @@
         "type": "string",
         "description": "Access token"
       },
+      "requireReverseWsToken": {
+        "type": "boolean",
+        "description": "Require accessToken for reverse WebSocket connections. Default false for backward compatibility. Set true to reject reverse WS connections when no accessToken is configured."
+      },
       "admins": {
         "type": "array",
         "items": { "type": "number" },

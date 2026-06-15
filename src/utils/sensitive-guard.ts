@@ -126,6 +126,29 @@ function sortLongestFirst(words: readonly string[]): string[] {
 }
 
 /**
+ * 敏感词表缓存：opts 序列化 → 排序后的词表
+ * 词表不常变，缓存避免每条消息重新排序。
+ */
+const SENSITIVE_WORDS_CACHE = new Map<string, {
+  files: string[];
+  verbs: string[];
+  nouns: string[];
+}>();
+
+function getCachedWordLists(opts?: SensitiveGuardOptions) {
+  const key = JSON.stringify(opts ?? {});
+  const cached = SENSITIVE_WORDS_CACHE.get(key);
+  if (cached) return cached;
+  const result = {
+    files: sortLongestFirst(opts?.files ?? DEFAULT_SENSITIVE_FILES),
+    verbs: sortLongestFirst(opts?.verbs ?? DEFAULT_INTENT_VERBS),
+    nouns: sortLongestFirst(opts?.nouns ?? DEFAULT_INTENT_NOUNS),
+  };
+  SENSITIVE_WORDS_CACHE.set(key, result);
+  return result;
+}
+
+/**
  * 检测文本是否在请求修改受保护文件。
  *
  * 命中规则（任一满足即返回 matched）：
@@ -141,9 +164,7 @@ export function detectSensitiveFileRequest(
 ): SensitiveGuardMatch {
   if (!text) return { matched: false };
 
-  const files = sortLongestFirst(opts?.files ?? DEFAULT_SENSITIVE_FILES);
-  const verbs = sortLongestFirst(opts?.verbs ?? DEFAULT_INTENT_VERBS);
-  const nouns = sortLongestFirst(opts?.nouns ?? DEFAULT_INTENT_NOUNS);
+  const { files, verbs, nouns } = getCachedWordLists(opts);
 
   const lower = text.toLowerCase();
 

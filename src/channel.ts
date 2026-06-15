@@ -21,6 +21,8 @@ import { initConfigRef } from "./config-watcher.js";
 import { startAccount } from "./gateway/index.js";
 import { sendText } from "./outbound/send-text.js";
 import { sendMedia } from "./outbound/send-media.js";
+import { createMetricsCollector } from "./metrics.js";
+import { AlertCooldown } from "./metrics.js";
 
 export type ResolvedQQAccount = ChannelAccountSnapshot & {
   config: QQConfig;
@@ -180,6 +182,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
         wsUrl: account.config.wsUrl,
         httpUrl: account.config.httpUrl,
         accessToken: account.config.accessToken,
+        requireReverseWsToken: account.config.requireReverseWsToken,
       });
 
       return new Promise((resolve) => {
@@ -304,7 +307,17 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
           channelRuntime: ctx.channelRuntime as any,
           runtime: ctx.runtime,
         },
-        { clients, knownGroupIds: getKnownGroupIds(ctx.accountId), inboundStores, passiveMode, setBotSelfId, startingPromises },
+        {
+          clients,
+          knownGroupIds: getKnownGroupIds(ctx.accountId),
+          inboundStores,
+          passiveMode,
+          setBotSelfId,
+          startingPromises,
+          _messageHandlerCleanups: new Map<string, () => void>(),
+          metrics: new Map([[ctx.accountId, createMetricsCollector()]]),
+          alertCooldown: new Map([[ctx.accountId, new AlertCooldown()]]),
+        },
       );
     },
     logoutAccount: async ({ accountId, cfg: _cfg }: { accountId: string; cfg: OpenClawConfig; account?: any; runtime?: any; log?: any }) => {
