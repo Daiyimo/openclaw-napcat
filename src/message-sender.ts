@@ -354,7 +354,11 @@ export class MessageSender {
           } else {
             await client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${url}`);
           }
-        } catch {
+        } catch (uploadErr) {
+          (this.ctx.log ?? console).warn(
+            `[message-sender] upload failed for ${url}, falling back to file segment:`,
+            uploadErr instanceof Error ? uploadErr.message : uploadErr,
+          );
           const fileSegment: OneBotMessage = [{ type: "file", data: { file: url, name: fileName } }];
           if (isGuild) {
             await client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${url}`);

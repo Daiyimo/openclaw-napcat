@@ -9,6 +9,7 @@ import type { OneBotClient } from "../client.js";
 import type { OneBotEvent } from "../types.js";
 import type { InboundContext } from "../types/channel-types.js";
 import { populateGroupMemberCache } from "../member-cache.js";
+import { trimDedupSet } from "../gateway/lifecycle.js";
 import { maskId } from "../utils/log-sanitize.js";
 import { resolvePassiveModeTemperature } from "../config.js";
 
@@ -31,7 +32,7 @@ export function filterStage(
   const { config, knownGroupIds, inboundStore, log, metrics } = ctx;
   if (config.debug) {
     log.log(
-      `[napcat-QQ][debug-filter] start, post_type=${event.post_type} user_id=${maskId(String(event.user_id))} self_id=${event.self_id}`,
+      `[napcat-QQ][debug-filter] start, post_type=${event.post_type} user_id=${maskId(String(event.user_id))} self_id=${maskId(String(event.self_id))}`,
     );
   }
   // 入站计数
@@ -128,6 +129,10 @@ export function filterStage(
       return null;
     }
     inboundStore.processedMsgIds.add(msgIdKey);
+    // add 后立即检查 size，避免等待定时器修剪（60s 延迟过大）
+    if (inboundStore.processedMsgIds.size > 100_000) {
+      trimDedupSet(inboundStore.processedMsgIds);
+    }
   }
 
   if (config.autoMarkRead) {

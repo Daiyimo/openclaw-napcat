@@ -14,6 +14,12 @@ import type { Logger } from "./types/channel-types.js";
 const MEMBER_CACHE_TTL_MS = 3_600_000;
 /** 缓存最大条目数（防止 OOM） */
 const MAX_CACHE_SIZE = 100_000;
+/** 摊销淘汰：每插入 N 条才触发一次清理 */
+const EVICTION_INTERVAL = 500;
+/** 每次淘汰删除的比例 */
+const EVICTION_FRACTION = 0.2;
+
+let evictionCounter = 0;
 
 let _log: Logger = console;
 
@@ -22,6 +28,47 @@ const memberCache = new Map<string, { name: string; time: number }>();
 const bulkCachedGroups = new Map<string, number>(); // groupId → 拉取时间戳
 /** 正在加载中的群 ID → 等待者 Promise resolve 函数列表 */
 const loadingGroups = new Map<string, Array<() => void>>();
+
+// 定期 TTL 兜底扫描（每 15 分钟），清理过期条目防止长期累积
+const TTL_SWEEP_INTERVAL_MS = 15 * 60 * 1000;
+let ttlSweepTimer: ReturnType<typeof setInterval> | null = null;
+
+// 模块加载时自动启动 TTL 扫描（不影响进程退出）
+let ttlSweepStarted = false;
+
+function ensureTtlSweep(): void {
+  if (ttlSweepStarted) return;
+  ttlSweepStarted = true;
+  ttlSweepTimer = setInterval(() => {
+    const now = Date.now();
+    let cleaned = 0;
+    for (const [key, entry] of memberCache) {
+      if (now - entry.time > MEMBER_CACHE_TTL_MS) {
+        memberCache.delete(key);
+        cleaned++;
+      }
+    }
+    if (cleaned > 0) (_log ?? console).log(`[member-cache] TTL sweep: removed ${cleaned} expired entries`);
+  }, TTL_SWEEP_INTERVAL_MS);
+  ttlSweepTimer.unref();
+}
+
+/** 启动 TTL 兜底扫描定时器（不影响进程退出） */
+export function startTtlSweep(): void {
+  ensureTtlSweep();
+}
+
+/** 停止 TTL 兜底扫描 */
+export function stopTtlSweep(): void {
+  if (ttlSweepTimer) {
+    clearInterval(ttlSweepTimer);
+    ttlSweepTimer = null;
+    ttlSweepStarted = false;
+  }
+}
+
+// 模块加载时自动启动（不影响进程退出）
+ensureTtlSweep();
 
 // ============ 公共 API ============
 
@@ -42,11 +89,14 @@ export function getCachedMemberName(groupId: string, userId: string): string | n
  * 写入群成员名称缓存
  */
 export function setCachedMemberName(groupId: string, userId: string, name: string): void {
-  // 超出最大容量时清理最旧的 20% 条目
-  if (memberCache.size >= MAX_CACHE_SIZE) {
+  // 摊销淘汰：每 EVICTION_INTERVAL 次插入才排序清理一次
+  // 避免每次 @mention 都触发 O(n log n)
+  evictionCounter++;
+  if (memberCache.size >= MAX_CACHE_SIZE && evictionCounter >= EVICTION_INTERVAL) {
+    evictionCounter = 0;
     const entries = [...memberCache.entries()];
     entries.sort((a, b) => a[1].time - b[1].time);
-    const toRemove = Math.floor(MAX_CACHE_SIZE * 0.2);
+    const toRemove = Math.floor(MAX_CACHE_SIZE * EVICTION_FRACTION);
     for (let i = 0; i < toRemove && i < entries.length; i++) {
       memberCache.delete(entries[i][0]);
     }
@@ -62,6 +112,11 @@ export async function populateGroupMemberCache(client: OneBotClient, groupId: nu
   const key = String(groupId);
   const cachedAt = bulkCachedGroups.get(key);
   if (cachedAt && Date.now() - cachedAt < MEMBER_CACHE_TTL_MS) return;
+
+  // 过期：删除旧条目，后续重新拉取
+  if (cachedAt) {
+    bulkCachedGroups.delete(key);
+  }
 
   // 已在加载中：用 Promise 等待完成通知，避免重复拉取
   if (loadingGroups.has(key)) {

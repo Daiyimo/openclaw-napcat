@@ -54,8 +54,11 @@ let usersCache: Map<string, KnownUser> | null = null;
 const SAVE_THROTTLE_MS = 5000; // 5秒写入一次
 /** 用户缓存最大容量，超过后淘汰最久未活跃的用户防止内存泄漏 */
 const MAX_USERS_CACHE = 100_000;
+/** 摊销淘汰：每插入 N 条才触发一次排序清理 */
+const EVICTION_INTERVAL = 500;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let isDirty = false;
+let evictionCounter = 0;
 
 /**
  * 确保目录存在
@@ -197,14 +200,18 @@ export function recordKnownUser(user: {
     cache.set(key, newUser);
     (_log ?? console).log(`[known-users] New user: ${user.openid} (${user.type})`);
 
-    // 缓存上限保护：超过 MAX_USERS_CACHE 时淘汰最久未活跃的用户
+    // 缓存上限保护：摊销淘汰，每 EVICTION_INTERVAL 次才排序清理
     if (cache.size > MAX_USERS_CACHE) {
-      const excess = cache.size - MAX_USERS_CACHE;
-      const sorted = [...cache.entries()].sort((a, b) => a[1].lastSeenAt - b[1].lastSeenAt);
-      for (let i = 0; i < excess && i < sorted.length; i++) {
-        cache.delete(sorted[i][0]);
+      evictionCounter++;
+      if (evictionCounter >= EVICTION_INTERVAL) {
+        evictionCounter = 0;
+        const excess = cache.size - MAX_USERS_CACHE;
+        const sorted = [...cache.entries()].sort((a, b) => a[1].lastSeenAt - b[1].lastSeenAt);
+        for (let i = 0; i < excess && i < sorted.length; i++) {
+          cache.delete(sorted[i][0]);
+        }
+        (_log ?? console).warn(`[known-users] Evicted ${excess} oldest users (cache ${MAX_USERS_CACHE})`);
       }
-      (_log ?? console).warn(`[known-users] Evicted ${excess} oldest users (cache ${MAX_USERS_CACHE})`);
     }
   }
 

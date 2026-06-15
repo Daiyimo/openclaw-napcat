@@ -25,9 +25,13 @@ import {
   resolveMessageText,
 } from "../message-processor.js";
 import { parseBotHandshake } from "../utils/bot-handshake.js";
-import { evictLru } from "../utils/cache-evict.js";
 import { handleAdminCommand } from "../admin-commands.js";
 import { getConfigRef, updateConfigRef } from "../config-watcher.js";
+import {
+  getCachedOtherBotNames,
+  setCachedOtherBotNames,
+  invalidateOtherBotNamesCache,
+} from "./trigger-state.js";
 import { resolvePassiveModeTemperature } from "../config.js";
 import { registerGroupRoute } from "./group-route-registry.js";
 import { maskId } from "../utils/log-sanitize.js";
@@ -49,6 +53,12 @@ export interface TriggerInput {
   isGroup: boolean;
   isGuild: boolean;
   selfId: string;
+  /** 是否管理员（由 triggerStage 计算或外部提供） */
+  isAdmin?: boolean;
+  /** 是否 bot（由 triggerStage 计算或外部提供） */
+  isBot?: boolean;
+  /** 已知 bot ID 集合（由 triggerStage 计算或外部提供） */
+  knownBotIdSet?: Set<string>;
   /** 指标收集器（可选） */
   metrics?: MetricsCollector;
 }
@@ -67,42 +77,7 @@ export interface TriggerResult extends TriggerInput {
   isPassiveMode: boolean;
 }
 
-// ── otherBotNames 缓存 ────────────────────────────────────────────────────
-
-/** 缓存条目：{ names, idSet, lastAccess } */
-interface CacheEntry {
-  names: string[];
-  idSet: Set<string>;
-  lastAccess: number;
-}
-
-/** 缓存最大条目数，超过时淘汰最久未使用的条目（LRU） */
-const OTHER_BOT_NAMES_CACHE_MAX = 500;
-
-/** 缓存 key → 条目 */
-const otherBotNamesCache = new Map<string, CacheEntry>();
-
-/**
- * 获取缓存的 otherBotNames 结果，key 变更时自动重建。
- * 使用 lastAccess 时间戳实现 LRU 淘汰。
- */
-function getCachedOtherBotNames(cacheKey: string): { names: string[]; idSet: Set<string> } | null {
-  const entry = otherBotNamesCache.get(cacheKey);
-  if (!entry) return null;
-  entry.lastAccess = Date.now();
-  return { names: entry.names, idSet: entry.idSet };
-}
-
-function setCachedOtherBotNames(cacheKey: string, names: string[], idSet: Set<string>): void {
-  otherBotNamesCache.set(cacheKey, { names, idSet, lastAccess: Date.now() });
-  if (otherBotNamesCache.size > OTHER_BOT_NAMES_CACHE_MAX) {
-    evictLru(otherBotNamesCache, Math.floor(OTHER_BOT_NAMES_CACHE_MAX / 2));
-  }
-}
-
-export function invalidateOtherBotNamesCache(): void {
-  otherBotNamesCache.clear();
-}
+// otherBotNames 缓存已迁移到 trigger-state.ts（打破 trigger ↔ admin-commands 循环依赖）
 
 // ── silentKeywords 正则缓存 ────────────────────────────────────────────
 
@@ -119,6 +94,63 @@ function getSilentKeywordRegexes(keywords: string[]): RegExp[] {
   return regexes;
 }
 
+// ── 子函数：自然语言温度调整（admin 专属）─────────────────────────────
+
+interface AdjustTempResult {
+  handled: boolean;
+}
+
+/**
+ * 检测自然语言中的温度调整指令（如"把温度调到0"）。
+ * 仅管理员可调用，防止普通用户篡改 bot 行为。
+ * 独立于 / 命令系统，通过自然语言触发。
+ */
+/**
+ * 移除消息中的 @提及 前缀，使温度指令正则不受 @bot 干扰。
+ * 处理两种格式：resolveMessageText 后的 "@12345" 和原始 CQ 码 "[CQ:at,qq=12345]"。
+ */
+function stripMentionPrefix(text: string): string {
+  return text
+    .replace(/^\s*@\d+\s*/, "")            // 允许前导空格: " @12345 把温度调到0"
+    .replace(/^\s*\[CQ:at,\s*qq=\d+\]\s*/, "");  // 允许前导空格
+}
+
+async function tryAdjustTemperature(
+  input: TriggerInput,
+  ctx: InboundContext,
+  text: string,
+  isAdmin: boolean,
+): Promise<AdjustTempResult | null> {
+  if (!isAdmin || input.isGuild) return null;
+
+  // 移除 @提及 前缀后再匹配温度指令
+  // 支持: "温度=0" "温度调到0" "温度：0" "活跃度50" "回复频率 80"
+  const cleanText = stripMentionPrefix(text);
+  const tempMatch = cleanText.match(/(?:温度|活跃度|回复频率)[^0-9]*?(\d+)/i);
+  if (!tempMatch) return null;
+
+  const t = Number(tempMatch[1]);
+  if (!Number.isInteger(t) || t < 0 || t > 100) return null;
+
+  const configRef = getConfigRef();
+  if (!configRef) return null;
+
+  const pm = configRef.current.passiveMode ?? {};
+  const updated = { ...configRef.current, passiveMode: { ...pm, temperature: t } };
+  const result = updateConfigRef(configRef, updated);
+  const mapped = resolvePassiveModeTemperature(t) ?? {};
+  const reply = result.success
+    ? `✅ 温度设为 ${t}\n冷却 ${(mapped.cooldownMs ?? 0) / 1000}s / 最小间隔 ${(mapped.minIntervalMs ?? 0) / 1000}s / Bot压制 ${(mapped.botSuppressionMs ?? 0) / 1000}s`
+    : `❌ 设置失败: ${result.error}`;
+  const { client } = ctx;
+  if (input.isGroup && input.groupId) {
+    await client.sendGroupMsg(input.groupId, reply);
+  } else if (input.userId) {
+    await client.sendPrivateMsg(input.userId, reply);
+  }
+  return { handled: true };
+}
+
 // ── 子函数：管理员命令处理 ──────────────────────────────────────────────
 
 interface HandleAdminResult {
@@ -131,33 +163,12 @@ async function handleAdminCommandStage(
   ctx: InboundContext,
   text: string,
   isCmdMentioned: boolean,
+  isAdmin: boolean,
 ): Promise<HandleAdminResult> {
   const { account, config, cfg, channelRuntime, knownGroupIds, log } = ctx;
 
   if (!isCmdMentioned) {
-    // 自然语言温度调整（admin 专属）
-    const tempMatch = text.match(/(?:温度|活跃度|回复频率)\s*[=:：]?\s*(\d+)/i);
-    if (tempMatch && !input.isGuild) {
-      const t = Number(tempMatch[1]);
-      if (Number.isInteger(t) && t >= 0 && t <= 100) {
-        const configRef = getConfigRef();
-        if (configRef) {
-          const pm = configRef.current.passiveMode ?? {};
-          const updated = { ...configRef.current, passiveMode: { ...pm, temperature: t } };
-          const result = updateConfigRef(configRef, updated);
-          const mapped = resolvePassiveModeTemperature(t) ?? {};
-          const reply = result.success
-            ? `✅ 温度设为 ${t}\n冷却 ${(mapped.cooldownMs ?? 0) / 1000}s / 最小间隔 ${(mapped.minIntervalMs ?? 0) / 1000}s / Bot压制 ${(mapped.botSuppressionMs ?? 0) / 1000}s`
-            : `❌ 设置失败: ${result.error}`;
-          if (input.isGroup && input.groupId) {
-            await client.sendGroupMsg(input.groupId, reply);
-          } else if (input.userId) {
-            await client.sendPrivateMsg(input.userId, reply);
-          }
-          return { handled: true };
-        }
-      }
-    }
+    // 自然语言温度调整已移至 tryAdjustTemperature（独立于 / 命令）
     return { handled: false };
   }
 
@@ -174,6 +185,8 @@ async function handleAdminCommandStage(
     rateLimiter: ctx.inboundStore.rateLimiter,
     metrics: input.metrics,
     alertCooldown: ctx.alertCooldown,
+    log,
+    isAdmin,
     refreshGroupRoutes: async () => {
       const groups = await client.getGroupList();
       const results = await Promise.allSettled(
@@ -482,6 +495,10 @@ export async function triggerStage(
     }
   }
 
+  // ── 自然语言温度调整（admin 专属，独立于 / 命令）────────────────────
+  const tempResult = await tryAdjustTemperature(input, ctx, text, isAdmin);
+  if (tempResult?.handled) return null;
+
   // ── 管理员命令 ──────────────────────────────────────────────────────
   if (!isGuild && isAdmin && text.trim().startsWith("/")) {
     const isCmdMentioned =
@@ -502,7 +519,7 @@ export async function triggerStage(
         return text.includes(`[CQ:at,qq=${sid}]`);
       })();
 
-    const adminResult = await handleAdminCommandStage(input, client, ctx, text, isCmdMentioned);
+    const adminResult = await handleAdminCommandStage(input, client, ctx, text, isCmdMentioned, isAdmin);
     if (adminResult.handled) return null;
   }
 

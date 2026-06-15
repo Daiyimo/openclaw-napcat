@@ -32,6 +32,15 @@ const CQ_ANY_REGEX = /\[CQ:[^\]]+\]/g;
 const CQ_REPLY_REGEX = /\[CQ:reply,id=(\d+)\]/;
 // 注：带 /g 标志的正则有 lastIndex 状态，每次调用须用 new RegExp 复制一份
 const IMAGE_URL_PATTERN = /\[CQ:image,[^\]]*(?:url|file)=([^,\]]+)[^\]]*\]/g;
+/** 预编译的 image URL regex 实例缓存（避免每次调用 new RegExp） */
+let cachedImageUrlRegex: RegExp | null = null;
+
+function getImageUrlRegex(): RegExp {
+  if (!cachedImageUrlRegex) {
+    cachedImageUrlRegex = new RegExp(IMAGE_URL_PATTERN.source, "g");
+  }
+  return cachedImageUrlRegex;
+}
 
 // 文件 base64 转换的最大允许大小（10 MB），防止大文件撑爆内存
 const MAX_LOCAL_FILE_SIZE = 10 * 1024 * 1024;
@@ -66,7 +75,7 @@ export function extractImageUrls(message: OneBotMessage | string | undefined, ma
       }
     }
   } else if (typeof message === "string") {
-    const re = new RegExp(IMAGE_URL_PATTERN.source, "g");
+    const re = getImageUrlRegex();
     let match;
     while ((match = re.exec(message)) !== null) {
       const val = match[1].replace(/&amp;/g, "&");
@@ -94,7 +103,7 @@ export function cleanCQCodes(text: string | undefined): string {
   let result = text;
   const imageUrls: string[] = [];
 
-  const re = new RegExp(IMAGE_URL_PATTERN.source, "g");
+  const re = getImageUrlRegex();
   let match;
   while ((match = re.exec(text)) !== null) {
     const val = match[1].replace(/&amp;/g, "&");
@@ -286,21 +295,26 @@ export function processAntiRisk(text: string): string {
 /** 允许访问的本地文件目录白名单（防止路径遍历） */
 const ALLOWED_LOCAL_DIRS: string[] = (() => {
   const dirs: string[] = [];
-  // 1. 项目数据目录（~/.openclaw/napcat-qq/）：插件自己的数据，最宽松
+  // 1. 项目数据目录
   try {
     const dataDir = path.resolve(os.homedir(), ".openclaw", "napcat-qq");
     dirs.push(dataDir);
-  } catch { /* ignore */ }
-  // 2. 临时目录：仅用于运行时临时文件
+  } catch (err) {
+    console.warn(`[message-parser] Failed to resolve homedir: ${err instanceof Error ? err.message : err}`);
+  }
+  // 2. 临时目录
   try {
     dirs.push(path.resolve(os.tmpdir()));
-  } catch { /* ignore */ }
-  // 3. workspace 目录：OpenClaw 框架的 workspaceOnly 限制范围
+  } catch (err) {
+    console.warn(`[message-parser] Failed to resolve tmpdir: ${err instanceof Error ? err.message : err}`);
+  }
+  // 3. workspace 目录
   const workspace = process.env.HOME || "/home/node";
   try {
     dirs.push(path.resolve(workspace, ".openclaw", "workspace"));
-  } catch { /* ignore */ }
-  // 去重并统一 trailing separator
+  } catch (err) {
+    console.warn(`[message-parser] Failed to resolve workspace: ${err instanceof Error ? err.message : err}`);
+  }
   return [...new Set(dirs.map((d) => d + path.sep))];
 })();
 
@@ -407,7 +421,9 @@ function guessImageExtension(url: string, contentType: string | null): string {
     if (ext && ["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg"].includes(ext)) {
       return ext === "jpeg" ? "jpg" : ext;
     }
-  } catch { /* ignore */ }
+  } catch (err) {
+    console.warn(`[message-parser] Cannot guess extension from URL "${url.slice(0, 100)}": ${err instanceof Error ? err.message : err}`);
+  }
   return "jpg"; // 默认
 }
 
@@ -432,44 +448,80 @@ export async function downloadImages(urls: string[], log?: Logger): Promise<Down
   }
   const results: DownloadedImage[] = [];
 
-  for (const url of urls) {
+  // 并发控制：最多 3 张同时下载，避免并发过大被限流
+  const CONCURRENT_DOWNLOADS = 3;
+  const downloadOne = async (rawUrl: string, idx: number): Promise<DownloadedImage> => {
     // SSRF 防护：仅允许 http/https scheme，防止 file:///gopher:// 等内网扫描
+    let url = rawUrl;
     try {
       const parsed = new URL(url);
       if (!["http:", "https:"].includes(parsed.protocol)) {
         (log ?? console).warn(`[napcat-QQ][downloadImages] blocked non-http(s) URL: ${parsed.protocol}//${parsed.host}`);
-        results.push({ path: url, type: "image/jpeg" });
-        continue;
+        return { path: url, type: "image/jpeg" };
       }
     } catch {
       (log ?? console).warn(`[napcat-QQ][downloadImages] blocked invalid URL: ${url.slice(0, 100)}`);
-      results.push({ path: url, type: "image/jpeg" });
-      continue;
+      return { path: url, type: "image/jpeg" };
     }
 
-    try {
-      const resp = await fetch(url, {
-        signal: AbortSignal.timeout(30_000),
-        headers: { "User-Agent": "Mozilla/5.0" },
-      });
-      if (!resp.ok) {
-        (log ?? console).warn(`[napcat-QQ] Image download failed (${resp.status}): ${url}`);
-        results.push({ path: url, type: "image/jpeg" });
-        continue;
+    // 最多跟随 3 次重定向（每跳都验证 scheme，防止 SSRF 绕过）
+    for (let redirectCount = 0; redirectCount < 3; redirectCount++) {
+      try {
+        const resp = await fetch(url, {
+          signal: AbortSignal.timeout(30_000),
+          headers: { "User-Agent": "Mozilla/5.0" },
+          redirect: "manual",
+        });
+        // 处理 3xx 重定向：验证 redirect URL 的 scheme
+        if (resp.status >= 300 && resp.status < 400) {
+          const redirectUrl = resp.headers.get("location");
+          if (!redirectUrl) {
+            (log ?? console).warn(`[napcat-QQ][downloadImages] redirect without Location header: ${url}`);
+            return { path: url, type: "image/jpeg" };
+          }
+          try {
+            const parsedRedirect = new URL(redirectUrl, url);
+            if (!["http:", "https:"].includes(parsedRedirect.protocol)) {
+              (log ?? console).warn(`[napcat-QQ][downloadImages] blocked redirect to non-http(s) URL: ${parsedRedirect.protocol}//${parsedRedirect.host}`);
+              return { path: url, type: "image/jpeg" };
+            }
+            url = parsedRedirect.toString();
+            continue; // 用新 URL 重新下载
+          } catch {
+            (log ?? console).warn(`[napcat-QQ][downloadImages] blocked invalid redirect URL: ${redirectUrl.slice(0, 100)}`);
+            return { path: url, type: "image/jpeg" };
+          }
+        }
+        if (!resp.ok) {
+          (log ?? console).warn(`[napcat-QQ] Image download failed (${resp.status}): ${url}`);
+          return { path: url, type: "image/jpeg" };
+        }
+        const contentType = resp.headers.get("content-type");
+        const ext = guessImageExtension(url, contentType);
+        const mime = contentType?.split(";")[0].trim() || `image/${ext}`;
+        // 用 idx 保证并发下载时文件名唯一（避免 Date.now() 碰撞）
+        const filename = `img-${idx}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+        const filePath = path.join(downloadDir, filename);
+        const buf = Buffer.from(await resp.arrayBuffer());
+        fsSync.writeFileSync(filePath, buf);
+        (log ?? console).log(`[napcat-QQ][downloadImages] saved: ${filePath} (${buf.length} bytes)`);
+        return { path: filePath, type: mime };
+      } catch (err) {
+        (log ?? console).warn(`[napcat-QQ] Image download error: ${err instanceof Error ? err.message : String(err)}`);
+        return { path: url, type: "image/jpeg" };
       }
-      const contentType = resp.headers.get("content-type");
-      const ext = guessImageExtension(url, contentType);
-      const mime = contentType?.split(";")[0].trim() || `image/${ext}`;
-      const filename = `img-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-      const filePath = path.join(downloadDir, filename);
-      const buf = Buffer.from(await resp.arrayBuffer());
-      fsSync.writeFileSync(filePath, buf);
-      (log ?? console).log(`[napcat-QQ][downloadImages] saved: ${filePath} (${buf.length} bytes)`);
-      results.push({ path: filePath, type: mime });
-    } catch (err) {
-      (log ?? console).warn(`[napcat-QQ] Image download error: ${err instanceof Error ? err.message : String(err)}`);
-      results.push({ path: url, type: "image/jpeg" });
     }
+    return { path: url, type: "image/jpeg" };
+  };
+
+  // 分批并发下载（每批 CONCURRENT_DOWNLOADS 张）
+  const chunks: string[][] = [];
+  for (let i = 0; i < urls.length; i += CONCURRENT_DOWNLOADS) {
+    chunks.push(urls.slice(i, i + CONCURRENT_DOWNLOADS));
+  }
+  for (const chunk of chunks) {
+    const chunkResults = await Promise.all(chunk.map((u, i) => downloadOne(u, i)));
+    results.push(...chunkResults);
   }
 
   return results;
@@ -589,30 +641,38 @@ interface STTConfig {
   model: string;
 }
 
-export function resolveSTTConfig(cfg: OpenClawConfig): STTConfig | null {
-  const c = cfg;
+export function resolveSTTConfig(cfg: Record<string, unknown> | undefined): STTConfig | null {
+  const c: Record<string, unknown> = cfg ?? {};
+  const channels = c?.channels as Record<string, unknown> | undefined;
+  const models = c?.models as Record<string, unknown> | undefined;
 
   // 优先 channels.napcat.stt（插件专属配置）
-  const channelStt = c?.channels?.napcat?.stt;
+  const napcatCh = channels?.napcat as Record<string, unknown> | undefined;
+  const channelStt = napcatCh?.stt as Record<string, unknown> | undefined;
   if (channelStt && channelStt.enabled !== false) {
-    const providerId: string = channelStt?.provider || "openai";
-    const providerCfg = c?.models?.providers?.[providerId];
-    const baseUrl: string | undefined = channelStt?.baseUrl || providerCfg?.baseUrl;
-    const apiKey: string | undefined = channelStt?.apiKey || providerCfg?.apiKey;
-    const model: string = channelStt?.model || "whisper-1";
+    const providerId: string = (channelStt?.provider as string | undefined) || "openai";
+    const providers = models?.providers as Record<string, unknown> | undefined;
+    const providerCfg = providers?.[providerId] as Record<string, unknown> | undefined;
+    const baseUrl: string | undefined = (channelStt?.baseUrl as string | undefined) || (providerCfg?.baseUrl as string | undefined);
+    const apiKey: string | undefined = (channelStt?.apiKey as string | undefined) || (providerCfg?.apiKey as string | undefined);
+    const model: string = (channelStt?.model as string | undefined) || "whisper-1";
     if (baseUrl && apiKey) {
       return { baseUrl: baseUrl.replace(/\/+$/, ""), apiKey, model };
     }
   }
 
   // 回退 tools.media.audio.models[0]（框架级配置）
-  const audioModelEntry = c?.tools?.media?.audio?.models?.[0];
+  const tools = c?.tools as Record<string, unknown> | undefined;
+  const media = tools?.media as Record<string, unknown> | undefined;
+  const audioModels = (media?.audio as { models?: unknown[] } | undefined)?.models;
+  const audioModelEntry = audioModels?.[0] as Record<string, unknown> | undefined;
   if (audioModelEntry) {
-    const providerId: string = audioModelEntry?.provider || "openai";
-    const providerCfg = c?.models?.providers?.[providerId];
-    const baseUrl: string | undefined = audioModelEntry?.baseUrl || providerCfg?.baseUrl;
-    const apiKey: string | undefined = audioModelEntry?.apiKey || providerCfg?.apiKey;
-    const model: string = audioModelEntry?.model || "whisper-1";
+    const providerId: string = (audioModelEntry?.provider as string | undefined) || "openai";
+    const providers = models?.providers as Record<string, unknown> | undefined;
+    const providerCfg = providers?.[providerId] as Record<string, unknown> | undefined;
+    const baseUrl: string | undefined = (audioModelEntry?.baseUrl as string | undefined) || (providerCfg?.baseUrl as string | undefined);
+    const apiKey: string | undefined = (audioModelEntry?.apiKey as string | undefined) || (providerCfg?.apiKey as string | undefined);
+    const model: string = (audioModelEntry?.model as string | undefined) || "whisper-1";
     if (baseUrl && apiKey) {
       return { baseUrl: baseUrl.replace(/\/+$/, ""), apiKey, model };
     }
@@ -623,7 +683,7 @@ export function resolveSTTConfig(cfg: OpenClawConfig): STTConfig | null {
 
 export async function transcribeAudioForNapcat(
   audioPath: string,
-  cfg: Record<string, unknown>,
+  cfg: Record<string, unknown> | undefined,
 ): Promise<string | null> {
   const sttCfg = resolveSTTConfig(cfg);
   if (!sttCfg) return null;

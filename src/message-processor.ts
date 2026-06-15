@@ -87,17 +87,17 @@ export async function resolveMessageText(
   const isGroup = event.message_type === "group";
   const groupId = event.group_id;
 
-  let resolvedText = "";
+  const parts: string[] = [];
   for (const seg of event.message) {
     if (seg.type === "text") {
-      resolvedText += seg.data?.text || "";
+      parts.push(seg.data?.text || "");
     } else if (seg.type === "at") {
       let name = seg.data?.qq;
       if (name !== "all" && isGroup && groupId) {
         const cached = getCachedMemberName(String(groupId), String(name));
         if (cached) name = cached;
       }
-      resolvedText += ` @${name} `;
+      parts.push(` @${name} `);
     } else if (seg.type === "record") {
       if (config.enableSTT && seg.data?.url) {
         const tmpDir = os.tmpdir();
@@ -106,7 +106,7 @@ export async function resolveMessageText(
         try {
           const voiceUrl = seg.data.url;
           if (!validateFetchUrl(voiceUrl, log)) {
-            resolvedText += ` [语音消息: URL 不允许]`;
+            parts.push(` [语音消息: URL 不允许]`);
             continue;
           }
           const voiceResp = await fetch(voiceUrl, { signal: AbortSignal.timeout(30_000) });
@@ -118,46 +118,49 @@ export async function resolveMessageText(
               wavPath = wavResult.wavPath;
               const transcript = await transcribeAudioForNapcat(
                 wavPath,
-                openClawCfg ?? ({} as OpenClawConfig),
+                openClawCfg,
               );
-              resolvedText += transcript
-                ? ` [语音转文字: ${transcript}]`
-                : ` [语音消息: 转写为空]`;
+              parts.push(
+                transcript
+                  ? ` [语音转文字: ${transcript}]`
+                  : ` [语音消息: 转写为空]`,
+              );
             } else {
-              resolvedText += ` [语音消息: 格式不支持]`;
+              parts.push(` [语音消息: 格式不支持]`);
             }
           } else {
-            resolvedText += ` [语音消息: 下载失败]`;
+            parts.push(` [语音消息: 下载失败]`);
           }
         } catch (sttErr) {
           const errMsg = sttErr instanceof Error ? sttErr.message : String(sttErr);
           (log ?? console).warn(`[message-processor] STT failed: ${errMsg}`, sttErr instanceof Error ? sttErr.cause : undefined);
-          resolvedText += ` [语音消息: 转写失败]`;
+          parts.push(` [语音消息: 转写失败]`);
         } finally {
-          try { fsSync.unlinkSync(tmpFile); } catch (e) { (log ?? console).debug(`[message-processor] cleanup tmpFile failed: ${e}`); }
-          if (wavPath) { try { fsSync.unlinkSync(wavPath); } catch (e) { (log ?? console).debug(`[message-processor] cleanup wav failed: ${e}`); } }
+          try { fsSync.unlinkSync(tmpFile); } catch (e) { (log ?? console).warn(`[message-processor] cleanup tmpFile failed: ${e}`); }
+          if (wavPath) { try { fsSync.unlinkSync(wavPath); } catch (e) { (log ?? console).warn(`[message-processor] cleanup wav failed: ${e}`); } }
         }
       } else {
         const textData = seg.data?.text;
-        resolvedText += ` [语音消息]${textData ? `(${textData})` : ""}`;
+        parts.push(` [语音消息]${textData ? `(${textData})` : ""}`);
       }
     } else if (seg.type === "image") {
-      resolvedText += " [图片]";
+      parts.push(" [图片]");
     } else if (seg.type === "video") {
-      resolvedText += " [视频消息]";
+      parts.push(" [视频消息]");
     } else if (seg.type === "json") {
-      resolvedText += " [卡片消息]";
+      parts.push(" [卡片消息]");
     } else if (seg.type === "forward" && seg.data?.id) {
       try {
         const forwardData = await client.getForwardMsg(seg.data.id);
         if (forwardData?.messages && Array.isArray(forwardData.messages)) {
-          resolvedText += "\n[转发聊天记录]:";
+          const forwardLines: string[] = ["\n[转发聊天记录]:"];
           for (const m of forwardData.messages.slice(0, 10)) {
             const raw = m.content || m.raw_message || "";
             if (typeof raw === "string" && raw.includes("[CQ:forward")) continue;
             const preview = cleanCQCodes(raw).slice(0, 200);
-            resolvedText += `\n${m.sender?.nickname || m.user_id}: ${preview}`;
+            forwardLines.push(`\n${m.sender?.nickname || m.user_id}: ${preview}`);
           }
+          parts.push(forwardLines.join(""));
         }
       } catch (e) {
         (log ?? console).debug(`[message-processor] forward msg fetch failed: ${e}`);
@@ -166,7 +169,7 @@ export async function resolveMessageText(
       let fileSeg = seg;
       if (!fileSeg.data?.url && isGroup && groupId) {
         try {
-          const info = await client.sendWithResponse("get_group_file_url", {
+          const info = await client.sendWithResponse<{ url?: string }>("get_group_file_url", {
             group_id: groupId,
             file_id: fileSeg.data?.file_id,
             busid: fileSeg.data?.busid,
@@ -176,10 +179,10 @@ export async function resolveMessageText(
           (log ?? console).debug(`[message-processor] file URL fetch failed: ${e}`);
         }
       }
-      resolvedText += ` [文件: ${fileSeg.data?.file || "未命名"}]`;
+      parts.push(` [文件: ${fileSeg.data?.file || "未命名"}]`);
     }
   }
 
-  if (resolvedText) text = resolvedText;
+  if (parts.length > 0) text = parts.join("");
   return text;
 }

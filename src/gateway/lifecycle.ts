@@ -22,6 +22,7 @@ import { triggerUpdateCheck } from "../update-checker.js";
 import { initRefIndexStore, flushRefIndex } from "../ref-index-store.js";
 import { flushKnownUsers } from "../known-users.js";
 import { UploadCache } from "../upload-cache.js";
+import { MessageSender } from "../message-sender.js";
 import {
   DEDUP_MAX_SIZE,
   DEDUP_KEEP_SIZE,
@@ -126,6 +127,10 @@ export async function startAccount(
       if (trimDedupSet(processedMsgIds)) {
         log.log(`[napcat-QQ] Dedup set trimmed: kept ${processedMsgIds.size} recent IDs`);
       }
+      // inboundStore.processedMsgIds 是 filter.ts 实际使用的去重集合，同样需要定期修剪
+      if (inboundStore && trimDedupSet(inboundStore.processedMsgIds)) {
+        log.log(`[napcat-QQ] Inbound dedup set trimmed: kept ${inboundStore.processedMsgIds.size} recent IDs`);
+      }
       shared.passiveMode.cleanup(PASSIVE_COOLDOWN_MAX_AGE_MS);
       cleanupDialogState(DIALOG_STATE_CLEANUP_MS);
     }, CLEANUP_INTERVAL_MS);
@@ -157,6 +162,22 @@ export async function startAccount(
       shared._messageHandlerCleanups?.delete(account.accountId);
     }
 
+    // 创建 MessageSender 实例并注入（DI），便于测试时替换 mock
+    const messageSender = new MessageSender({
+      client,
+      config,
+      uploadCache,
+      accountId: account.accountId,
+      isGroup: false, // 运行时由 sendFile/sendByTarget 根据实际目标判断
+      isGuild: false,
+      groupId: undefined,
+      userId: undefined,
+      guildId: undefined,
+      channelId: undefined,
+      log,
+      metrics: accountMetrics,
+    });
+
     const uninstallMessageHandler = installMessageHandler(client, {
       client,
       account,
@@ -171,7 +192,7 @@ export async function startAccount(
       log,
       metrics: accountMetrics,
       alertCooldown: accountAlertCooldown,
-    });
+    }, messageSender);
 
     // 保存卸载函数
     if (shared._messageHandlerCleanups) {

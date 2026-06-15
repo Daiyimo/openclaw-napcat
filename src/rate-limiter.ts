@@ -45,7 +45,6 @@ export interface ActiveRateLimit {
 
 const MAX_ACTIVE_KEYS = 5000;
 const CLEANUP_BATCH = 1000;
-const ADMIN_EXEMPTION_KEY = "__admin_exempt__";
 
 /**
  * 入站限流器

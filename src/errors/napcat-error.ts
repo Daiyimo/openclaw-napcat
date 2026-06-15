@@ -71,11 +71,3 @@ export class RateLimitError extends NapcatApiError {
   }
   readonly retryAfterMs?: number;
 }
-
-export function isRetryableNapcatError(error: unknown): boolean {
-  if (error instanceof ServerApiError) return true;
-  if (error instanceof ConnectionError) return true;
-  if (error instanceof TimeoutError) return true;
-  if (error instanceof RateLimitError) return true;
-  return false;
-}

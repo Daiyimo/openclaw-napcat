@@ -54,7 +54,8 @@ export interface MetricsGauges {
 // ── 指标收集器 ──────────────────────────────────────────
 
 export class MetricsCollector {
-  readonly counters: Readonly<MetricsCounters> = {
+  // 内部可变，increment/reset 需要写入
+  counters: MetricsCounters = {
     inbound: { total: 0, filtered: 0, rateLimited: 0, silentDropped: 0, triggered: 0 },
     dispatch: { attempts: 0, succeeded: 0, failed: 0 },
     outbound: { sent: 0, failed: 0, mediaSent: 0, silentDropped: 0 },
@@ -76,7 +77,9 @@ export class MetricsCollector {
   // ── 计数操作 ──────────────────────────────────────────
 
   increment<K extends keyof MetricsCounters>(category: K, field: keyof MetricsCounters[K], amount = 1): void {
-    (this.counters as any)[category][field] += amount;
+    // 内部可变，直接写入（移除顶层 readonly 后不再需要 as any 绕过类型契约）
+    const cat = this.counters[category] as Record<string, number>;
+    cat[field as string] += amount;
   }
 
   // ── Gauge 注册 ────────────────────────────────────────
@@ -88,14 +91,14 @@ export class MetricsCollector {
 
   /** 手动设置 gauge（用于不便于注册 provider 的场景） */
   setGauge<K extends keyof MetricsGauges>(key: K, value: number): void {
-    (this._gauges as any)[key] = value;
+    this._gauges[key] = value;
   }
 
   /** 获取 gauge 快照 */
   getGauge<K extends keyof MetricsGauges>(key: K): number {
     const provider = this.gaugeProviders.get(key);
     if (provider) return provider();
-    return (this._gauges as any)[key] ?? 0;
+    return this._gauges[key] ?? 0;
   }
 
   /** 获取完整 gauge 快照 */
@@ -111,7 +114,7 @@ export class MetricsCollector {
   resetCounters(): void {
     for (const cat of Object.keys(this.counters) as (keyof MetricsCounters)[]) {
       for (const field of Object.keys(this.counters[cat]) as (keyof MetricsCounters[typeof cat])[]) {
-        (this.counters as any)[cat][field] = 0;
+        (this.counters[cat] as Record<string, number>)[field as string] = 0;
       }
     }
   }

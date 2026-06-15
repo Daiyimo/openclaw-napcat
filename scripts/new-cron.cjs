@@ -205,6 +205,17 @@ async function main() {
       customScript || undefined
     );
 
+    // ── 安全确认：展示将要执行的完整命令 ──────────────────────
+    console.log("\n⚠️  即将执行的命令：");
+    console.log(`  程序: ${argv[0]} ${argv[1]}`);
+    console.log(`  脚本: ${argv[2]}`);
+    console.log("");
+    const confirm = (await prompt("确认执行？[y/N]: ")).trim().toLowerCase();
+    if (confirm !== "y" && confirm !== "yes") {
+      console.log("已取消。");
+      process.exit(0);
+    }
+
     console.log("\nCreating cron job…");
     const args = [
       "cron", "add",

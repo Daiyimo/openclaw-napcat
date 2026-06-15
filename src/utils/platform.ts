@@ -32,7 +32,9 @@ export function getHomeDir(): string {
   try {
     const home = os.homedir();
     if (home && fs.existsSync(home)) return home;
-  } catch {}
+  } catch (err) {
+    console.warn(`[platform] os.homedir() failed: ${err instanceof Error ? err.message : err}`);
+  }
 
   // fallback 环境变量
   const envHome = process.env.HOME || process.env.USERPROFILE;

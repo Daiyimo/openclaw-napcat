@@ -12,6 +12,7 @@ import type { ConfigRef } from "./config-watcher.js";
 import type { InboundRateLimiter } from "./rate-limiter.js";
 import type { MetricsCollector } from "./metrics.js";
 import type { AlertCooldown } from "./metrics.js";
+import type { Logger } from "./types/channel-types.js";
 
 // ── 类型定义 ──────────────────────────────────────────────────────────
 
@@ -31,6 +32,10 @@ export interface AdminCmdContext {
   metrics?: MetricsCollector;
   /** 告警冷却管理器（可选） */
   alertCooldown?: AlertCooldown;
+  /** 可选日志器 */
+  log?: Logger;
+  /** 是否管理员（handleAdminCommand 内部二次校验，防止绕过） */
+  isAdmin?: boolean;
 }
 
 export interface CommandHandler {

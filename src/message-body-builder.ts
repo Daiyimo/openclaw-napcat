@@ -58,7 +58,7 @@ export interface BuildBodyOpts {
   repliedMsg: {
     raw_message?: string;
     message?: string;
-    sender?: { nickname?: string; card?: string; user_id?: any };
+    sender?: { nickname?: string; card?: string; user_id?: number };
   } | null;
   systemPrompt: string | undefined;
   historyContext: string;

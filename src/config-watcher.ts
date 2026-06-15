@@ -27,7 +27,8 @@ export function initConfigRef(initial: QQConfig, log?: Logger): void {
 
 export function getConfigRef(): ConfigRef {
   if (!_configRef) {
-    console.warn("[config-watcher] getConfigRef called before initConfigRef, returning defaults");
+    const msg = "[config-watcher] getConfigRef called before initConfigRef, returning defaults";
+    console.warn(msg);
     _configRef = createConfigRef(getQQConfigDefaults());
   }
   return _configRef;

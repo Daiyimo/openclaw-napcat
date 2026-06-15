@@ -206,7 +206,7 @@ export async function fetchBotInfoAsync(
   log?: { warn?: (msg: string) => void; info?: (msg: string) => void; error?: (msg: string) => void },
 ): Promise<void> {
   try {
-    let info: any = null;
+    let info: Record<string, unknown> | null = null;
     // 并发 race：getGroupMemberInfo 和 getStrangerInfo 同时发起，
     // 任一成功即返回，避免顺序回退导致 worst case 10s 延迟。
     const timeout = () => new Promise((_, reject) =>
@@ -224,13 +224,13 @@ export async function fetchBotInfoAsync(
         timeout(),
       ]);
     }
-    if (info && (info.nickname || info.card)) {
+    if (info && ((info as Record<string, unknown>).nickname || (info as Record<string, unknown>).card)) {
       recordBotInfo(accountId, {
         selfId: botId,
-        nickname: info.nickname,
-        card: info.card,
+        nickname: (info as Record<string, unknown>).nickname as string | undefined,
+        card: (info as Record<string, unknown>).card as string | undefined,
       });
-      log?.info?.(`[napcat-QQ] Updated bot info: ${botId} → ${info.card || info.nickname}`);
+      log?.info?.(`[napcat-QQ] Updated bot info: ${botId} → ${(info as Record<string, unknown>).card as string || (info as Record<string, unknown>).nickname as string}`);
     }
   } catch (err) {
     const errObj = err instanceof Error ? err : new Error(String(err));

@@ -61,8 +61,18 @@ vi.mock("../log-buffer.js", () => ({
   formatLogEntry: vi.fn().mockImplementation((e: unknown) => String(e)),
 }));
 
+vi.mock("../config-watcher.js", () => ({
+  getConfigRef: vi.fn().mockReturnValue({
+    current: { passiveMode: { temperature: 50 } },
+    log: null,
+  }),
+  updateConfigRef: vi.fn().mockReturnValue({ success: true, connectionChanged: false }),
+  initConfigRef: vi.fn(),
+}));
+
 import { installMessageHandler } from "../gateway/inbound.js";
-import { invalidateOtherBotNamesCache } from "../gateway/trigger.js";
+import { updateConfigRef } from "../config-watcher.js";
+import { invalidateOtherBotNamesCache } from "../gateway/trigger-state.js";
 import { resetDialogState } from "../dialog-state.js";
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -1325,5 +1335,68 @@ describe("installMessageHandler — sharedAdmins cross-bot admin", () => {
       USER_ID,
       expect.stringContaining("敏感操作"),
     );
+  });
+
+  // ── C-1 回归：温度调整需管理员权限 ─────────────────────────────────────────
+
+  const ADMIN_ID = 99999;
+
+  it("test_temperature_adjustment_non_admin_cannot_change", async () => {
+    // 非管理员发送"把温度调到0"不应触发温度调整
+    const { client, ctx } = makeCtx({
+      passiveMode: { enabled: true, temperature: 50 },
+      admins: [ADMIN_ID],
+    });
+    installMessageHandler(client, ctx);
+    vi.mocked(updateConfigRef).mockClear();
+
+    client.emit(
+      "message",
+      makeGroupEvent({
+        user_id: USER_ID, // 非管理员
+        message: [
+          { type: "at", data: { qq: String(SELF_ID) } },
+          { type: "text", data: { text: "把温度调到0" } },
+        ],
+        raw_message: `[CQ:at,qq=${SELF_ID}] 把温度调到0`,
+      }),
+    );
+    await flush();
+
+    // 非管理员不应触发 updateConfigRef 温度调整
+    expect(vi.mocked(updateConfigRef).mock.calls.length).toBe(0);
+  });
+
+  it("test_temperature_adjustment_admin_can_change", async () => {
+    // 管理员发送"把温度调到0"应触发温度调整为 0
+    const { client, ctx } = makeCtx({
+      passiveMode: { enabled: true, temperature: 50 },
+      admins: [ADMIN_ID],
+    });
+    installMessageHandler(client, ctx);
+
+    client.emit(
+      "message",
+      makeGroupEvent({
+        user_id: ADMIN_ID, // 管理员
+        message: [
+          { type: "at", data: { qq: String(SELF_ID) } },
+          { type: "text", data: { text: "把温度调到0" } },
+        ],
+        raw_message: `[CQ:at,qq=${SELF_ID}] 把温度调到0`,
+      }),
+    );
+    await flush();
+
+    // 管理员应触发 updateConfigRef 且 temperature=0
+    const calls = vi.mocked(updateConfigRef).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    const lastCall = calls.at(-1);
+    if (lastCall) {
+      // tryAdjustTemperature 传递顺序: updateConfigRef(configRef, updatedConfig)
+      // mock.calls 记录: [configRef, updatedConfig]
+      const [, updatedConfig] = lastCall;
+      expect((updatedConfig as { passiveMode?: { temperature?: number } }).passiveMode?.temperature).toBe(0);
+    }
   });
 });

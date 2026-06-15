@@ -21,6 +21,7 @@ import { OUTBOUND_MULTI_CHUNK_SLEEP_MS, DEFAULT_BOT_SIGNATURE_STYLE } from "../c
 import { maskIdsInText } from "../utils/log-sanitize.js";
 import { appendBotSignature } from "../utils/bot-signature.js";
 import { sleep } from "../utils/sleep.js";
+import { sendProactive } from "../proactive.js";
 
 export interface SendTextParams {
   to: string;
@@ -74,7 +75,6 @@ export async function sendText(
     const crossTarget = crossMatch[1].trim();
     const crossMsg = crossMatch[2].trim();
     if (crossMsg) {
-      const { sendProactive } = await import("../proactive.js");
       const result = await sendProactive({ to: crossTarget, text: crossMsg, accountId: resolvedAccountId });
       (log ?? console).log(`[napcat-QQ][cross-session] ${result.success ? "✅" : "❌"} to=${crossTarget}`);
       return { channel: "napcat", sent: result.success, error: result.error };

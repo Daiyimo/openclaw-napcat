@@ -44,6 +44,41 @@ export interface InboundRateLimitStore {
   config: QQConfig;
 }
 
+/**
+ * NapCat 入站消息上下文（替代 Record<string, unknown>）。
+ * 传递到 OpenClaw SDK 的 recordInboundSession 和 reply 系统。
+ */
+export interface NapcatInboundContext {
+  [key: string]: unknown;  // 允许 OpenClaw SDK 扩展字段
+  Provider: "napcat";
+  Channel: "napcat";
+  From: string;
+  To: string;
+  Body: string;
+  RawBody: string;
+  SenderId: string;
+  SenderName: string;
+  ConversationLabel: string;
+  SessionKey: string;
+  AccountId: string;
+  ChatType: "group" | "channel" | "direct";
+  Timestamp: number;
+  OriginatingChannel: string;
+  OriginatingTo: string;
+  CommandAuthorized: boolean;
+  // 可选媒体字段（下载图片时填充）
+  MediaPaths?: string[];
+  MediaPath?: string;
+  MediaTypes?: string[];
+  MediaType?: string;
+  MediaUrls?: string[];
+  MediaUrl?: string;
+  // 可选回复字段
+  ReplyToId?: string;
+  ReplyToBody?: string;
+  ReplyToSender?: string;
+}
+
 export interface SharedState {
   clients: Map<string, OneBotClient>;
   knownGroupIds: Set<string>;
@@ -78,7 +113,7 @@ export interface PluginRuntimeChannel {
     recordInboundSession: (params: {
       storePath: string;
       sessionKey: string;
-      ctx: Record<string, unknown>;
+      ctx: NapcatInboundContext;
       updateLastRoute: { sessionKey: string; channel: string; to: string; accountId: string };
       onRecordError: (err: unknown) => void;
     }) => Promise<void>;

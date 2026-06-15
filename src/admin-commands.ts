@@ -9,10 +9,12 @@
 import type { AdminCmdContext } from "./admin-registry.js";
 import { getUpdateInfo } from "./update-checker.js";
 import { getRecentLogs, formatLogEntry } from "./log-buffer.js";
+import { maskIdsInText } from "./utils/log-sanitize.js";
 import { getPackageVersion } from "./utils/pkg-version.js";
 import { updateConfigRef, getConfigRef, initConfigRef } from "./config-watcher.js";
 import { resolvePassiveModeTemperature } from "./config.js";
-import { invalidateOtherBotNamesCache } from "./gateway/trigger.js";
+import { invalidateOtherBotNamesCache } from "./gateway/trigger-state.js";
+import { NapcatApiError } from "./errors/napcat-error.js";
 import { requireConfirm } from "./utils/confirm-pending.js";
 import {
   getCwd,
@@ -25,6 +27,30 @@ import {
 } from "./utils/group-file-cwd.js";
 import type { ActiveRateLimit } from "./rate-limiter.js";
 import { sendProactive } from "./proactive.js";
+
+// ============ 常量 ============
+
+/** /mute 默认禁言时长（分钟） */
+const MUTE_DEFAULT_MINUTES = 30;
+/** /mute 最大禁言时长（分钟）= 30 天 */
+const MUTE_MAX_MINUTES = 43200;
+/** /files 默认列文件数量 */
+const FILES_DEFAULT_COUNT = 20;
+/** /files 最大列文件数量 */
+const FILES_MAX_COUNT = 50;
+/** /ban 默认禁言时长（秒）= 30 分钟 */
+const BAN_DEFAULT_DURATION = 1800;
+/** /shutlist 最大显示禁言用户数 */
+const MAX_SHUT_LIST_DISPLAY = 30;
+
+/** /logs 默认日志条数 */
+const LOGS_DEFAULT_COUNT = 20;
+/** /logs 最大日志条数 */
+const LOGS_MAX_COUNT = 100;
+/** /essence 最大显示精华消息条数 */
+const ESSENCE_MAX_DISPLAY = 10;
+/** 高代价操作确认窗口（秒） */
+const CONFIRM_TIMEOUT_SECONDS = 30;
 
 // ============ 共享辅助函数 ============
 
@@ -107,7 +133,7 @@ export async function needConfirm(
   const action = `${cmd}:${scope}`;
   const state = requireConfirm(ctx.userId, action);
   if (state === "pending") {
-    await reply(ctx, `⚠️ 高代价操作：${description}\n请在 30 秒内再发一次同样的命令以确认。`);
+    await reply(ctx, `⚠️ 高代价操作：${description}\n请在 ${CONFIRM_TIMEOUT_SECONDS} 秒内再发一次同样的命令以确认。`);
     return true;
   }
   return false;
@@ -115,6 +141,25 @@ export async function needConfirm(
 
 /** 把 OneBot 抛出的 Error 包成统一文案 */
 export function fmtError(err: unknown): string {
+  if (err instanceof NapcatApiError) {
+    // 按错误码提供差异化提示，帮助用户快速定位问题
+    switch (err.code) {
+      case "CONNECTION_CLOSED":
+        return `连接断开: ${err.message}`;
+      case "REQUEST_TIMEOUT":
+        return `请求超时: ${err.message}`;
+      case "RATE_LIMIT":
+        return `速率限制: ${err.message}`;
+      case "CLIENT_ERROR":
+        return `请求错误 (HTTP ${err.statusCode}): ${err.message}`;
+      case "SERVER_ERROR":
+        return `服务端错误 (HTTP ${err.statusCode}): ${err.message}`;
+      case "API_ERROR":
+        return `API 错误: ${err.message}`;
+      default:
+        return `${err.code}: ${err.message}`;
+    }
+  }
   return err instanceof Error ? err.message : String(err);
 }
 
@@ -171,7 +216,8 @@ export async function handleVersion(ctx: AdminCmdContext, _parts: string[]): Pro
     } else {
       msg += `\n更新状态: ✅ 已是最新版本`;
     }
-  } catch {
+  } catch (err) {
+    (ctx.log ?? console).warn("[napcat-QQ] Version check failed:", err);
     msg += `\n更新状态: 检查失败`;
   }
 
@@ -179,11 +225,12 @@ export async function handleVersion(ctx: AdminCmdContext, _parts: string[]): Pro
 }
 
 export async function handleLogs(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
-  const n = parts[0] ? parseInt(parts[0], 10) : 20;
-  const count = isNaN(n) || n <= 0 ? 20 : Math.min(n, 100);
+  const n = parts[0] ? parseInt(parts[0], 10) : LOGS_DEFAULT_COUNT;
+  const count = isNaN(n) || n <= 0 ? LOGS_DEFAULT_COUNT : Math.min(n, LOGS_MAX_COUNT);
   const logs = getRecentLogs(count);
   if (logs.length === 0) return "[logs] 暂无日志";
-  return `[最近 ${logs.length} 条日志]\n${logs.map(formatLogEntry).join("\n")}`;
+  const raw = logs.map(formatLogEntry).join("\n");
+  return `[最近 ${logs.length} 条日志]\n${maskIdsInText(raw)}`;
 }
 
 export async function handleStatus(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
@@ -215,8 +262,8 @@ export async function handleMute(ctx: AdminCmdContext, parts: string[]): Promise
   if (!(await requireGroup(ctx))) return null;
   const targetId = extractAtTarget(ctx.message, ctx.text) ?? (parts[0] ? parseInt(parts[0], 10) : null);
   if (targetId && targetId > 0) {
-    const rawMin = parts[1] ? parseInt(parts[1], 10) : 30;
-    const minutes = isNaN(rawMin) ? 30 : Math.max(1, Math.min(rawMin, 43200));
+    const rawMin = parts[1] ? parseInt(parts[1], 10) : MUTE_DEFAULT_MINUTES;
+    const minutes = isNaN(rawMin) ? MUTE_DEFAULT_MINUTES : Math.max(1, Math.min(rawMin, MUTE_MAX_MINUTES));
     try {
       ctx.client.setGroupBan(ctx.groupId!, targetId, minutes * 60);
       return `已禁言 ${targetId} ${minutes} 分钟。`;
@@ -245,8 +292,8 @@ export async function handleBan(ctx: AdminCmdContext, parts: string[]): Promise<
   if (!(await requireGroup(ctx))) return null;
   const targetId = extractAtTarget(ctx.message, ctx.text) ?? (parts[0] ? parseInt(parts[0], 10) : null);
   if (targetId && targetId > 0) {
-    const rawMin = parts[1] ? parseInt(parts[1], 10) : 30;
-    const minutes = isNaN(rawMin) ? 30 : Math.max(1, Math.min(rawMin, 43200));
+    const rawMin = parts[1] ? parseInt(parts[1], 10) : MUTE_DEFAULT_MINUTES;
+    const minutes = isNaN(rawMin) ? MUTE_DEFAULT_MINUTES : Math.max(1, Math.min(rawMin, MUTE_MAX_MINUTES));
     try {
       ctx.client.setGroupBan(ctx.groupId!, targetId, minutes * 60);
       return `已禁言 ${targetId} ${minutes} 分钟。`;
@@ -344,15 +391,15 @@ export async function handleShutList(ctx: AdminCmdContext, _parts: string[]): Pr
   if (!(await requireGroup(ctx))) return null;
   const list = await ctx.client.getGroupShutList(ctx.groupId!);
   if (!list || list.length === 0) return "当前无人被禁言。";
-  const lines = list.slice(0, 30).map((m: any) => {
+  const lines = list.slice(0, MAX_SHUT_LIST_DISPLAY).map((m: Record<string, unknown>) => {
     const id = m.user_id ?? m.uid ?? "?";
     const nick = m.nickname ?? m.card ?? "";
-    const until = m.shut_up_timestamp ?? m.shutuptime ?? 0;
+    const until = Number(m.shut_up_timestamp ?? m.shutuptime ?? 0);
     const remain = Math.max(0, until * 1000 - Date.now());
     const min = Math.ceil(remain / 60000);
     return `  ${id}${nick ? `（${nick}）` : ""}：剩余 ${min} 分钟`;
   });
-  const more = list.length > 30 ? `\n（共 ${list.length} 人，仅显示前 30）` : "";
+  const more = list.length > MAX_SHUT_LIST_DISPLAY ? `\n（共 ${list.length} 人，仅显示前 ${MAX_SHUT_LIST_DISPLAY}）` : "";
   return `当前禁言名单：\n${lines.join("\n")}${more}`;
 }
 
@@ -465,12 +512,12 @@ export async function handleEssenceList(ctx: AdminCmdContext, _parts: string[]):
   if (!(await requireGroup(ctx))) return null;
   const list = await ctx.client.getEssenceMsgList(ctx.groupId!);
   if (!list || list.length === 0) return "当前群无精华消息。";
-  const lines = list.slice(0, 10).map((m: any, i: number) => {
+  const lines = list.slice(0, ESSENCE_MAX_DISPLAY).map((m: Record<string, unknown>, i: number) => {
     const sender = m.sender_nick ?? m.sender_id ?? "?";
     const content = (m.content ?? "").toString().slice(0, 60).replace(/\n/g, " ");
     return `  ${i + 1}. ${sender}: ${content}`;
   });
-  const more = list.length > 10 ? `\n（共 ${list.length} 条精华，仅显示前 10）` : "";
+  const more = list.length > ESSENCE_MAX_DISPLAY ? `\n（共 ${list.length} 条精华，仅显示前 ${ESSENCE_MAX_DISPLAY}）` : "";
   return `群精华消息：\n${lines.join("\n")}${more}`;
 }
 
@@ -479,7 +526,7 @@ export async function handleHonor(ctx: AdminCmdContext, parts: string[]): Promis
   const type = parts[0] || "all";
   const info = await ctx.client.getGroupHonorInfo(ctx.groupId!, type);
   if (!info) return "❌ 获取群荣誉失败。";
-  const fmtTop = (entry: any) => {
+  const fmtTop = (entry: Record<string, unknown>) => {
     const nick = entry?.nickname ?? entry?.uin ?? "?";
     const days = entry?.day_count ?? "";
     return days ? `${nick}（${days} 天）` : String(nick);
@@ -516,7 +563,10 @@ export async function handleGroupInfo(ctx: AdminCmdContext, _parts: string[]): P
     if (!info) return "❌ 获取群信息失败。";
     const memberCount = (info as any).member_count ?? "?";
     const maxMember = (info as any).max_member_count ?? "?";
-    const atAll = await ctx.client.getGroupAtAllRemain(ctx.groupId!).catch(() => null);
+    const atAll = await ctx.client.getGroupAtAllRemain(ctx.groupId!).catch((err) => {
+      console.warn(`[napcat-QQ] getGroupAtAllRemain failed (group ${ctx.groupId}): ${err instanceof Error ? err.message : err}`);
+      return null;
+    });
     const atAllRemain = atAll ? `${atAll.remain_at_all_count_for_group ?? atAll.group_remain_at_all_count ?? "?"}` : "?";
     return [
       `📋 群 ${ctx.groupId} 详情：`,
@@ -535,18 +585,19 @@ export async function handleFiles(ctx: AdminCmdContext, parts: string[]): Promis
   if (!(await requireGroup(ctx))) return null;
   const stack = getCwd(ctx.userId!, ctx.groupId!);
   const folderId = currentFolderId(stack);
-  const rawCount = parts[0] ? parseInt(parts[0], 10) : 20;
-  const count = isNaN(rawCount) ? 20 : Math.max(1, Math.min(rawCount, 50));
+  const rawCount = parts[0] ? parseInt(parts[0], 10) : FILES_DEFAULT_COUNT;
+  const count = isNaN(rawCount) ? FILES_DEFAULT_COUNT : Math.max(1, Math.min(rawCount, FILES_MAX_COUNT));
   const data = folderId === "/"
     ? await ctx.client.getGroupRootFiles(ctx.groupId!, count)
     : await ctx.client.getGroupFilesByFolder(ctx.groupId!, folderId, count);
   if (!data) return "❌ 列文件失败。";
-  const folders: any[] = data.folders ?? [];
-  const files: any[] = data.files ?? [];
+  const folders: Record<string, unknown>[] = data.folders ?? [];
+  const files: Record<string, unknown>[] = data.files ?? [];
   const pwd = formatCwdPath(stack);
-  const fLines = folders.slice(0, count).map((f: any) => `  📁 ${f.folder_name ?? f.name ?? "?"}    [${f.folder_id ?? f.id ?? "?"}]`);
-  const lLines = files.slice(0, count).map((f: any) => {
-    const size = f.file_size ? `${(f.file_size / 1024).toFixed(1)} KB` : "";
+  const fLines = folders.slice(0, count).map((f: Record<string, unknown>) => `  📁 ${f.folder_name ?? f.name ?? "?"}    [${f.folder_id ?? f.id ?? "?"}]`);
+  const lLines = files.slice(0, count).map((f: Record<string, unknown>) => {
+    const fileSize = f.file_size as number | undefined;
+    const size = fileSize ? `${(fileSize / 1024).toFixed(1)} KB` : "";
     return `  📄 ${f.file_name ?? f.name ?? "?"}  ${size}  [${f.file_id ?? f.id ?? "?"}]`;
   });
   const body = [...fLines, ...lLines].join("\n") || "  （空目录）";
@@ -566,8 +617,8 @@ export async function handleCd(ctx: AdminCmdContext, parts: string[]): Promise<s
   const data = folderId === "/"
     ? await ctx.client.getGroupRootFiles(ctx.groupId!)
     : await ctx.client.getGroupFilesByFolder(ctx.groupId!, folderId);
-  const folders: any[] = data?.folders ?? [];
-  const match = folders.find((f: any) => (f.folder_name ?? f.name) === target);
+  const folders: Record<string, unknown>[] = data?.folders ?? [];
+  const match = folders.find((f: Record<string, unknown>) => (f.folder_name ?? f.name) === target);
   if (!match) return `❌ 当前目录下未找到子文件夹「${target}」（用 /files 查看可用列表）`;
   const entry: FolderStackEntry = { id: String(match.folder_id ?? match.id), name: String(match.folder_name ?? match.name) };
   pushCwd(ctx.userId!, ctx.groupId!, entry);
@@ -986,6 +1037,11 @@ export async function handleAdminCommand(
     const cmd = parts[0].toLowerCase();
     trailingArgs = parts.slice(1);
 
+    // 管理员授权检查（防御性：即使调用方未检查也在此拦截）
+    if (ctx.isAdmin === false) {
+      return false;
+    }
+
     matchedCmd = findCommand(cmd);
     if (!matchedCmd) return false;
 
@@ -1003,12 +1059,19 @@ export async function handleAdminCommand(
       rateLimiter: ctx.rateLimiter,
       metrics: ctx.metrics,
       alertCooldown: ctx.alertCooldown,
+      log: ctx.log,
+      isAdmin: ctx.isAdmin,
     };
   } else {
     // ── 新签名：handleAdminCommand(ctx) ──
     const fullCtx = cmdOrCtx as AdminCmdContext;
     const text = fullCtx.text.trim();
     if (text.length === 0) return false;
+
+    // 管理员授权检查（防御性：即使调用方未检查也在此拦截）
+    if (fullCtx.isAdmin === false) {
+      return false;
+    }
 
     const trimmed = text.startsWith("/") ? text.slice(1) : text;
     const parts = trimmed.split(/\s+/);

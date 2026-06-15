@@ -48,7 +48,7 @@ export const BOT_SIGNATURE_PATTERN = /\[BOT:(\d+)\]/;
 
 /**
  * 零宽字符签名正则：匹配 U+200B + 编码的 bot ID + U+200C 格式。
- * 使用零宽字符作为分隔符，用户完全不可见。
+ * 使用 ​/‌ 转义避免源码中出现不可见字符。
  * 注意：部分平台（如 NapCat）可能会剥离零宽字符，导致签名失效。
  */
 export const BOT_SIGNATURE_ZW_PATTERN = /​(\d+)‌/;
@@ -58,7 +58,7 @@ export const BOT_SIGNATURE_ZW_PATTERN = /​(\d+)‌/;
  * @param botId bot 的 QQ 号
  */
 export function makeZeroWidthSignature(botId: string | number): string {
-  return `​${botId}‌`;
+  return "​" + String(botId) + "‌";
 }
 
 // 协议层握手（json 段 / metadata 模式）在 v1.9.2 移除：

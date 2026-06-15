@@ -21,7 +21,7 @@ export function detectMention(
   event: OneBotEvent,
   selfId: number | string,
   text: string,
-  repliedMsg?: { sender?: { user_id?: any } } | null,
+  repliedMsg?: { sender?: { user_id?: number } } | null,
   debug = false,
   log?: Logger,
 ): boolean {
@@ -101,6 +101,18 @@ export function hasMentionOtherUser(
 
 // ============ 关键词/名字触发 ============
 
+/** 关键词正则缓存：避免每次调用重新编译 */
+let keywordRegexCache: { key: string; regex: RegExp } | null = null;
+
+function getKeywordRegex(keywords: string[]): RegExp {
+  const key = JSON.stringify(keywords);
+  if (keywordRegexCache?.key === key) return keywordRegexCache.regex;
+  const escaped = keywords.map((kw) => kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const regex = new RegExp(escaped.map((kw) => `(?:${kw})`).join("|"));
+  keywordRegexCache = { key, regex };
+  return regex;
+}
+
 /**
  * 检测文本是否包含任意触发关键词。
  */
@@ -109,10 +121,10 @@ export function detectKeywordTrigger(
   keywords: string[] | undefined,
 ): boolean {
   if (!keywords || keywords.length === 0) return false;
-  for (const kw of keywords) {
-    if (text.includes(kw)) return true;
-  }
-  return false;
+  // 空字符串直接跳过（避免 RegExp 匹配空串导致误判）
+  if (text.length === 0) return false;
+  const re = getKeywordRegex(keywords);
+  return re.test(text);
 }
 
 /**

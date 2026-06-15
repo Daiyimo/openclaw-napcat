@@ -9,7 +9,7 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { OneBotClient } from "../client.js";
 import type { OneBotEvent } from "../types.js";
-import type { InboundContext, Logger } from "../types/channel-types.js";
+import type { InboundContext, Logger, NapcatInboundContext } from "../types/channel-types.js";
 import { recordKnownUser } from "../known-users.js";
 import { isKnownBot, getBotInfo } from "../known-bots-store.js";
 import { shouldBotReplyToStop, getBotStopDelay } from "../utils/bot-decision.js";
@@ -34,7 +34,7 @@ import {
   buildFromId,
   buildBodyWithReply,
 } from "../message-processor.js";
-import { MessageSender } from "../message-sender.js";
+import { MessageSender, type MessageSenderContext } from "../message-sender.js";
 import { filterStage, type FilterResult } from "./filter.js";
 import { triggerStage } from "./trigger.js";
 import { ERROR_NOTIFY_SLEEP_MS, GROUP_HISTORY_CACHE_TTL_MS } from "../constants.js";
@@ -47,7 +47,7 @@ import { evictOldest } from "../utils/cache-evict.js";
 const GROUP_HISTORY_CACHE_MAX = 200;
 
 /** 群消息历史缓存：key = groupId:limit，value = { messages, timestamp } */
-const _groupHistoryCache = new Map<string, { messages: any[]; timestamp: number }>();
+const _groupHistoryCache = new Map<string, { messages: Record<string, unknown>[]; timestamp: number }>();
 
 /**
  * 获取带 TTL 缓存的群消息历史，避免每条消息都触发网络 I/O。
@@ -71,11 +71,12 @@ async function getCachedGroupHistory(
   }
   try {
     const history = await client.getGroupMsgHistory(Number(groupId), limit);
-    if (history?.messages && Array.isArray(history.messages)) {
-      _groupHistoryCache.set(cacheKey, { messages: history.messages, timestamp: now });
+    const messages = (history as { messages?: unknown[] } | null)?.messages;
+    if (messages && Array.isArray(messages)) {
+      _groupHistoryCache.set(cacheKey, { messages: messages as Record<string, unknown>[], timestamp: now });
       evictOldest(_groupHistoryCache, GROUP_HISTORY_CACHE_MAX);
     }
-    return history?.messages ?? null;
+    return (messages as Record<string, unknown>[] | null) ?? null;
   } catch (e) {
     log.warn(`[napcat-QQ] Failed to fetch group history for ${groupId}:`, e);
     return null;
@@ -85,6 +86,7 @@ async function getCachedGroupHistory(
 export function installMessageHandler(
   client: OneBotClient,
   ctx: InboundContext,
+  messageSender?: MessageSender,
 ): () => void {
   const {
     account,
@@ -98,7 +100,7 @@ export function installMessageHandler(
     log,
   } = ctx;
 
-  client.on("message", async (event) => {
+  const messageHandler = async (event: OneBotEvent) => {
     const filterResult = filterStage(event, client, ctx);
     if (!filterResult) return;
 
@@ -127,7 +129,7 @@ export function installMessageHandler(
       // text 已在 triggerStage 中解析完成
 
       // ── 获取被引用消息 ────────────────────────────────
-      let repliedMsg: any = null;
+      let repliedMsg: Record<string, unknown> | null = null;
       const replyMsgId = getReplyMessageId(event.message, text);
       if (replyMsgId) {
         const refEntry = lookupRef(replyMsgId, account.accountId);
@@ -155,8 +157,8 @@ export function installMessageHandler(
           historyContext = history
             .slice(-(limit + 1), -1)
             .map(
-              (m: any) =>
-                `${m.sender?.nickname || m.user_id}: ${cleanCQCodes(m.raw_message || "")}`,
+              (m: Record<string, unknown>) =>
+                `${(m.sender as { nickname?: string; user_id?: unknown } | undefined)?.nickname ?? m.user_id}: ${cleanCQCodes((m.raw_message as string | undefined) ?? "")}`,
             )
             .join("\n");
         }
@@ -183,7 +185,7 @@ export function installMessageHandler(
       }
 
       // ── 消息发送器 ────────────────────────────────────
-      const sender = new MessageSender({
+      const sender = messageSender ?? new MessageSender({
         client,
         config,
         uploadCache,
@@ -233,15 +235,26 @@ export function installMessageHandler(
       let replyToBody = "";
       let replyToSender = "";
       if (replyMsgId && repliedMsg) {
+        const msg = repliedMsg as {
+          message?: unknown;
+          raw_message?: unknown;
+          sender?: { nickname?: unknown; card?: unknown; user_id?: unknown };
+        };
         replyToBody = cleanCQCodes(
-          typeof repliedMsg.message === "string"
-            ? repliedMsg.message
-            : repliedMsg.raw_message || "",
+          typeof msg.message === "string"
+            ? msg.message
+            : typeof msg.raw_message === "string"
+              ? msg.raw_message
+              : "",
         );
         replyToSender =
-          repliedMsg.sender?.nickname ||
-          repliedMsg.sender?.card ||
-          String(repliedMsg.sender?.user_id || "");
+          typeof msg.sender?.nickname === "string"
+            ? msg.sender.nickname
+            : typeof msg.sender?.card === "string"
+              ? msg.sender.card
+              : msg.sender?.user_id !== undefined
+                ? String(msg.sender.user_id)
+                : "";
       }
 
       // ── 收集消息中 @ 的已知 bot ─────────────────────
@@ -305,7 +318,7 @@ export function installMessageHandler(
       // ── 派发回复（3.31: dispatchReplyWithBufferedBlockDispatcher）────────────────
       // 旧: createReplyDispatcherWithTyping + dispatchReplyFromConfig + finalizeInboundContext
       // 新: 直接构造 ctx 对象，一步完成派发
-      const ctxPayload: Record<string, unknown> = {
+      const ctxPayload: NapcatInboundContext = {
         Provider: "napcat",
         Channel: "napcat",
         From: fromId,
@@ -452,9 +465,11 @@ export function installMessageHandler(
         }
       }
     }
-  });
+  };
+
+  client.on("message", messageHandler);
 
   return () => {
-    client.removeAllListeners("message");
+    client.removeListener("message", messageHandler);
   };
 }

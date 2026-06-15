@@ -29,6 +29,11 @@ interface OneBotClientOptions {
   log?: Logger;
 }
 
+/** 带 cause 链的 Error（ES2022 Error.cause 的兼容写法） */
+interface CausableError extends Error {
+  cause: Error;
+}
+
 export class OneBotClient extends EventEmitter {
   private ws: WebSocket | null = null;
   private options: OneBotClientOptions;
@@ -42,14 +47,17 @@ export class OneBotClient extends EventEmitter {
   private reverseHeartbeatTimer: NodeJS.Timeout | null = null;
   /** 请求-响应关联：echo → { resolve, reject, timer } */
   private readonly pendingRequests = new Map<string, {
-    resolve: (value: any) => void;
-    reject: (reason: any) => void;
+    resolve: (value: unknown) => void;
+    reject: (reason: Error) => void;
     timer: ReturnType<typeof setTimeout>;
     action: string;
   }>();
   /** echo ID 递增计数器，避免 Math.random() 碰撞风险 */
   private echoCounter = 0;
   private log: Logger;
+  /** outbound 发送幂等去重：同一 action+params 在 5s 内不重复发送 */
+  private readonly sentFingerprints = new Map<string, number>();
+  private static readonly SENT_DEDUP_WINDOW_MS = 5_000;
 
   constructor(options: OneBotClientOptions) {
     super();
@@ -104,6 +112,11 @@ export class OneBotClient extends EventEmitter {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
+    // 仅清理 timer，pending requests 由 handleDisconnect 负责 reject
+    for (const [, entry] of this.pendingRequests) {
+      clearTimeout(entry.timer);
+    }
+    this.sentFingerprints.clear();
     if (this.ws) {
       try {
         this.ws.removeAllListeners();
@@ -208,8 +221,8 @@ export class OneBotClient extends EventEmitter {
     return this.sendWithResponse("get_msg", { message_id: String(messageId) });
   }
 
-  async getGroupMsgHistory(groupId: number, count?: number): Promise<any> {
-    const params: any = { group_id: String(groupId) };
+  async getGroupMsgHistory(groupId: number, count?: number): Promise<Record<string, unknown>> {
+    const params: Record<string, string | number> = { group_id: String(groupId) };
     if (count !== undefined) params.count = count;
     return this.sendWithResponse("get_group_msg_history", params);
   }
@@ -228,7 +241,12 @@ export class OneBotClient extends EventEmitter {
 
   async getGroupInfo(groupId: string | number): Promise<{ group_id: number; group_name?: string } | null> {
     try {
-      return await this.sendWithResponse("get_group_info", { group_id: String(groupId) });
+      const data = await this.sendWithResponse("get_group_info", { group_id: String(groupId) });
+      // sendWithResponse 返回 unknown，显式窄化为 NapCat 响应结构
+      if (data && typeof data === "object" && "group_id" in (data as Record<string, unknown>)) {
+        return data as { group_id: number; group_name?: string };
+      }
+      return null;
     } catch (err) {
       this.log.warn("get_group_info failed:", err);
       return null;
@@ -529,7 +547,24 @@ export class OneBotClient extends EventEmitter {
   }
 
   /** Try HTTP API first, fall back to WebSocket */
-  async sendAction(action: string, params: any): Promise<void> {
+  async sendAction(action: string, params: Record<string, unknown>): Promise<void> {
+    // outbound 幂等去重：同一 action+params 在短窗口内不重复发送
+    const fp = action + "\x00" + JSON.stringify(params);
+    const now = Date.now();
+    const prev = this.sentFingerprints.get(fp);
+    if (prev && now - prev < OneBotClient.SENT_DEDUP_WINDOW_MS) {
+      this.log.log(`[napcat-QQ][sendAction] deduped duplicate send: ${action}`);
+      return;
+    }
+    this.sentFingerprints.set(fp, now);
+    // 惰性清理过期条目（每 1000 次写入清理一次，O(1) 摊还）
+    if (this.sentFingerprints.size > 1000) {
+      const cutoff = now - OneBotClient.SENT_DEDUP_WINDOW_MS;
+      for (const [key, ts] of this.sentFingerprints) {
+        if (ts < cutoff) this.sentFingerprints.delete(key);
+      }
+    }
+
     if (this.options.httpUrl) {
       try {
         this.log.log(`[napcat-QQ][sendAction] trying HTTP: ${maskUrl(this.options.httpUrl)}/${action}`);
@@ -550,7 +585,7 @@ export class OneBotClient extends EventEmitter {
     }
   }
 
-  private async sendViaHttp(action: string, params: any): Promise<any> {
+  private async sendViaHttp(action: string, params: Record<string, unknown>): Promise<unknown> {
     return withRetry(async () => {
       const url = `${this.options.httpUrl}/${action}`;
       const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -567,10 +602,10 @@ export class OneBotClient extends EventEmitter {
         if (resp.status >= 500) throw new ServerApiError(resp.status, resp.statusText, action);
         throw new ClientApiError(resp.status, resp.statusText, action);
       }
-      const data = await resp.json() as any;
+      const data = await resp.json() as Record<string, unknown>;
       if (data.status !== "ok" && data.retcode !== 0) {
-        const code = data.retcode ?? resp.status;
-        const text = data.msg || data.wording || resp.statusText;
+        const code = (data.retcode as number | undefined) ?? resp.status;
+        const text = (data.msg as string | undefined) || (data.wording as string | undefined) || resp.statusText;
         if (code >= 500) throw new ServerApiError(code, text, action);
         throw new ClientApiError(code, text, action);
       }
@@ -681,18 +716,18 @@ export class OneBotClient extends EventEmitter {
   }
 
   /** 发送请求并等待响应（HTTP 优先，回退 WS） */
-  async sendWithResponse(action: string, params: any): Promise<any> {
+  async sendWithResponse<T = unknown>(action: string, params: Record<string, unknown>): Promise<T> {
     // Prefer HTTP API for request-response calls if available
     if (this.options.httpUrl) {
       return this.sendViaHttp(action, params).catch((err) => {
         this.log.warn(`[napcat-QQ] HTTP API failed for ${action}, falling back to WS:`, err);
-        return this.sendWithResponseWs(action, params);
-      });
+        return this.sendWithResponseWs(action, params) as T;
+      }) as Promise<T>;
     }
-    return this.sendWithResponseWs(action, params);
+    return this.sendWithResponseWs(action, params) as Promise<T>;
   }
 
-  private sendWithResponseWs(action: string, params: any): Promise<any> {
+  private sendWithResponseWs(action: string, params: Record<string, unknown>): Promise<unknown> {
     return new Promise((resolve, reject) => {
       const activeWs = this.getActiveWs();
       if (!activeWs) {
@@ -736,14 +771,14 @@ export class OneBotClient extends EventEmitter {
         activeWs.off("close", closeHandler);
         clearTimeout(timer);
         const cause = err instanceof Error ? err : new Error(String(err));
-        const connectionErr = new ConnectionError(action, cause.message);
-        (connectionErr as any).cause = cause;
+        const connectionErr = new ConnectionError(action, cause.message) as CausableError;
+        connectionErr.cause = cause;
         reject(connectionErr);
       }
     });
   }
 
-  private sendWs(action: string, params: any): void {
+  private sendWs(action: string, params: Record<string, unknown>): void {
     const activeWs = this.getActiveWs();
     if (activeWs) {
       try {

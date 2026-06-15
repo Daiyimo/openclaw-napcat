@@ -33,6 +33,8 @@ export class TypingKeepAlive {
       if (this.stopped) { this.stop(); return; }
       this.send();
     }, TYPING_INTERVAL_MS);
+    // 不影响进程退出（typing 是尽力而为的副作用）
+    this.timer.unref();
   }
 
   /** 停止续期 */

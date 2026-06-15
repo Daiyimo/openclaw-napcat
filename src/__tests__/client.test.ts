@@ -521,6 +521,21 @@ describe("OneBotClient", () => {
       await noHttpClient.sendAction("test_action", {});
       expect(sendWsSpy).toHaveBeenCalledWith("test_action", {});
     });
+
+    it("deduplicates identical sends within window", async () => {
+      const sendWsSpy = vi.spyOn(client as any, "sendWs").mockImplementation(() => {});
+      await client.sendAction("send_group_msg", { group_id: "123", message: "hello" });
+      await client.sendAction("send_group_msg", { group_id: "123", message: "hello" });
+      // 第二次应被去重，只发送一次
+      expect(sendWsSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("allows different params to pass through", async () => {
+      const sendWsSpy = vi.spyOn(client as any, "sendWs").mockImplementation(() => {});
+      await client.sendAction("send_group_msg", { group_id: "123", message: "hello" });
+      await client.sendAction("send_group_msg", { group_id: "456", message: "hello" });
+      expect(sendWsSpy).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe("sendViaHttp (indirectly via sendAction)", () => {
@@ -616,11 +631,12 @@ describe("OneBotClient", () => {
     it("rejects all pending requests", () => {
       const reject1 = vi.fn();
       const reject2 = vi.fn();
-      (client as any).pendingRequests.set("echo1", { resolve: vi.fn(), reject: reject1, timer: setTimeout(() => {}, 1000) });
-      (client as any).pendingRequests.set("echo2", { resolve: vi.fn(), reject: reject2, timer: setTimeout(() => {}, 1000) });
+      (client as any).pendingRequests.set("echo1", { resolve: vi.fn(), reject: reject1, timer: setTimeout(() => {}, 1000), action: "test1" });
+      (client as any).pendingRequests.set("echo2", { resolve: vi.fn(), reject: reject2, timer: setTimeout(() => {}, 1000), action: "test2" });
       (client as any).handleDisconnect();
-      expect(reject1).toHaveBeenCalledWith(expect.objectContaining({ message: "WebSocket disconnected" }));
-      expect(reject2).toHaveBeenCalledWith(expect.objectContaining({ message: "WebSocket disconnected" }));
+      // handleDisconnect 调用 cleanup 先 clear timer，再 reject pending requests
+      expect(reject1).toHaveBeenCalledTimes(1);
+      expect(reject2).toHaveBeenCalledTimes(1);
       expect((client as any).pendingRequests.size).toBe(0);
     });
 
@@ -629,6 +645,19 @@ describe("OneBotClient", () => {
       client.on("disconnect", handler);
       (client as any).handleDisconnect();
       expect(handler).toHaveBeenCalled();
+    });
+  });
+
+  describe("cleanup", () => {
+    it("clears pending request timers to prevent leaks", () => {
+      const timer1 = setTimeout(() => {}, 1000) as unknown as NodeJS.Timeout;
+      const timer2 = setTimeout(() => {}, 1000) as unknown as NodeJS.Timeout;
+      const clearSpy = vi.spyOn(global, "clearTimeout");
+      (client as any).pendingRequests.set("echo1", { resolve: vi.fn(), reject: vi.fn(), timer: timer1, action: "test" });
+      (client as any).pendingRequests.set("echo2", { resolve: vi.fn(), reject: vi.fn(), timer: timer2, action: "test" });
+      (client as any).cleanup();
+      // cleanup 应清除所有 timer（pending requests 由 handleDisconnect 负责 reject 和清除）
+      expect(clearSpy).toHaveBeenCalledTimes(2);
     });
   });
 

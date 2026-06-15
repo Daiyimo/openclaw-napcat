@@ -8,6 +8,12 @@
 // ============ 默认值 ============
 
 const DEFAULT_TTL_MS = 30 * 60 * 1000; // 30 分钟
+/** 缓存最大条目数（防止 OOM） */
+const MAX_CACHE_SIZE = 50_000;
+/** 达到上限时驱逐的比例（20%） */
+const EVICT_RATIO = 0.2;
+/** 摊销淘汰：每插入 N 条才触发一次清理 */
+const EVICTION_INTERVAL = 200;
 
 // ============ 类型 ============
 
@@ -21,6 +27,7 @@ interface CacheEntry {
 export class UploadCache {
   private readonly cache = new Map<string, CacheEntry>();
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
+  private evictionCounter = 0;
 
   constructor(private readonly defaultTtlMs = DEFAULT_TTL_MS) {
     // 每 10 分钟清理一次过期条目（unref 使定时器不阻止进程退出）
@@ -49,9 +56,20 @@ export class UploadCache {
   }
 
   /**
-   * 写入缓存
+   * 写入缓存。达到上限时驱逐最久未访问的 20% 条目。
    */
   set(key: string, fileId: string, ttlMs = this.defaultTtlMs): void {
+    // 摊销淘汰：每 EVICTION_INTERVAL 次插入才排序清理一次
+    this.evictionCounter++;
+    if (this.cache.size >= MAX_CACHE_SIZE && this.evictionCounter >= EVICTION_INTERVAL) {
+      this.evictionCounter = 0;
+      const entries = [...this.cache.entries()];
+      entries.sort((a, b) => a[1].expiresAt - b[1].expiresAt);
+      const toRemove = Math.floor(MAX_CACHE_SIZE * EVICT_RATIO);
+      for (let i = 0; i < toRemove && i < entries.length; i++) {
+        this.cache.delete(entries[i][0]);
+      }
+    }
     this.cache.set(key, { fileId, expiresAt: Date.now() + ttlMs });
   }
 
