@@ -164,6 +164,29 @@ export const GROUP_HISTORY_CACHE_TTL_MS = 30_000;
 /** 群对话状态清理最大未活跃时长（ms）。超过后清除对话状态 */
 export const DIALOG_STATE_CLEANUP_MS = 60 * 60 * 1_000;
 
+// === 探活 ===
+
+/** 账号探活超时默认值（ms）。用于 channel.ts probeAccount 无超时参数时的兜底 */
+export const PROBE_DEFAULT_TIMEOUT_MS = 5_000;
+
+// === 引用索引 ===
+
+/** 引用索引写队列 flush 延迟（ms）。写队列有数据时延迟 flush 以减少 I/O */
+export const FLUSH_DELAY_MS = 100;
+
+// === 图片下载 ===
+
+/** downloadImages 最大重定向跳数 */
+export const MAX_REDIRECT_COUNT = 3;
+
+// === 主动推送 ===
+
+/** 批量主动推送默认最大接收者数 */
+export const PROACTIVE_DEFAULT_MAX_RECIPIENTS = 200;
+
+/** 批量主动推送默认发送间隔（ms）。避免触发 QQ 发送频率限制 */
+export const PROACTIVE_DEFAULT_INTERVAL_MS = 1_500;
+
 // === 去重 ===
 
 /** sentFingerprints 惰性清理阈值。超过此大小时触发过期条目清理（O(1) 摊还） */
