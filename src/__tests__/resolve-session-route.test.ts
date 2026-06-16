@@ -94,6 +94,35 @@ describe("resolveOutboundSessionRoute", () => {
     expect(result!.sessionKey).toBe("agent:default:napcat:group:88888");
   });
 
+  // ── peerId trim 回归测试 ──
+
+  it("group: 88888 带空格的群号应 trim 后解析", () => {
+    const result = resolveOutboundSessionRoute(AGENT_ID, "group: 88888");
+    expect(result).not.toBeNull();
+    expect(result!.peer.id).toBe("88888");
+    expect(result!.peer.kind).toBe("group");
+  });
+
+  it("private: 12345 带空格的私聊号应 trim 后解析", () => {
+    const result = resolveOutboundSessionRoute(AGENT_ID, "private: 12345 ");
+    expect(result).not.toBeNull();
+    expect(result!.peer.id).toBe("12345");
+    expect(result!.peer.kind).toBe("direct");
+  });
+
+  it("napcat:group: 88888 双层前缀应 trim 后解析", () => {
+    const result = resolveOutboundSessionRoute(AGENT_ID, "napcat:group: 88888");
+    expect(result).not.toBeNull();
+    expect(result!.peer.id).toBe("88888");
+    expect(result!.peer.kind).toBe("group");
+  });
+
+  // ── agentId 冒号校验 ──
+
+  it("agentId 含冒号返回 null", () => {
+    expect(resolveOutboundSessionRoute("agent:evil", "group:88888")).toBeNull();
+  });
+
   // ── 边界条件 ──
 
   it("空字符串返回 null", () => {

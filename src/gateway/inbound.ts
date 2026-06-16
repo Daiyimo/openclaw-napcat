@@ -304,7 +304,8 @@ export function installMessageHandler(
             peer: { kind: "group", id: String(groupId) },
           });
           resolvedSessionKey = route?.sessionKey;
-        } catch {
+        } catch (err) {
+          log.warn(`[napcat-QQ] resolveAgentRoute failed for group ${groupId}, using fallback session key:`, err);
           resolvedSessionKey = `agent:default:napcat:group:${groupId}`;
         }
       } else if (isGuild && guildId && channelId) {
@@ -399,7 +400,11 @@ export function installMessageHandler(
 
       try {
         ctx.metrics?.increment("dispatch", "attempts");
-        await channelRuntime.reply.dispatchReplyWithBufferedBlockDispatcher({
+        const dispatch = channelRuntime.reply.dispatchReplyWithBufferedBlockDispatcher;
+        if (!dispatch) {
+          throw new Error("[napcat-QQ] dispatchReplyWithBufferedBlockDispatcher not available");
+        }
+        await dispatch({
           ctx: ctxPayload,
           cfg,
           dispatcherOptions: {
@@ -451,7 +456,13 @@ export function installMessageHandler(
         }
         log.error("[napcat-QQ] Reply dispatch error:", error);
       } finally {
-        if (debouncer) await debouncer.dispose();
+        if (debouncer) {
+          try {
+            await debouncer.dispose();
+          } catch (disposeErr) {
+            log.warn("[napcat-QQ] debouncer dispose failed:", disposeErr);
+          }
+        }
         typing?.stop();
       }
     } catch (err) {

@@ -34,7 +34,7 @@ export interface SendTextParams {
   /** 本 bot 的昵称(优先),由 connection.ts 启动时 getLoginInfo().nickname 注入 */
   botSelfName?: string;
   // TODO(3.31+): ChannelOutboundContext 新增字段（audioAsVoice, mediaAccess, mediaLocalRoots,
-  // mediaReadFile, gifPlayback, forceDocument, replyToIdSource, replyToMode, formatting）
+  // mediaReadFile, gifPlayback, forceDocument, replyToIdSource, replyToMode, formatting）。
   // 当前 napcat 未使用，后续按需接入。
 }
 

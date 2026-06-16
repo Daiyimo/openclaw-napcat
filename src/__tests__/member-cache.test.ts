@@ -91,7 +91,7 @@ describe("member-cache", () => {
       const client = {
         getGroupMemberList: vi.fn().mockRejectedValue(new Error("API error")),
       } as any;
-      await expect(populateGroupMemberCache(client, 100)).resolves.not.toThrow();
+      await expect(populateGroupMemberCache(client, 100)).rejects.toThrow("member cache load failed");
     });
 
     it("deduplicates concurrent requests for same group", async () => {
@@ -100,6 +100,15 @@ describe("member-cache", () => {
       const p2 = populateGroupMemberCache(client, 200);
       await Promise.all([p1, p2]);
       expect(client.getGroupMemberList).toHaveBeenCalledTimes(1);
+    });
+
+    it("rejects all waiters on API failure", async () => {
+      const client = {
+        getGroupMemberList: vi.fn().mockRejectedValue(new Error("API error")),
+      } as any;
+      const p1 = populateGroupMemberCache(client, 200);
+      const p2 = populateGroupMemberCache(client, 200); // concurrent
+      await expect(Promise.all([p1, p2])).rejects.toThrow("member cache load failed");
     });
   });
 

@@ -2,6 +2,12 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { decode, isSilk } from "silk-wasm";
 
+/** 最大允许的输入文件大小（10 MB），防止 OOM */
+const MAX_AUDIO_FILE_SIZE = 10 * 1024 * 1024;
+
+/** WASM 解码超时（毫秒） */
+const DECODE_TIMEOUT_MS = 30_000;
+
 /**
  * 将 PCM (s16le) 数据封装为 WAV 文件格式
  */
@@ -52,11 +58,25 @@ export async function convertSilkToWav(
   inputPath: string,
   outputDir?: string,
 ): Promise<{ wavPath: string; duration: number } | null> {
-  if (!fs.existsSync(inputPath)) {
+  // 异步检查文件存在性和大小
+  let stat: fs.Stats;
+  try {
+    stat = await fs.promises.stat(inputPath);
+  } catch {
     return null;
   }
 
-  const fileBuf = fs.readFileSync(inputPath);
+  if (stat.size > MAX_AUDIO_FILE_SIZE) {
+    console.warn(`[audio-convert] file too large: ${inputPath} (${stat.size} bytes, max ${MAX_AUDIO_FILE_SIZE})`);
+    return null;
+  }
+
+  if (stat.size === 0) {
+    console.warn(`[audio-convert] empty file: ${inputPath}`);
+    return null;
+  }
+
+  const fileBuf = await fs.promises.readFile(inputPath);
   const strippedBuf = stripAmrHeader(fileBuf);
   const rawData = new Uint8Array(strippedBuf.buffer, strippedBuf.byteOffset, strippedBuf.byteLength);
 
@@ -65,16 +85,26 @@ export async function convertSilkToWav(
   }
 
   const sampleRate = 24000;
-  const result = await decode(rawData, sampleRate);
+  let result: { data: Uint8Array; duration: number };
+  try {
+    result = await Promise.race([
+      decode(rawData, sampleRate),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("WASM decode timeout")), DECODE_TIMEOUT_MS),
+      ),
+    ]);
+  } catch (err) {
+    console.warn(`[audio-convert] decode failed for ${inputPath}:`, err);
+    return null;
+  }
+
   const wavBuffer = pcmToWav(result.data, sampleRate);
 
   const dir = outputDir || path.dirname(inputPath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
+  await fs.promises.mkdir(dir, { recursive: true });
   const baseName = path.basename(inputPath, path.extname(inputPath));
   const wavPath = path.join(dir, `${baseName}.wav`);
-  fs.writeFileSync(wavPath, wavBuffer);
+  await fs.promises.writeFile(wavPath, wavBuffer);
 
   return { wavPath, duration: result.duration };
 }

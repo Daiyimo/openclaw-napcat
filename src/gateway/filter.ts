@@ -9,7 +9,7 @@ import type { OneBotClient } from "../client.js";
 import type { OneBotEvent } from "../types.js";
 import type { InboundContext } from "../types/channel-types.js";
 import { populateGroupMemberCache } from "../member-cache.js";
-import { trimDedupSet } from "../gateway/lifecycle.js";
+import { trimDedupSet } from "../utils/cache-evict.js";
 import { maskId } from "../utils/log-sanitize.js";
 import { resolvePassiveModeTemperature } from "../config.js";
 
@@ -148,7 +148,10 @@ export function filterStage(
   }
 
   if (isGroup && groupId) {
-    void populateGroupMemberCache(client, groupId);
+    // 预热群成员缓存（失败不影响主流程）
+    void populateGroupMemberCache(client, groupId).catch(() => {
+      // 缓存预加载失败，后续 @mention 时按需查询
+    });
   }
 
   return {

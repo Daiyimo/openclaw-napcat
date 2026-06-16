@@ -5,7 +5,7 @@
  * 这里只对内部辅助函数做单测。
  */
 import { describe, it, expect } from "vitest";
-import { trimDedupSet } from "../gateway/lifecycle.js";
+import { trimDedupSet } from "../utils/cache-evict.js";
 
 describe("trimDedupSet", () => {
   it("集合未超 maxSize 时不修剪", () => {

@@ -13,7 +13,7 @@
 export interface ResolvedSessionRoute {
   sessionKey: string;
   baseSessionKey: string;
-  peer: { kind: string; id: string };
+  peer: { kind: "direct" | "group" | "channel"; id: string };
   chatType: string;
   from: string;
   to: string;
@@ -37,6 +37,7 @@ export function resolveOutboundSessionRoute(
 ): ResolvedSessionRoute | null {
   const trimmed = target.replace(/^napcat:/i, "").trim();
   if (!trimmed) return null;
+  if (agentId.includes(":")) return null;
 
   let peerKind: "direct" | "group" | "channel" = "direct";
   let peerId = trimmed;
@@ -45,19 +46,19 @@ export function resolveOutboundSessionRoute(
   if (trimmed.startsWith("group:")) {
     hadPrefix = true;
     peerKind = "group";
-    peerId = trimmed.slice(6);
+    peerId = trimmed.slice(6).trim();
   } else if (trimmed.startsWith("channel:")) {
     hadPrefix = true;
     peerKind = "channel";
-    peerId = trimmed.slice(8);
+    peerId = trimmed.slice(8).trim();
   } else if (trimmed.startsWith("guild:")) {
     hadPrefix = true;
     peerKind = "channel";
-    peerId = trimmed.slice(6);
+    peerId = trimmed.slice(6).trim();
   } else if (trimmed.startsWith("private:")) {
     hadPrefix = true;
     peerKind = "direct";
-    peerId = trimmed.slice(8);
+    peerId = trimmed.slice(8).trim();
   }
 
   // 完全无前缀的裸数字：QQ 场景下默认视为群聊

@@ -11,6 +11,7 @@ import { parseTarget, isImageFile, dispatchMessage } from "./message-parser.js";
 import type { OneBotMessage } from "./types.js";
 
 import type { Logger } from "./types/channel-types.js";
+import { PROACTIVE_DEFAULT_MAX_RECIPIENTS, PROACTIVE_DEFAULT_INTERVAL_MS } from "./constants.js";
 
 // Re-export for convenience
 export { listKnownUsers, getKnownUsersStats };
@@ -105,7 +106,7 @@ export async function sendBulkProactive(
     intervalMs?: number;       // 默认 1500
   },
 ): Promise<Array<{ to: string; result: ProactiveSendResult }>> {
-  const maxRecipients = options?.maxRecipients ?? 200;
+  const maxRecipients = options?.maxRecipients ?? PROACTIVE_DEFAULT_MAX_RECIPIENTS;
   if (recipients.length > maxRecipients) {
     recipients = recipients.slice(0, maxRecipients);
   }
@@ -118,7 +119,7 @@ export async function sendBulkProactive(
     results.push({ to, result });
 
     if (i < recipients.length - 1) {
-      await new Promise((r) => setTimeout(r, options?.intervalMs ?? 1500));
+      await new Promise((r) => setTimeout(r, options?.intervalMs ?? PROACTIVE_DEFAULT_INTERVAL_MS));
     }
   }
 
@@ -153,7 +154,7 @@ export async function broadcastToKnownUsers(
     }
   }
 
-  const results = await sendBulkProactive(recipients, text, options?.accountId, { maxRecipients: 200, intervalMs: 1500 });
+  const results = await sendBulkProactive(recipients, text, options?.accountId, { maxRecipients: PROACTIVE_DEFAULT_MAX_RECIPIENTS, intervalMs: PROACTIVE_DEFAULT_INTERVAL_MS });
 
   const sent = results.filter(r => r.result.success).length;
   const failed = results.filter(r => !r.result.success).length;

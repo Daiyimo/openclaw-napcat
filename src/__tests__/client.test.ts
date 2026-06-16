@@ -595,12 +595,25 @@ describe("OneBotClient", () => {
       expect(result).toEqual({ data: "ok" });
     });
 
-    it("falls back to WS when HTTP fails and WS is available", async () => {
-      vi.spyOn(client as any, "sendViaHttp").mockRejectedValue(new Error("HTTP error"));
-      // No WS set → should reject with "WebSocket not open"
-      (client as any).ws = null;
-      (client as any).reverseWs = null;
-      await expect(client.sendWithResponse("get_info", {})).rejects.toThrow("WebSocket not open");
+    it("falls back to WS only on network-level HTTP errors", async () => {
+      // 网络级错误 → WS 回退
+      vi.spyOn(client as any, "sendViaHttp").mockRejectedValue(
+        new (await import("../errors/napcat-error.js")).ConnectionError("get_info", "connection reset"),
+      );
+      const sendWsSpy = vi.spyOn(client as any, "sendWithResponseWs").mockImplementation(() => Promise.resolve("ws-result"));
+      const result = await client.sendWithResponse("get_info", {});
+      expect(sendWsSpy).toHaveBeenCalledOnce();
+      expect(result).toBe("ws-result");
+    });
+
+    it("throws directly on API-level HTTP errors (no WS fallback)", async () => {
+      // API 级错误（请求已送达服务端）→ 直接抛出，不 WS 回退
+      vi.spyOn(client as any, "sendViaHttp").mockRejectedValue(
+        new (await import("../errors/napcat-error.js")).ClientApiError(400, "bad request", "get_info"),
+      );
+      const sendWsSpy = vi.spyOn(client as any, "sendWithResponseWs").mockImplementation(() => Promise.resolve("ws-result"));
+      await expect(client.sendWithResponse("get_info", {})).rejects.toThrow("bad request");
+      expect(sendWsSpy).not.toHaveBeenCalled();
     });
 
     it("rejects when no WS connection available", async () => {

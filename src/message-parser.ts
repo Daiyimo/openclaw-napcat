@@ -6,6 +6,7 @@
 
 import { promises as fs } from "node:fs";
 import * as fsSync from "node:fs";
+import * as net from "node:net";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as os from "node:os";
@@ -13,6 +14,15 @@ import type { OneBotMessage } from "./types.js";
 import type { OneBotClient } from "./client.js";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { Logger } from "./types/channel-types.js";
+import { MAX_REDIRECT_COUNT } from "./constants.js";
+
+// 模块级日志引用（默认 console，可由调用方通过 setModuleLogger 替换）
+let _log: Logger = console;
+
+/** 设置模块级日志（供外部注入框架 logger） */
+export function setModuleLogger(log: Logger): void {
+  _log = log;
+}
 import { maskUrl } from "./utils/log-sanitize.js";
 
 // ============ CQ 码参数转义 ============
@@ -296,20 +306,20 @@ const ALLOWED_LOCAL_DIRS: string[] = (() => {
     const dataDir = path.resolve(os.homedir(), ".openclaw", "napcat-qq");
     dirs.push(dataDir);
   } catch (err) {
-    console.warn(`[message-parser] Failed to resolve homedir: ${err instanceof Error ? err.message : err}`);
+    _log.warn(`[message-parser] Failed to resolve homedir: ${err instanceof Error ? err.message : err}`);
   }
   // 2. 临时目录
   try {
     dirs.push(path.resolve(os.tmpdir()));
   } catch (err) {
-    console.warn(`[message-parser] Failed to resolve tmpdir: ${err instanceof Error ? err.message : err}`);
+    _log.warn(`[message-parser] Failed to resolve tmpdir: ${err instanceof Error ? err.message : err}`);
   }
   // 3. workspace 目录
   const workspace = os.homedir();
   try {
     dirs.push(path.resolve(workspace, ".openclaw", "workspace"));
   } catch (err) {
-    console.warn(`[message-parser] Failed to resolve workspace: ${err instanceof Error ? err.message : err}`);
+    _log.warn(`[message-parser] Failed to resolve workspace: ${err instanceof Error ? err.message : err}`);
   }
   return [...new Set(dirs.map((d) => d + path.sep))];
 })();
@@ -331,10 +341,18 @@ const BLOCKED_SUB_PATTERNS: RegExp[] = [
 
 /**
  * 检查路径是否在允许的目录白名单内，且不命中敏感子目录黑名单。
- * 使用 path.resolve 解析后比对，防止 ../ 路径遍历。
+ * 使用 path.resolve + fs.realpath 解析后比对，防止 ../ 路径遍历和 symlink 绕过。
  */
-function isPathAllowed(filePath: string, log?: Logger): boolean {
-  const resolved = path.resolve(filePath) + path.sep;
+async function isPathAllowed(filePath: string, log?: Logger): Promise<boolean> {
+  // 先 path.resolve 处理 ../，再 realpath 跟进 symlink 真实路径
+  let realPath: string;
+  try {
+    realPath = await fs.realpath(filePath);
+  } catch {
+    // 文件不存在或无权访问，视为不在白名单内
+    return false;
+  }
+  const resolved = realPath + path.sep;
   // 白名单检查
   if (!ALLOWED_LOCAL_DIRS.some((dir) => resolved.startsWith(dir))) return false;
   // 敏感目录黑名单检查
@@ -353,7 +371,7 @@ export async function resolveMediaUrl(url: string, log?: Logger): Promise<string
     try {
       const filePath = fileURLToPath(url);
       // 路径遍历防护：仅允许访问白名单目录
-      if (!isPathAllowed(filePath, log)) {
+      if (!(await isPathAllowed(filePath, log))) {
         (log ?? console).warn(`[napcat-QQ] Path traversal blocked: ${url} not in allowed directories`);
         return url;
       }
@@ -373,7 +391,7 @@ export async function resolveMediaUrl(url: string, log?: Logger): Promise<string
   if (url.startsWith("/") || /^[a-zA-Z]:[/\\]/.test(url)) {
     try {
       // 路径遍历防护
-      if (!isPathAllowed(url, log)) {
+      if (!(await isPathAllowed(url, log))) {
         (log ?? console).warn(`[napcat-QQ] Path traversal blocked: ${url} not in allowed directories`);
         return url;
       }
@@ -434,8 +452,67 @@ export interface DownloadedImage {
   type: string;
 }
 
+// ============ SSRF 防护 ============
+
+/** RFC 1918 + 链路本地 + 回环 + 元数据端点 */
+const BLOCKED_IP_RANGES: [number, number][] = [
+  // 回环: 127.0.0.0/8, ::1
+  [0x7F000000, 0x7FFFFFFF],
+  // 链路本地: 169.254.0.0/16, fe80::/10
+  [0xA9FE0000, 0xA9FEFFFF],
+  // 私有: 10.0.0.0/8
+  [0x0A000000, 0x0AFFFFFF],
+  // 私有: 172.16.0.0/12
+  [0xAC100000, 0xAC1FFFFF],
+  // 私有: 192.168.0.0/16
+  [0xC0A80000, 0xC0A8FFFF],
+  // AWS 元数据: 169.254.169.254/32（显式确保阻断）
+  [0xA9FEA9FE, 0xA9FEA9FE],
+];
+
+/**
+ * 检查 IP 字符串是否在私有/回环/链路本地范围内。
+ * SSRF 防护：防止下载被重定向到内网或云元数据端点。
+ */
+function isPrivateIp(ip: string): boolean {
+  if (net.isIPv4(ip)) {
+    const num = ip.split(".").reduce((acc, octet) => (acc << 8) | parseInt(octet, 10), 0) >>> 0;
+    for (const [lo, hi] of BLOCKED_IP_RANGES) {
+      if (num >= lo && num <= hi) return true;
+    }
+    return false;
+  }
+  // IPv6 回环 ::1 和链路本地 fe80::/10
+  if (ip === "::1" || ip === "0:0:0:0:0:0:0:1") return true;
+  if (ip.startsWith("fe80")) return true;
+  // IPv6 回环映射 ::ffff:127.0.0.1
+  if (ip.startsWith("::ffff:127.")) return true;
+  // IPv6 全零 ::（等效于 0.0.0.0）
+  if (ip === "::") return true;
+  // 默认保守策略：未知 IPv6 地址不阻断（实际可在此扩展）
+  return false;
+}
+
+/** 从 URL 提取主机，返回 isPrivateIp 的结果 */
+function isUrlPrivate(urlStr: string): boolean {
+  try {
+    const parsed = new URL(urlStr);
+    // 优先检查 host 是否直接是 IP
+    if (net.isIPv4(parsed.hostname) || net.isIPv6(parsed.hostname.replace(/^\[|\]$/g, ""))) {
+      return isPrivateIp(parsed.hostname.replace(/^\[|\]$/g, ""));
+    }
+    // 主机名：不在此做 DNS 解析（避免 DNS rebinding），
+    // 重定向后的 URL 会重新经过此检查，fetch 返回的响应 IP 由运行时控制
+    // 关键：后续需配合服务器级防火墙（如 NapCat 容器网络策略）
+    return false;
+  } catch {
+    // URL 解析失败视为潜在风险，阻断
+    return true;
+  }
+}
+
 export async function downloadImages(urls: string[], log?: Logger): Promise<DownloadedImage[]> {
-  (log ?? console).log(`[napcat-QQ][downloadImages] downloading ${urls.length} image(s):`, urls.map(u => u.slice(0, 100)));
+  (log ?? _log ?? console).log(`[napcat-QQ][downloadImages] downloading ${urls.length} image(s):`, urls.map(u => u.slice(0, 100)));
   // 下载到 workspace 目录（框架的 workspaceOnly 限制只能读取 workspace 下的文件）
   const homeDir = os.homedir();
   const downloadDir = path.join(homeDir, ".openclaw", "workspace");
@@ -447,49 +524,61 @@ export async function downloadImages(urls: string[], log?: Logger): Promise<Down
   // 并发控制：最多 3 张同时下载，避免并发过大被限流
   const CONCURRENT_DOWNLOADS = 3;
   const downloadOne = async (rawUrl: string, idx: number): Promise<DownloadedImage> => {
-    // SSRF 防护：仅允许 http/https scheme，防止 file:///gopher:// 等内网扫描
+    // SSRF 防护：仅允许 http/https scheme
     let url = rawUrl;
     try {
       const parsed = new URL(url);
       if (!["http:", "https:"].includes(parsed.protocol)) {
-        (log ?? console).warn(`[napcat-QQ][downloadImages] blocked non-http(s) URL: ${parsed.protocol}//${parsed.host}`);
+        (log ?? _log ?? console).warn(`[napcat-QQ][downloadImages] blocked non-http(s) URL: ${parsed.protocol}//${parsed.host}`);
         return { path: url, type: "image/jpeg" };
       }
     } catch {
-      (log ?? console).warn(`[napcat-QQ][downloadImages] blocked invalid URL: ${url.slice(0, 100)}`);
+      (log ?? _log ?? console).warn(`[napcat-QQ][downloadImages] blocked invalid URL: ${url.slice(0, 100)}`);
       return { path: url, type: "image/jpeg" };
     }
 
-    // 最多跟随 3 次重定向（每跳都验证 scheme，防止 SSRF 绕过）
-    for (let redirectCount = 0; redirectCount < 3; redirectCount++) {
+    // SSRF 防护：检查目标主机是否为私有/回环 IP
+    if (isUrlPrivate(url)) {
+      (log ?? _log ?? console).warn(`[napcat-QQ][downloadImages] blocked private IP URL: ${url}`);
+      return { path: url, type: "image/jpeg" };
+    }
+
+    // 最多跟随 3 次重定向（每跳都验证 scheme 和 IP）
+    for (let redirectCount = 0; redirectCount < MAX_REDIRECT_COUNT; redirectCount++) {
       try {
         const resp = await fetch(url, {
           signal: AbortSignal.timeout(30_000),
           headers: { "User-Agent": "Mozilla/5.0" },
           redirect: "manual",
         });
-        // 处理 3xx 重定向：验证 redirect URL 的 scheme
+        // 处理 3xx 重定向：验证 redirect URL 的 scheme 和 IP
         if (resp.status >= 300 && resp.status < 400) {
           const redirectUrl = resp.headers.get("location");
           if (!redirectUrl) {
-            (log ?? console).warn(`[napcat-QQ][downloadImages] redirect without Location header: ${url}`);
+            (log ?? _log ?? console).warn(`[napcat-QQ][downloadImages] redirect without Location header: ${url}`);
             return { path: url, type: "image/jpeg" };
           }
           try {
             const parsedRedirect = new URL(redirectUrl, url);
             if (!["http:", "https:"].includes(parsedRedirect.protocol)) {
-              (log ?? console).warn(`[napcat-QQ][downloadImages] blocked redirect to non-http(s) URL: ${parsedRedirect.protocol}//${parsedRedirect.host}`);
+              (log ?? _log ?? console).warn(`[napcat-QQ][downloadImages] blocked redirect to non-http(s) URL: ${parsedRedirect.protocol}//${parsedRedirect.host}`);
               return { path: url, type: "image/jpeg" };
             }
-            url = parsedRedirect.toString();
+            const nextUrl = parsedRedirect.toString();
+            // 每跳都检查私有 IP
+            if (isUrlPrivate(nextUrl)) {
+              (log ?? _log ?? console).warn(`[napcat-QQ][downloadImages] blocked redirect to private IP: ${nextUrl}`);
+              return { path: url, type: "image/jpeg" };
+            }
+            url = nextUrl;
             continue; // 用新 URL 重新下载
           } catch {
-            (log ?? console).warn(`[napcat-QQ][downloadImages] blocked invalid redirect URL: ${redirectUrl.slice(0, 100)}`);
+            (log ?? _log ?? console).warn(`[napcat-QQ][downloadImages] blocked invalid redirect URL: ${redirectUrl.slice(0, 100)}`);
             return { path: url, type: "image/jpeg" };
           }
         }
         if (!resp.ok) {
-          (log ?? console).warn(`[napcat-QQ] Image download failed (${resp.status}): ${url}`);
+          (log ?? _log ?? console).warn(`[napcat-QQ] Image download failed (${resp.status}): ${url}`);
           return { path: url, type: "image/jpeg" };
         }
         const contentType = resp.headers.get("content-type");
@@ -500,10 +589,10 @@ export async function downloadImages(urls: string[], log?: Logger): Promise<Down
         const filePath = path.join(downloadDir, filename);
         const buf = Buffer.from(await resp.arrayBuffer());
         fsSync.writeFileSync(filePath, buf);
-        (log ?? console).log(`[napcat-QQ][downloadImages] saved: ${filePath} (${buf.length} bytes)`);
+        (log ?? _log ?? console).log(`[napcat-QQ][downloadImages] saved: ${filePath} (${buf.length} bytes)`);
         return { path: filePath, type: mime };
       } catch (err) {
-        (log ?? console).warn(`[napcat-QQ] Image download error: ${err instanceof Error ? err.message : String(err)}`);
+        (log ?? _log ?? console).warn(`[napcat-QQ] Image download error: ${err instanceof Error ? err.message : String(err)}`);
         return { path: url, type: "image/jpeg" };
       }
     }

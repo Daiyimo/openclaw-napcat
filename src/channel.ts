@@ -13,9 +13,10 @@ import { QQConfigSchema, type QQConfig, getQQConfigDefaults, resolvePassiveModeT
 import { registerClientsMap } from "./proactive.js";
 import { normalizeTarget } from "./message-parser.js";
 import { PassiveModeManager } from "./passive-mode.js";
-import type { InboundRateLimitStore } from "./types/channel-types.js";
+import type { InboundRateLimitStore, Logger } from "./types/channel-types.js";
 import { resolveOutboundSessionRoute } from "./utils/resolve-session-route.js";
 import { initConfigRef } from "./config-watcher.js";
+import { PROBE_DEFAULT_TIMEOUT_MS } from "./constants.js";
 
 // ── 子模块委托 ─────────────────────────────────────────────────────────────
 import { startAccount } from "./gateway/index.js";
@@ -29,6 +30,14 @@ export type ResolvedQQAccount = ChannelAccountSnapshot & {
   client?: OneBotClient;
   configured: boolean;
 };
+
+// 模块级日志引用（默认 console，可由外部注入框架 logger）
+let _log: Logger = console;
+
+/** 设置模块级日志（供外部注入框架 logger） */
+export function setModuleLogger(log: Logger): void {
+  _log = log;
+}
 
 // ============================================================
 // 共享状态（全局，跨账号共用，传递给子模块）
@@ -153,7 +162,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
           kind: "user" as const,
         }));
       } catch (err) {
-        console.debug(`[napcat-QQ] listPeers failed for ${params.accountId || DEFAULT_ACCOUNT_ID}:`, err);
+        _log.debug(`[napcat-QQ] listPeers failed for ${params.accountId || DEFAULT_ACCOUNT_ID}:`, err);
         return [];
       }
     },
@@ -168,7 +177,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
           kind: "group" as const,
         }));
       } catch (err) {
-        console.debug(`[napcat-QQ] listGroups failed for ${params.accountId || DEFAULT_ACCOUNT_ID}:`, err);
+        _log.debug(`[napcat-QQ] listGroups failed for ${params.accountId || DEFAULT_ACCOUNT_ID}:`, err);
         return [];
       }
     },
@@ -189,7 +198,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
         const timer = setTimeout(() => {
           client.disconnect();
           resolve({ ok: false, error: "Connection timeout" });
-        }, timeoutMs || 5000);
+        }, timeoutMs || PROBE_DEFAULT_TIMEOUT_MS);
 
         client.on("connect", async () => {
           try {
@@ -304,7 +313,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
           log: ctx.log ?? console,
           getStatus: ctx.getStatus,
           setStatus: ctx.setStatus,
-          channelRuntime: ctx.channelRuntime as any,
+          channelRuntime: ctx.channelRuntime,
           runtime: ctx.runtime,
         },
         {

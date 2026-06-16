@@ -81,4 +81,9 @@ export class CommandRegistry {
     // 子类可覆写，或由外部组装
     return "";
   }
+
+  /** 查找已注册的命令，返回 CommandHandler 或 undefined */
+  find(cmd: string): CommandHandler | undefined {
+    return this.commands.get(cmd);
+  }
 }

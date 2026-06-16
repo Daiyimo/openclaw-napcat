@@ -8,14 +8,17 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import fs from "node:fs";
 
-let _cached: string | null = null;
+/** 缓存：以起始目录为键，避免不同 metaUrl 互相毒化 */
+const _cache = new Map<string, string>();
 
 export function getPackageVersion(metaUrl?: string): string {
-  if (_cached !== null) return _cached;
+  const startFile = metaUrl ? fileURLToPath(metaUrl) : fileURLToPath(import.meta.url);
+  const startDir = path.dirname(startFile);
+
+  if (_cache.has(startDir)) return _cache.get(startDir)!;
 
   // Strategy 1: 从调用者的 import.meta.url（或本模块）向上遍历找 package.json
-  const startFile = metaUrl ? fileURLToPath(metaUrl) : fileURLToPath(import.meta.url);
-  let dir = path.dirname(startFile);
+  let dir = startDir;
   const root = path.parse(dir).root;
 
   while (dir !== root) {
@@ -25,11 +28,12 @@ export function getPackageVersion(metaUrl?: string): string {
         const pkg = JSON.parse(fs.readFileSync(candidate, "utf8"));
         // 确认是我们自己的包（避免找到其他 package.json）
         if (pkg.name === "@openclaw/qq" && pkg.version) {
-          _cached = pkg.version as string;
-          return _cached;
+          _cache.set(startDir, pkg.version);
+          return pkg.version;
         }
       }
-    } catch {
+    } catch (err) {
+      console.debug("[pkg-version] failed to read", candidate, err);
       // ignore and try parent
     }
     dir = path.dirname(dir);
@@ -42,13 +46,17 @@ export function getPackageVersion(metaUrl?: string): string {
       try {
         const pkg = require(rel);
         if (pkg?.version) {
-          _cached = pkg.version as string;
-          return _cached;
+          _cache.set(startDir, pkg.version);
+          return pkg.version;
         }
-      } catch { /* next */ }
+      } catch (err) {
+        console.debug(`[pkg-version] require(${rel}) failed:`, err);
+      }
     }
-  } catch { /* fallback */ }
+  } catch (err) {
+    console.debug("[pkg-version] createRequire fallback failed:", err);
+  }
 
-  _cached = "unknown";
-  return _cached;
+  _cache.set(startDir, "unknown");
+  return "unknown";
 }

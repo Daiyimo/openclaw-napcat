@@ -11,3 +11,4 @@ docs/superpowers/
 .env.local
 .env.*.local
 .codegraph/
+code-review/

@@ -28,6 +28,7 @@ export function initConfigRef(initial: QQConfig, log?: Logger): void {
 export function getConfigRef(): ConfigRef {
   if (!_configRef) {
     const msg = "[config-watcher] getConfigRef called before initConfigRef, returning defaults";
+    // 此时无 logger 可用，使用 console 作为最终回退
     console.warn(msg);
     _configRef = createConfigRef(getQQConfigDefaults());
   }

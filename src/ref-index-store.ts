@@ -8,6 +8,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { FLUSH_DELAY_MS } from "./constants.js";
 import { getQQBotDataDir } from "./utils/platform.js";
 import type { Logger } from "./types/channel-types.js";
 
@@ -129,13 +130,20 @@ function queueLine(line: RefIndexLine): void {
     (_log ?? console).warn(`[ref-index-store] Write queue overflow, dropped ${dropped} oldest entries`);
   }
   if (!flushTimer) {
-    flushTimer = setTimeout(flushWriteQueue, 100);
+    flushTimer = setTimeout(flushWriteQueue, FLUSH_DELAY_MS);
   }
 }
 
 async function flushWriteQueue(): Promise<void> {
   flushTimer = null;
   if (writeQueue.length === 0) return;
+
+  // compact 期间不写入文件，避免追加到已被 rename 替换的旧文件导致数据丢失
+  if (_compactInProgress) {
+    // 条目保留在 writeQueue 中，由 compactFile 的 finally 块后续 flush
+    return;
+  }
+
   const batch = writeQueue.splice(0);
   try {
     ensureDir();
@@ -168,6 +176,8 @@ function shouldCompact(): boolean {
 }
 
 let isCompacting: Promise<void> | null = null;
+/** compact 进行中标志，防止 flushWriteQueue 在 rename 期间追加到旧文件 */
+let _compactInProgress = false;
 
 function scheduleCompactIfNeeded(): void {
   if (!shouldCompact()) return;
@@ -181,14 +191,14 @@ function scheduleCompactIfNeeded(): void {
       // compactFile 内部已记录错误日志
     } finally {
       isCompacting = null;
-      // compact 完成后检查是否需要再次 compact（期间可能有新写入）
-      scheduleCompactIfNeeded();
+      // compactFile 的 finally 块已处理再次 compact 检查
     }
   })();
 }
 
 async function compactFile(): Promise<void> {
-  if (!cache) return;
+  if (!cache || _compactInProgress) return;
+  _compactInProgress = true;
   // 先 flush 写队列，避免 compact rename 覆盖刚 append 的数据
   if (flushTimer) {
     clearTimeout(flushTimer);
@@ -234,6 +244,10 @@ async function compactFile(): Promise<void> {
     }
   } catch (err) {
     (_log ?? console).error(`[ref-index-store] Compact failed: ${err}`);
+  } finally {
+    _compactInProgress = false;
+    // compact 完成后检查是否需要再次 compact（期间可能有新写入）
+    scheduleCompactIfNeeded();
   }
 }
 

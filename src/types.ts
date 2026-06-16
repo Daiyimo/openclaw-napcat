@@ -56,7 +56,7 @@ export type OneBotEvent = {
     bot?: boolean;
   };
   // 新增字段
-  file?: any;
+  file?: unknown;
   user_ids?: number[];
   operator_id?: number;
   sender_id?: number;
@@ -64,11 +64,11 @@ export type OneBotEvent = {
   anonymous?: { flag: string; name: string; id: number };
   role?: "owner" | "admin" | "member";
   comment?: string;
-  request?: any;
+  request?: unknown;
   honor_type?: string;
   current_nickname?: string;
-  status?: any;
-  ability?: any;
+  status?: unknown;
+  ability?: unknown;
   title?: string;
   card_new?: string;
   card_old?: string;

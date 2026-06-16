@@ -3,7 +3,8 @@
  * Replaces inline `any` types with precise interfaces.
  */
 
-import type { OpenClawConfig } from "openclaw/plugin-sdk";
+import type { OpenClawConfig, PluginRuntimeChannel } from "openclaw/plugin-sdk";
+export type { PluginRuntimeChannel };
 import type { OneBotClient } from "../client.js";
 import type { QQConfig } from "../config.js";
 import type { PassiveModeManager } from "../passive-mode.js";
@@ -98,38 +99,6 @@ export interface SharedState {
   alertCooldown?: Map<string, AlertCooldown>;
   /** message handler 卸载函数（防止重连时 listener 累积） */
   _messageHandlerCleanups: Map<string, () => void>;
-}
-
-/**
- * 本地 channel runtime 类型（与 openclaw SDK PluginRuntimeChannel 对齐）。
- * 只声明 napcat 实际使用的方法，避免直接依赖 SDK 内部类型。
- */
-export interface PluginRuntimeChannel {
-  activity: {
-    record: (params: { channel: string; accountId: string; direction: "inbound" | "outbound" }) => void;
-  };
-  session: {
-    resolveStorePath: (store: unknown, opts: { agentId: string }) => string;
-    recordInboundSession: (params: {
-      storePath: string;
-      sessionKey: string;
-      ctx: NapcatInboundContext;
-      updateLastRoute: { sessionKey: string; channel: string; to: string; accountId: string };
-      onRecordError: (err: unknown) => void;
-    }) => Promise<void>;
-  };
-  reply: {
-    finalizeInboundContext: (ctx: Record<string, unknown>) => Record<string, unknown>;
-    dispatchReplyWithBufferedBlockDispatcher: (params: {
-      ctx: Record<string, unknown>;
-      cfg: OpenClawConfig;
-      dispatcherOptions: {
-        deliver: (payload: unknown) => Promise<void>;
-        onError?: (err: unknown) => void;
-      };
-      replyOptions?: Record<string, unknown>;
-    }) => Promise<unknown>;
-  };
 }
 
 export interface InboundContext {

@@ -4,6 +4,7 @@
  * 提供通用的缓存淘汰（LRU）和清理逻辑，
  * 供 inbound.ts（群历史缓存）、lifecycle.ts（去重集合）等模块复用。
  */
+import { DEDUP_MAX_SIZE, DEDUP_KEEP_SIZE } from "../constants.js";
 
 /**
  * LRU 淘汰：从 Map 中移除最久未访问的条目，保留 count 个。
@@ -52,4 +53,21 @@ export function trimSet<T>(set: Set<T>, maxSize: number, keepSize: number): bool
   set.clear();
   for (const id of entries.slice(-keepSize)) set.add(id);
   return true;
+}
+
+/**
+ * 修剪去重集合：超过 maxSize 时修剪到 keepSize，保留最新的 N 条。
+ * 返回是否实际发生了修剪。默认使用 DEDUP 常量。
+ *
+ * @param set      - 要修剪的 Set
+ * @param maxSize  - 最大容量，超过才修剪（默认 DEDUP_MAX_SIZE）
+ * @param keepSize - 修剪后保留的数量（默认 DEDUP_KEEP_SIZE）
+ * @returns        是否实际发生了修剪
+ */
+export function trimDedupSet(
+  set: Set<string>,
+  maxSize: number = DEDUP_MAX_SIZE,
+  keepSize: number = DEDUP_KEEP_SIZE,
+): boolean {
+  return trimSet(set, maxSize, keepSize);
 }

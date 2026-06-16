@@ -23,8 +23,6 @@ import { initRefIndexStore, flushRefIndex } from "../ref-index-store.js";
 import { flushKnownUsers } from "../known-users.js";
 import { UploadCache } from "../upload-cache.js";
 import {
-  DEDUP_MAX_SIZE,
-  DEDUP_KEEP_SIZE,
   CLEANUP_INTERVAL_MS,
   PASSIVE_COOLDOWN_MAX_AGE_MS,
   INBOUND_RATE_LIMIT_DEFAULT_MAX,
@@ -35,7 +33,8 @@ import { installMessageHandler } from "./inbound.js";
 import { initKnownBotsStore, flushKnownBotsStore } from "../known-bots-store.js";
 import { cleanupDialogState } from "../dialog-state.js";
 import { InboundRateLimiter } from "../rate-limiter.js";
-import { trimSet } from "../utils/cache-evict.js";
+import { trimSet, trimDedupSet } from "../utils/cache-evict.js";
+import { startTtlSweep, stopTtlSweep } from "../member-cache.js";
 
 /**
  * 启动单个 QQ 账号的完整生命周期。
@@ -51,7 +50,7 @@ export async function startAccount(
 
   // 优先使用 ctx.channelRuntime（3.31+ 注入方式），回退到全局单例
   const channelRuntime: PluginRuntimeChannel =
-    (ctx.channelRuntime as PluginRuntimeChannel) ?? getQQRuntime().channel;
+    ctx.channelRuntime ?? getQQRuntime().channel;
 
   // ── 并发控制：防止同一账号并发 startAccount 导致竞态（P1 #7） ──
   // 同一账号并发调用时，第二个调用 await 第一个的 Promise 并直接返回，
@@ -72,6 +71,9 @@ export async function startAccount(
 
     // ── 初始化日志缓冲区 ────────────────────────────────
     installGlobalInterceptor(config.logBufferSize ?? 200);
+
+    // ── 显式启动群成员缓存 TTL 扫描（替代模块级自动启动） ──
+    startTtlSweep();
 
     // ── 注册入站频控状态 ────────────────────────────────
     const lastTrigger = new Map<string, number>();
@@ -117,6 +119,12 @@ export async function startAccount(
       accessToken: config.accessToken,
       requireReverseWsToken: config.requireReverseWsToken,
     });
+
+    // 安全警告：accessToken 已配置但 requireReverseWsToken 未启用时，
+    // 反向 WS 接受未认证连接，存在未授权 API 调用风险
+    if (config.accessToken && !config.requireReverseWsToken) {
+      log.warn("[napcat-QQ] Security: accessToken is configured but requireReverseWsToken is false. Reverse WS accepts unauthenticated connections. Set requireReverseWsToken=true for full security.");
+    }
 
     shared.clients.set(account.accountId, client);
 
@@ -223,6 +231,7 @@ export async function startAccount(
     }
     shared.clients.delete(account.accountId);
     shared.inboundStores.delete(account.accountId);
+    stopTtlSweep();
   })();
 
   // set 在 IIFE 创建后立即执行（仍在同步阶段），确保 get/set 之间无 yield 点
@@ -240,17 +249,3 @@ export async function startAccount(
 }
 
 // ============ 辅助函数（导出供测试）============
-
-/**
- * dedup 集合超过 DEDUP_MAX_SIZE 时修剪到 DEDUP_KEEP_SIZE，保留最新的 N 条。
- * 返回是否实际发生了修剪。
- *
- * 抽出来为顶层函数便于单元测试（interval 内部逻辑单测困难）。
- */
-export function trimDedupSet(
-  set: Set<string>,
-  maxSize: number = DEDUP_MAX_SIZE,
-  keepSize: number = DEDUP_KEEP_SIZE,
-): boolean {
-  return trimSet(set, maxSize, keepSize);
-}

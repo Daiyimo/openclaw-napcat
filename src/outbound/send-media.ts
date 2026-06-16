@@ -22,7 +22,7 @@ export interface SendMediaParams {
   accountId?: string | null;
   replyToId?: string | null;
   // TODO(3.31+): ChannelOutboundContext 新增字段（audioAsVoice, mediaAccess, gifPlayback,
-  // forceDocument, replyToIdSource, replyToMode, formatting）当前 napcat 未使用。
+  // forceDocument, replyToIdSource, replyToMode, formatting）。当前 napcat 未使用。
 }
 
 import type { Logger } from "../types/channel-types.js";

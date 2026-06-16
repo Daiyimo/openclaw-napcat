@@ -26,8 +26,9 @@ let _log: Logger = console;
 const memberCache = new Map<string, { name: string; time: number }>();
 // 记录每个群的批量拉取时间，TTL 与单条缓存一致（1 小时）
 const bulkCachedGroups = new Map<string, number>(); // groupId → 拉取时间戳
-/** 正在加载中的群 ID → 等待者 Promise resolve 函数列表 */
-const loadingGroups = new Map<string, Array<() => void>>();
+/** 正在加载中的群 ID → 等待者 Promise resolve/reject 函数列表 */
+type Waiter = { resolve: () => void; reject: (err: Error) => void };
+const loadingGroups = new Map<string, Waiter[]>();
 /** 失败重试时间戳（groupKey → 最早可重试的毫秒时间戳） */
 const failedUntil = new Map<string, number>();
 /** 每个群的重试次数（用于指数退避） */
@@ -73,9 +74,6 @@ export function stopTtlSweep(): void {
     ttlSweepStarted = false;
   }
 }
-
-// 模块加载时自动启动（不影响进程退出）
-ensureTtlSweep();
 
 // ============ 公共 API ============
 
@@ -132,10 +130,10 @@ export async function populateGroupMemberCache(client: OneBotClient, groupId: nu
 
   // 已在加载中：用 Promise 等待完成通知，避免重复拉取
   if (loadingGroups.has(key)) {
-    await new Promise<void>((resolve) => {
+    await new Promise<void>((resolve, reject) => {
       const waiters = loadingGroups.get(key);
       if (waiters) {
-        waiters.push(resolve);
+        waiters.push({ resolve, reject });
       } else {
         resolve(); // 加载已结束
       }
@@ -144,6 +142,7 @@ export async function populateGroupMemberCache(client: OneBotClient, groupId: nu
   }
 
   loadingGroups.set(key, []);
+  let hadError = false;
   try {
     const members = await client.getGroupMemberList(groupId);
     if (Array.isArray(members)) {
@@ -156,7 +155,8 @@ export async function populateGroupMemberCache(client: OneBotClient, groupId: nu
       failedUntil.delete(key);
     }
   } catch (err) {
-    (log ?? _log ?? console).error(`[member-cache] 批量拉取群 ${groupId} 成员失败，降级为按需查询: ${err}`);
+    hadError = true;
+    (log ?? _log ?? console).error(`[member-cache] 批量拉取群 ${groupId} 成员失败，降级为按需查询: ${err instanceof Error ? err.message : String(err)}`);
     // 指数退避：防止并发请求在失败后同时重试（惊群防护）
     const count = (failCount.get(key) ?? 0) + 1;
     failCount.set(key, count);
@@ -164,13 +164,21 @@ export async function populateGroupMemberCache(client: OneBotClient, groupId: nu
     failedUntil.set(key, Date.now() + retryMs);
     bulkCachedGroups.delete(key);
   } finally {
-    // 通知所有等待者
+    // 通知所有等待者：成功 resolve，失败 reject，避免惊群
     const waiters = loadingGroups.get(key);
     loadingGroups.delete(key);
-    if (waiters) {
-      for (const resolve of waiters) resolve();
+    if (waiters && waiters.length > 0) {
+      const success = bulkCachedGroups.has(key);
+      for (const waiter of waiters) {
+        if (success) {
+          waiter.resolve();
+        } else {
+          waiter.reject(new Error(`member cache load failed for group ${key}`));
+        }
+      }
     }
   }
+  if (hadError) throw new Error(`member cache load failed for group ${key}`);
 }
 
 /**
