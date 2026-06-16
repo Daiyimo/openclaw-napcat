@@ -22,6 +22,7 @@ import { triggerUpdateCheck } from "../update-checker.js";
 import { initRefIndexStore, flushRefIndex } from "../ref-index-store.js";
 import { flushKnownUsers } from "../known-users.js";
 import { UploadCache } from "../upload-cache.js";
+import { MessageSender } from "../message-sender.js";
 import {
   CLEANUP_INTERVAL_MS,
   PASSIVE_COOLDOWN_MAX_AGE_MS,
@@ -66,28 +67,29 @@ export async function startAccount(
   }
 
   const thisStartPromise = (async () => {
-    if (!config.wsUrl && !config.reverseWsPort)
-      throw new Error("QQ: either wsUrl or reverseWsPort is required");
+    try {
+      if (!config.wsUrl && !config.reverseWsPort)
+        throw new Error("QQ: either wsUrl or reverseWsPort is required");
 
-    // ── 初始化日志缓冲区 ────────────────────────────────
-    installGlobalInterceptor(config.logBufferSize ?? 200);
+      // ── 初始化日志缓冲区 ────────────────────────────────
+      installGlobalInterceptor(config.logBufferSize ?? 200);
 
-    // ── 显式启动群成员缓存 TTL 扫描（替代模块级自动启动） ──
-    startTtlSweep();
+      // ── 显式启动群成员缓存 TTL 扫描（替代模块级自动启动） ──
+      startTtlSweep();
 
-    // ── 注册入站频控状态 ────────────────────────────────
-    const lastTrigger = new Map<string, number>();
-    const rateLimiter = new InboundRateLimiter(
-      { windowMs: config.inboundRateLimitMs ?? 0, maxMessages: INBOUND_RATE_LIMIT_DEFAULT_MAX },
-      [...(config.admins ?? []), ...(config.sharedAdmins ?? [])],
-    );
-    const inboundStore: InboundRateLimitStore = {
-      lastTrigger,
-      rateLimiter,
-      config,
-      processedMsgIds: new Set<string>(),
-    };
-    shared.inboundStores.set(account.accountId, inboundStore);
+      // ── 注册入站频控状态 ────────────────────────────────
+      const lastTrigger = new Map<string, number>();
+      const rateLimiter = new InboundRateLimiter(
+        { windowMs: config.inboundRateLimitMs ?? 0, maxMessages: INBOUND_RATE_LIMIT_DEFAULT_MAX },
+        [...(config.admins ?? []), ...(config.sharedAdmins ?? [])],
+      );
+      const inboundStore: InboundRateLimitStore = {
+        lastTrigger,
+        rateLimiter,
+        config,
+        processedMsgIds: new Set<string>(),
+      };
+      shared.inboundStores.set(account.accountId, inboundStore);
 
     // ── 版本检查 ────────────────────────────────────────
     if (config.enableUpdateCheck !== false) {
@@ -250,7 +252,13 @@ export async function startAccount(
     }
     shared.clients.delete(account.accountId);
     shared.inboundStores.delete(account.accountId);
-    stopTtlSweep();
+    // 注意：不调用 stopTtlSweep() — TTL 扫描是全局资源，其他在线账号依赖它清理 member cache
+    } catch (err) {
+      // setup 失败时清理 shared maps，防止脏数据残留导致后续 restart 行为异常
+      shared.clients.delete(account.accountId);
+      shared.inboundStores.delete(account.accountId);
+      throw err;
+    }
   })();
 
   // set 在 IIFE 创建后立即执行（仍在同步阶段），确保 get/set 之间无 yield 点

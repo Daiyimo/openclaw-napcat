@@ -95,6 +95,8 @@ export function updateConfigRef(ref: ConfigRef, raw: unknown): UpdateResult {
     );
   }
 
-  ref.current = newConfig;
+  // 原地赋值（而非替换引用），使所有已捕获 config 引用的闭包自动生效
+  // （trigger.ts/inbound.ts 的 ctx.config 引用的是 ref.current 的同一对象）
+  Object.assign(ref.current, newConfig);
   return { success: true, connectionChanged };
 }

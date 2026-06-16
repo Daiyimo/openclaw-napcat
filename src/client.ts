@@ -108,6 +108,11 @@ export class OneBotClient extends EventEmitter {
       this.emit("message", payload);
     });
 
+    // pong 帧直接重置存活标志，不依赖应用消息（安静群聊中无消息时避免误判假死）
+    this.ws.on("pong", () => {
+      this.forwardAlive = true;
+    });
+
     this.ws.on("close", () => { this.handleDisconnect(); });
 
     this.ws.on("error", (err) => {
@@ -682,6 +687,11 @@ export class OneBotClient extends EventEmitter {
           this.selfId = payload.self_id;
         }
         this.emit("message", payload);
+      });
+
+      // pong 帧直接重置存活标志，不依赖应用消息
+      ws.on("pong", () => {
+        this.reverseAlive = true;
       });
 
       ws.on("close", () => {

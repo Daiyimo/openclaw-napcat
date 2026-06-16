@@ -97,16 +97,19 @@ describe("updateConfigRef", () => {
     expect(ref.current.passiveMode.systemPrompt).toBe("自定义人设");
   });
 
-  it("reloads passiveMode to undefined when not specified in reload", () => {
-    // safeParse: passiveMode is optional, so it becomes undefined when not provided
+  it("preserves passiveMode when not specified in reload", () => {
+    // Zod v4 .optional() removes the key from output when not provided,
+    // so Object.assign preserves existing values (correct hot-reload behavior)
     const initial = {
       passiveMode: { cooldownMs: 15000, minIntervalMs: 45000, botSuppressionMs: 180000 },
     } as any;
     const ref = createConfigRef(initial);
     const result = updateConfigRef(ref, { rateLimitMs: 2000 });
     expect(result.success).toBe(true);
-    // passiveMode not in reload config → undefined (optional field)
-    expect(ref.current.passiveMode).toBeUndefined();
+    // passiveMode not in reload config → existing values preserved
+    expect(ref.current.passiveMode.cooldownMs).toBe(15000);
+    expect(ref.current.passiveMode.minIntervalMs).toBe(45000);
+    expect(ref.current.passiveMode.botSuppressionMs).toBe(180000);
   });
 
   it("preserves explicit sub-params when included in reload config", () => {
