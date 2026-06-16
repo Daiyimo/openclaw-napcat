@@ -104,8 +104,6 @@ export function installMessageHandler(
     if (!filterResult) return;
 
     const { userId, groupId, guildId, channelId, isGroup, isGuild, selfId } = filterResult;
-    // 入站计数（filter 已放行）
-    ctx.metrics?.increment("inbound", "total");
 
     // 每条消息创建独立的 MessageSender，携带正确的发送上下文
     // 修复：之前全局复用的 MessageSender isGroup 永远为 false，导致群消息走私聊 API
@@ -123,6 +121,9 @@ export function installMessageHandler(
       log,
       metrics: ctx.metrics,
     });
+
+    // typing 声明在函数作用域，确保外层 catch 也能 stop
+    let typing: TypingKeepAlive | undefined;
 
     try {
       const triggerResult = await triggerStage(
@@ -371,7 +372,7 @@ export function installMessageHandler(
       });
 
       // ── Typing 状态 ───────────────────────────────────
-      const typing = new TypingKeepAlive(client, isGroup || isGuild, groupId, userId, log);
+      typing = new TypingKeepAlive(client, isGroup || isGuild, groupId, userId, log);
       typing.start();
 
       // 旁观模式冷却 key
@@ -383,7 +384,7 @@ export function installMessageHandler(
           const selfIdStr = String(client.getSelfId() ?? "");
           const ratio = config.botStopReplyRatio ?? 0.66;
           if (!shouldBotReplyToStop(selfIdStr, ratio)) {
-            typing.stop();
+            typing?.stop();
             return;
           }
           const delay = getBotStopDelay(selfIdStr, config.botStopReplyDelayMaxMs ?? 300);
@@ -451,9 +452,11 @@ export function installMessageHandler(
         log.error("[napcat-QQ] Reply dispatch error:", error);
       } finally {
         if (debouncer) await debouncer.dispose();
-        typing.stop();
+        typing?.stop();
       }
     } catch (err) {
+      // 确保 typing 状态释放（recordInboundSession/downloadImages 等前置步骤异常时）
+      typing?.stop();
       log.error("[napcat-QQ] Critical error in message handler:", err);
       if (config.enableErrorNotify && config.admins?.length) {
         try {

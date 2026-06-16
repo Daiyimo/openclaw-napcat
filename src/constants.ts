@@ -33,6 +33,10 @@ export const PASSIVE_SENTINEL_TIMEOUT_MS = 30_000;
 /** 旁观冷却条目最大保留时长（ms）。超过 1 小时后在 cleanup 时清除 */
 export const PASSIVE_COOLDOWN_MAX_AGE_MS = 3_600_000;
 
+/** 零宽字符常量，避免源码中出现不可见字符 */
+const ZWSP = "\u200b"; // Zero-Width Space
+const ZWNJ = "\u200c"; // Zero-Width Non-Joiner
+
 // === 群路由 ===
 
 /** 群路由定时刷新间隔（ms）。每 1 小时同步新加入/退出的群 */
@@ -51,14 +55,14 @@ export const BOT_SIGNATURE_PATTERN = /\[BOT:(\d+)\]/;
  * 使用 ​/‌ 转义避免源码中出现不可见字符。
  * 注意：部分平台（如 NapCat）可能会剥离零宽字符，导致签名失效。
  */
-export const BOT_SIGNATURE_ZW_PATTERN = /​(\d+)‌/;
+export const BOT_SIGNATURE_ZW_PATTERN = /\u200b(\d+)\u200c/;
 
 /**
  * 生成零宽字符签名。
  * @param botId bot 的 QQ 号
  */
 export function makeZeroWidthSignature(botId: string | number): string {
-  return "​" + String(botId) + "‌";
+  return ZWSP + String(botId) + ZWNJ;
 }
 
 // 协议层握手（json 段 / metadata 模式）在 v1.9.2 移除：

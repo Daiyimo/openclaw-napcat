@@ -142,7 +142,7 @@ export function resolvePassiveModeTemperature(
   if (temperature == null) return null;
   const clamped = Math.max(0, Math.min(100, temperature));
 
-  const lerp = (t: number, tStart: number, tEnd: number, vStart: number, vEnd: number) =>
+  const lerp = (t: number, tStart: number, tEnd: number, vStart: number, vEnd: number): number =>
     Math.round(vStart + (vEnd - vStart) * (t - tStart) / (tEnd - tStart));
 
   return {

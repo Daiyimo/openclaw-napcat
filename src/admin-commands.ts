@@ -26,20 +26,21 @@ import {
   type FolderStackEntry,
 } from "./utils/group-file-cwd.js";
 import type { ActiveRateLimit } from "./rate-limiter.js";
+import { CommandRegistry } from "./admin-registry.js";
 import { sendProactive } from "./proactive.js";
 
 // ============ 常量 ============
 
+/** /ban 默认封禁时长（分钟），供 client.ts 引用 */
+export const BAN_DEFAULT_MINUTES = 30;
 /** /mute 默认禁言时长（分钟） */
-const MUTE_DEFAULT_MINUTES = 30;
+export const MUTE_DEFAULT_MINUTES = 30;
 /** /mute 最大禁言时长（分钟）= 30 天 */
 const MUTE_MAX_MINUTES = 43200;
 /** /files 默认列文件数量 */
 const FILES_DEFAULT_COUNT = 20;
 /** /files 最大列文件数量 */
 const FILES_MAX_COUNT = 50;
-/** /ban 默认禁言时长（秒）= 30 分钟 */
-const BAN_DEFAULT_DURATION = 1800;
 /** /shutlist 最大显示禁言用户数 */
 const MAX_SHUT_LIST_DISPLAY = 30;
 
@@ -259,19 +260,7 @@ export async function handleHelp(_ctx: AdminCmdContext, _parts: string[]): Promi
 }
 
 export async function handleMute(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
-  if (!(await requireGroup(ctx))) return null;
-  const targetId = extractAtTarget(ctx.message, ctx.text) ?? (parts[0] ? parseInt(parts[0], 10) : null);
-  if (targetId && targetId > 0) {
-    const rawMin = parts[1] ? parseInt(parts[1], 10) : MUTE_DEFAULT_MINUTES;
-    const minutes = isNaN(rawMin) ? MUTE_DEFAULT_MINUTES : Math.max(1, Math.min(rawMin, MUTE_MAX_MINUTES));
-    try {
-      ctx.client.setGroupBan(ctx.groupId!, targetId, minutes * 60);
-      return `已禁言 ${targetId} ${minutes} 分钟。`;
-    } catch (err) {
-      return `❌ 禁言失败：${fmtError(err)}`;
-    }
-  }
-  return "用法：/mute @用户 [分钟数]";
+  return handleMuteBan("用法：/mute @用户 [分钟数]", ctx, parts);
 }
 
 export async function handleUnmute(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
@@ -288,7 +277,15 @@ export async function handleUnmute(ctx: AdminCmdContext, parts: string[]): Promi
   return "用法：/unmute @用户";
 }
 
-export async function handleBan(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
+/**
+ * 共享 mute/ban 逻辑（/mute 和 /ban 均指向此函数）。
+ * @param usage - 用法提示
+ */
+export async function handleMuteBan(
+  usage: string,
+  ctx: AdminCmdContext,
+  parts: string[],
+): Promise<string | null> {
   if (!(await requireGroup(ctx))) return null;
   const targetId = extractAtTarget(ctx.message, ctx.text) ?? (parts[0] ? parseInt(parts[0], 10) : null);
   if (targetId && targetId > 0) {
@@ -301,7 +298,7 @@ export async function handleBan(ctx: AdminCmdContext, parts: string[]): Promise<
       return `❌ 禁言失败：${fmtError(err)}`;
     }
   }
-  return "用法：/ban @用户 [分钟数]";
+  return usage;
 }
 
 export async function handleKick(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
@@ -419,7 +416,7 @@ export async function handleUnbanAll(ctx: AdminCmdContext, _parts: string[]): Pr
     ctx.client.setGroupWholeBan(ctx.groupId!, false);
     return "✅ 已关闭全员禁言。";
   } catch (err) {
-    return `❌ 设置全员禁言失败：${fmtError(err)}`;
+    return `❌ 关闭全员禁言失败：${fmtError(err)}`;
   }
 }
 
@@ -561,10 +558,10 @@ export async function handleGroupInfo(ctx: AdminCmdContext, _parts: string[]): P
   try {
     const info = await ctx.client.getGroupInfo(ctx.groupId!);
     if (!info) return "❌ 获取群信息失败。";
-    const memberCount = (info as any).member_count ?? "?";
-    const maxMember = (info as any).max_member_count ?? "?";
+    const memberCount = (info as Record<string, unknown>).member_count ?? "?";
+    const maxMember = (info as Record<string, unknown>).max_member_count ?? "?";
     const atAll = await ctx.client.getGroupAtAllRemain(ctx.groupId!).catch((err) => {
-      console.warn(`[napcat-QQ] getGroupAtAllRemain failed (group ${ctx.groupId}): ${err instanceof Error ? err.message : err}`);
+      (ctx.log ?? console).warn(`[napcat-QQ] getGroupAtAllRemain failed (group ${ctx.groupId}): ${err instanceof Error ? err.message : err}`);
       return null;
     });
     const atAllRemain = atAll ? `${atAll.remain_at_all_count_for_group ?? atAll.group_remain_at_all_count ?? "?"}` : "?";
@@ -951,8 +948,6 @@ const HELP_TEXT =
 
 // ============ 注册表 ============
 
-import { CommandRegistry } from "./admin-registry.js";
-
 /** 全局管理命令注册表 */
 export const adminCommandRegistry = new CommandRegistry();
 
@@ -963,8 +958,8 @@ adminCommandRegistry.register("status", "查看状态", handleStatus);
 adminCommandRegistry.register("help", "帮助", handleHelp);
 
 adminCommandRegistry.register("mute", "禁言", handleMute);
+adminCommandRegistry.register("ban", "禁言", handleMute); // ban 是 mute 的别名
 adminCommandRegistry.register("unmute", "解除禁言", handleUnmute);
-adminCommandRegistry.register("ban", "禁言", handleBan);
 adminCommandRegistry.register("kick", "踢人", handleKick);
 adminCommandRegistry.register("kickbatch", "批量踢人", handleKickBatch);
 adminCommandRegistry.register("admin", "任命管理员", handleAdmin);
@@ -1087,19 +1082,12 @@ export async function handleAdminCommand(
   return adminCommandRegistry.execute(matchedCmd!, context, trailingArgs);
 }
 
-/** 在已注册命令中查找最长前缀匹配 */
+/** 在已注册命令中查找唯一前缀匹配；候选不唯一时返回 null 避免歧义 */
 function findCommand(input: string): string | null {
   const names = adminCommandRegistry.getCommandNames();
-  // 先找完全匹配
   if (names.includes(input)) return input;
-  // 再找前缀匹配（最长的）
-  let best: string | null = null;
-  for (const name of names) {
-    if (name.startsWith(input) && input.length >= 3 && (!best || name.length > best.length)) {
-      best = name;
-    }
-  }
-  return best;
+  const candidates = names.filter(n => n.startsWith(input) && input.length >= 3);
+  return candidates.length === 1 ? candidates[0] : null;
 }
 
 // 重新导出类型，保持向后兼容

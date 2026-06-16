@@ -28,12 +28,12 @@ export function isWindows(): boolean {
  * 2. $HOME（Mac/Linux）或 %USERPROFILE%（Windows）
  * 3. 降级到 /tmp（Linux/Mac）或 os.tmpdir()（Windows）
  */
-export function getHomeDir(): string {
+export function getHomeDir(log?: Logger): string {
   try {
     const home = os.homedir();
     if (home && fs.existsSync(home)) return home;
   } catch (err) {
-    console.warn(`[platform] os.homedir() failed: ${err instanceof Error ? err.message : err}`);
+    (log ?? console).warn(`[platform] os.homedir() failed: ${err instanceof Error ? err.message : err}`);
   }
 
   // fallback 环境变量

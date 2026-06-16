@@ -76,6 +76,40 @@ export class MessageSender {
   }
 
   /**
+   * 上传文件，失败后 fallback 到 file 段发送。
+   * 返回 true 表示上传成功（调用方可据此决定是否写入缓存等后续操作）。
+   */
+  private async uploadWithFallback(
+    url: string,
+    name: string,
+    isGroup: boolean,
+    isGuild: boolean,
+    groupId: number | undefined,
+    userId: number | undefined,
+    guildId: string | undefined,
+    channelId: string | undefined,
+  ): Promise<boolean> {
+    try {
+      if (isGroup) await this.ctx.client.uploadGroupFile(groupId!, url, name);
+      else if (!isGuild) await this.ctx.client.uploadPrivateFile(userId!, url, name);
+      else await this.ctx.client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${url}`);
+      return true;
+    } catch (uploadErr) {
+      (this.ctx.log ?? console).warn(
+        `[message-sender] upload failed for ${url}, falling back to file segment:`,
+        uploadErr instanceof Error ? uploadErr.message : uploadErr,
+      );
+      const fileSeg: OneBotMessage = [{ type: "file", data: { file: url, name } }];
+      if (isGuild) {
+        await this.ctx.client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${url}`);
+      } else {
+        await sendByTarget(this.ctx.client, fileSeg, this.ctx);
+      }
+      return false;
+    }
+  }
+
+  /**
    * 完整投递一个 ReplyPayload（text + mediaUrls / mediaUrl + files）。
    */
   async deliver(payload: {
@@ -257,22 +291,7 @@ export class MessageSender {
           await sendByTarget(client, vidSeg, this.ctx);
         } else {
           const fileName = media.name || "file";
-          try {
-            if (isGroup) await client.uploadGroupFile(groupId!, resolvedUrl, fileName);
-            else if (!isGuild) await client.uploadPrivateFile(userId!, resolvedUrl, fileName);
-            else await client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${resolvedUrl}`);
-          } catch (uploadErr) {
-            (this.ctx.log ?? console).warn(
-              `[message-sender] upload failed for ${resolvedUrl}, falling back to file segment:`,
-              uploadErr instanceof Error ? uploadErr.message : uploadErr,
-            );
-            const fileSeg: OneBotMessage = [{ type: "file", data: { file: resolvedUrl, name: fileName } }];
-            if (isGuild) {
-              await client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${resolvedUrl}`);
-            } else {
-              await sendByTarget(client, fileSeg, this.ctx);
-            }
-          }
+          await this.uploadWithFallback(resolvedUrl, fileName, isGroup, isGuild, groupId, userId, guildId, channelId);
         }
         if (config.rateLimitMs > 0) await sleep(config.rateLimitMs);
       } catch (mediaErr) {
@@ -300,22 +319,7 @@ export class MessageSender {
       const vidSeg: OneBotMessage = [{ type: "video", data: { file: url } }];
       await sendByTarget(client, vidSeg, this.ctx);
     } else {
-      try {
-        if (isGroup) await client.uploadGroupFile(groupId!, url, name);
-        else if (!isGuild) await client.uploadPrivateFile(userId!, url, name);
-        else await client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${url}`);
-      } catch (uploadErr) {
-        (this.ctx.log ?? console).warn(
-          `[message-sender] upload failed for ${url}, falling back to file segment:`,
-          uploadErr instanceof Error ? uploadErr.message : uploadErr,
-        );
-        const fileSeg: OneBotMessage = [{ type: "file", data: { file: url, name } }];
-        if (isGuild) {
-          await client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${url}`);
-        } else {
-          await sendByTarget(client, fileSeg, this.ctx);
-        }
-      }
+      await this.uploadWithFallback(url, name || "file", isGroup, isGuild, groupId, userId, guildId, channelId);
     }
     if (config.rateLimitMs > 0) await sleep(config.rateLimitMs);
   }
@@ -344,27 +348,9 @@ export class MessageSender {
         await sendByTarget(client, imgSegment, this.ctx);
       } else {
         const fileName = name || "file";
-        try {
-          if (isGroup) {
-            await client.uploadGroupFile(groupId!, url, fileName);
-            uploadCache.set(cacheKey, url);
-          } else if (!isGuild) {
-            await client.uploadPrivateFile(userId!, url, fileName);
-            uploadCache.set(cacheKey, url);
-          } else {
-            await client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${url}`);
-          }
-        } catch (uploadErr) {
-          (this.ctx.log ?? console).warn(
-            `[message-sender] upload failed for ${url}, falling back to file segment:`,
-            uploadErr instanceof Error ? uploadErr.message : uploadErr,
-          );
-          const fileSegment: OneBotMessage = [{ type: "file", data: { file: url, name: fileName } }];
-          if (isGuild) {
-            await client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${url}`);
-          } else {
-            await sendByTarget(client, fileSegment, this.ctx);
-          }
+        const uploaded = await this.uploadWithFallback(url, fileName, isGroup, isGuild, groupId, userId, guildId, channelId);
+        if (uploaded) {
+          uploadCache.set(cacheKey, url);
         }
       }
     }

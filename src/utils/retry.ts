@@ -71,8 +71,9 @@ const NETWORK_ERROR_PATTERNS = [
  */
 export function isRetryableError(error: unknown): boolean {
   // 鸭子类型：兼容 NapcatApiError（client.ts）等带 statusCode 的错误
-  if (typeof error === "object" && error !== null && (error as any).statusCode >= 500) {
-    return true;
+  if (typeof error === "object" && error !== null && "statusCode" in error) {
+    const sc = (error as Record<string, unknown>).statusCode;
+    if (typeof sc === "number" && sc >= 500) return true;
   }
   if (error instanceof Error) {
     const msg = error.message.toLowerCase();

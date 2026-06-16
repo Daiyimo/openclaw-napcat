@@ -28,6 +28,13 @@ const memberCache = new Map<string, { name: string; time: number }>();
 const bulkCachedGroups = new Map<string, number>(); // groupId → 拉取时间戳
 /** 正在加载中的群 ID → 等待者 Promise resolve 函数列表 */
 const loadingGroups = new Map<string, Array<() => void>>();
+/** 失败重试时间戳（groupKey → 最早可重试的毫秒时间戳） */
+const failedUntil = new Map<string, number>();
+/** 每个群的重试次数（用于指数退避） */
+const failCount = new Map<string, number>();
+/** 重试退避基数（ms），每次失败翻倍，上限 5 分钟 */
+const RETRY_BASE_MS = 5_000;
+const RETRY_MAX_MS = 300_000;
 
 // 定期 TTL 兜底扫描（每 15 分钟），清理过期条目防止长期累积
 const TTL_SWEEP_INTERVAL_MS = 15 * 60 * 1000;
@@ -111,12 +118,17 @@ export function setCachedMemberName(groupId: string, userId: string, name: strin
 export async function populateGroupMemberCache(client: OneBotClient, groupId: number, log?: Logger): Promise<void> {
   const key = String(groupId);
   const cachedAt = bulkCachedGroups.get(key);
-  if (cachedAt && Date.now() - cachedAt < MEMBER_CACHE_TTL_MS) return;
+  if (cachedAt !== undefined && cachedAt >= 0 && Date.now() - cachedAt < MEMBER_CACHE_TTL_MS) return;
 
-  // 过期：删除旧条目，后续重新拉取
-  if (cachedAt) {
-    bulkCachedGroups.delete(key);
+  // 失败退避期：不发起请求，等待者延迟 resolve
+  const retryAfter = failedUntil.get(key);
+  if (retryAfter && Date.now() < retryAfter) {
+    // 在退避期内：等待（调用方可通过 Promise.race 自行超时）
+    await new Promise((resolve) => setTimeout(resolve, retryAfter - Date.now()));
+    return;
   }
+  // 退避期已过：清除标记，允许重试
+  if (retryAfter) failedUntil.delete(key);
 
   // 已在加载中：用 Promise 等待完成通知，避免重复拉取
   if (loadingGroups.has(key)) {
@@ -140,9 +152,17 @@ export async function populateGroupMemberCache(client: OneBotClient, groupId: nu
         setCachedMemberName(key, String(m.user_id), name);
       }
       bulkCachedGroups.set(key, Date.now());
+      failCount.delete(key); // 成功则重置重试计数
+      failedUntil.delete(key);
     }
   } catch (err) {
     (log ?? _log ?? console).error(`[member-cache] 批量拉取群 ${groupId} 成员失败，降级为按需查询: ${err}`);
+    // 指数退避：防止并发请求在失败后同时重试（惊群防护）
+    const count = (failCount.get(key) ?? 0) + 1;
+    failCount.set(key, count);
+    const retryMs = Math.min(RETRY_BASE_MS * Math.pow(2, count - 1), RETRY_MAX_MS);
+    failedUntil.set(key, Date.now() + retryMs);
+    bulkCachedGroups.delete(key);
   } finally {
     // 通知所有等待者
     const waiters = loadingGroups.get(key);
@@ -159,4 +179,6 @@ export async function populateGroupMemberCache(client: OneBotClient, groupId: nu
 export function clearMemberCache(): void {
   memberCache.clear();
   bulkCachedGroups.clear();
+  failedUntil.clear();
+  failCount.clear();
 }

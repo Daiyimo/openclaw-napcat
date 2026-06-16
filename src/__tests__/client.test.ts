@@ -183,7 +183,6 @@ describe("OneBotClient", () => {
       client.sendFriendPoke(222);
       expect(sendWsSpy).toHaveBeenCalledWith("friend_poke", {
         user_id: "222",
-        target_id: "222",
       });
     });
   });

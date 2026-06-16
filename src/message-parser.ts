@@ -13,6 +13,7 @@ import type { OneBotMessage } from "./types.js";
 import type { OneBotClient } from "./client.js";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { Logger } from "./types/channel-types.js";
+import { maskUrl } from "./utils/log-sanitize.js";
 
 // ============ CQ 码参数转义 ============
 
@@ -30,16 +31,11 @@ export function escapeCQParam(s: string): string {
 const CQ_FACE_REGEX = /\[CQ:face,id=(\d+)\]/g;
 const CQ_ANY_REGEX = /\[CQ:[^\]]+\]/g;
 const CQ_REPLY_REGEX = /\[CQ:reply,id=(\d+)\]/;
-// 注：带 /g 标志的正则有 lastIndex 状态，每次调用须用 new RegExp 复制一份
 const IMAGE_URL_PATTERN = /\[CQ:image,[^\]]*(?:url|file)=([^,\]]+)[^\]]*\]/g;
-/** 预编译的 image URL regex 实例缓存（避免每次调用 new RegExp） */
-let cachedImageUrlRegex: RegExp | null = null;
 
 function getImageUrlRegex(): RegExp {
-  if (!cachedImageUrlRegex) {
-    cachedImageUrlRegex = new RegExp(IMAGE_URL_PATTERN.source, "g");
-  }
-  return cachedImageUrlRegex;
+  // 每次返回新实例避免 /g lastIndex 泄漏（调用方用 while (re.exec())）
+  return new RegExp(IMAGE_URL_PATTERN.source, "g");
 }
 
 // 文件 base64 转换的最大允许大小（10 MB），防止大文件撑爆内存
@@ -57,7 +53,7 @@ export function extractImageUrls(message: OneBotMessage | string | undefined, ma
         const raw =
           segment.data?.url ||
           (typeof segment.data?.file === "string" ? segment.data.file : undefined);
-        (log ?? console).log(`[napcat-QQ][extractImageUrls] segment.data=`, JSON.stringify(segment.data), `raw=`, raw);
+        (log ?? console).debug(`[napcat-QQ][extractImageUrls] segment.data=`, JSON.stringify(segment.data), `raw=`, maskUrl(raw ?? ""));
         if (!raw) continue;
         // 接受 http(s)、base64、file: 协议，以及裸路径（由下游 resolveMediaUrl 处理）
         const url =
@@ -309,7 +305,7 @@ const ALLOWED_LOCAL_DIRS: string[] = (() => {
     console.warn(`[message-parser] Failed to resolve tmpdir: ${err instanceof Error ? err.message : err}`);
   }
   // 3. workspace 目录
-  const workspace = process.env.HOME || "/home/node";
+  const workspace = os.homedir();
   try {
     dirs.push(path.resolve(workspace, ".openclaw", "workspace"));
   } catch (err) {
@@ -337,14 +333,14 @@ const BLOCKED_SUB_PATTERNS: RegExp[] = [
  * 检查路径是否在允许的目录白名单内，且不命中敏感子目录黑名单。
  * 使用 path.resolve 解析后比对，防止 ../ 路径遍历。
  */
-function isPathAllowed(filePath: string): boolean {
+function isPathAllowed(filePath: string, log?: Logger): boolean {
   const resolved = path.resolve(filePath) + path.sep;
   // 白名单检查
   if (!ALLOWED_LOCAL_DIRS.some((dir) => resolved.startsWith(dir))) return false;
   // 敏感目录黑名单检查
   for (const pattern of BLOCKED_SUB_PATTERNS) {
     if (pattern.test(resolved)) {
-      console.warn(`[napcat-QQ] Path traversal blocked (sensitive dir): ${filePath}`);
+      (log ?? console).warn(`[napcat-QQ] Path traversal blocked (sensitive dir): ${filePath}`);
       return false;
     }
   }
@@ -357,7 +353,7 @@ export async function resolveMediaUrl(url: string, log?: Logger): Promise<string
     try {
       const filePath = fileURLToPath(url);
       // 路径遍历防护：仅允许访问白名单目录
-      if (!isPathAllowed(filePath)) {
+      if (!isPathAllowed(filePath, log)) {
         (log ?? console).warn(`[napcat-QQ] Path traversal blocked: ${url} not in allowed directories`);
         return url;
       }
@@ -377,7 +373,7 @@ export async function resolveMediaUrl(url: string, log?: Logger): Promise<string
   if (url.startsWith("/") || /^[a-zA-Z]:[/\\]/.test(url)) {
     try {
       // 路径遍历防护
-      if (!isPathAllowed(url)) {
+      if (!isPathAllowed(url, log)) {
         (log ?? console).warn(`[napcat-QQ] Path traversal blocked: ${url} not in allowed directories`);
         return url;
       }
@@ -409,7 +405,7 @@ const MIME_TO_EXT: Record<string, string> = {
 };
 
 /** 从 URL 或 Content-Type 猜测图片扩展名 */
-function guessImageExtension(url: string, contentType: string | null): string {
+function guessImageExtension(url: string, contentType: string | null, log?: Logger): string {
   if (contentType) {
     const mime = contentType.split(";")[0].trim().toLowerCase();
     if (MIME_TO_EXT[mime]) return MIME_TO_EXT[mime];
@@ -422,7 +418,7 @@ function guessImageExtension(url: string, contentType: string | null): string {
       return ext === "jpeg" ? "jpg" : ext;
     }
   } catch (err) {
-    console.warn(`[message-parser] Cannot guess extension from URL "${url.slice(0, 100)}": ${err instanceof Error ? err.message : err}`);
+    (log ?? console).warn(`[message-parser] Cannot guess extension from URL "${url.slice(0, 100)}": ${err instanceof Error ? err.message : err}`);
   }
   return "jpg"; // 默认
 }
@@ -441,7 +437,7 @@ export interface DownloadedImage {
 export async function downloadImages(urls: string[], log?: Logger): Promise<DownloadedImage[]> {
   (log ?? console).log(`[napcat-QQ][downloadImages] downloading ${urls.length} image(s):`, urls.map(u => u.slice(0, 100)));
   // 下载到 workspace 目录（框架的 workspaceOnly 限制只能读取 workspace 下的文件）
-  const homeDir = process.env.HOME || "/home/node";
+  const homeDir = os.homedir();
   const downloadDir = path.join(homeDir, ".openclaw", "workspace");
   if (!fsSync.existsSync(downloadDir)) {
     fsSync.mkdirSync(downloadDir, { recursive: true });
@@ -497,7 +493,7 @@ export async function downloadImages(urls: string[], log?: Logger): Promise<Down
           return { path: url, type: "image/jpeg" };
         }
         const contentType = resp.headers.get("content-type");
-        const ext = guessImageExtension(url, contentType);
+        const ext = guessImageExtension(url, contentType, log);
         const mime = contentType?.split(";")[0].trim() || `image/${ext}`;
         // 用 idx 保证并发下载时文件名唯一（避免 Date.now() 碰撞）
         const filename = `img-${idx}-${Math.random().toString(36).slice(2, 8)}.${ext}`;

@@ -82,6 +82,9 @@ export interface TriggerResult extends TriggerInput {
 // ── silentKeywords 正则缓存 ────────────────────────────────────────────
 
 let silentKeywordsCache: { key: string; regexes: RegExp[] } | null = null;
+// knownBotIds 运行期不变，缓存排序结果避免每消息 O(n log n)
+let _cachedSortedBotIds: string | undefined;
+let _cachedBotIdsSnapshot: number[] | undefined;
 
 function getSilentKeywordRegexes(keywords: string[]): RegExp[] {
   const key = JSON.stringify(keywords);
@@ -245,12 +248,11 @@ function checkPassiveMode(
     }
     return { isPassiveMode: false };
   }
-  // ⚠️ P0 修复：markCheck 必须在 isIntervalAllowed 之前调用，记录本次旁观检查时间戳
-  passiveMode.markCheck(cooldownKey);
   if (!passiveMode.isIntervalAllowed(cooldownKey, minIntervalMs)) return { isPassiveMode: false };
   if (!passiveMode.isAllowed(cooldownKey, cooldownMs)) return { isPassiveMode: false };
 
   // ⚠️ P0 修复：isAllowed 通过后必须设置哨兵，防止并发消息同时派发到 AI
+  passiveMode.markCheck(cooldownKey);
   passiveMode.markActive(cooldownKey);
 
   return { isPassiveMode: true };
@@ -340,9 +342,13 @@ export async function triggerStage(
   // ── otherBotNames 缓存（key 预计算）────────────────────────────────
   // knownBotIds 在运行期不变，配置变更时 invalidateOtherBotNamesCache() 清理
   // 因此只需在首次和 key 变更时计算
-  const knownBotIdsSorted = config.knownBotIds
-    ? [...config.knownBotIds].sort().join(",")
-    : "";
+  const knownBotIdsSorted = (() => {
+    const current = config.knownBotIds;
+    if (_cachedBotIdsSnapshot === current) return _cachedSortedBotIds ?? "";
+    _cachedBotIdsSnapshot = current;
+    _cachedSortedBotIds = current ? [...current].sort().join(",") : "";
+    return _cachedSortedBotIds;
+  })();
   const cacheKey = `${account.accountId}:${selfId}:${knownBotIdsSorted}`;
   let otherBotNames: string[];
   let knownBotIdSet: Set<string>;

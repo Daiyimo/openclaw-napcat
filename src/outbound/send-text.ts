@@ -113,8 +113,8 @@ export async function sendText(
           );
         } else {
           (log ?? console).warn(
-            `[napcat-QQ][outbound.sendText] 裸数字 "${to}" 无法确认为群，将作私聊处理。` +
-              `如需指定群请使用 "group:${to}" 格式。`,
+            `[napcat-QQ][outbound.sendText] 裸数字 "${to}" 无法确认为群，按默认路由到群聊。` +
+              `如需私聊请使用 "private:${to}" 格式。`,
           );
         }
       }

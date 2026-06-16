@@ -11,6 +11,7 @@ import {
 } from "./errors/napcat-error.js";
 import { maskUrl, maskBearerToken } from "./utils/log-sanitize.js";
 import { withRetry, isRetryableError } from "./utils/retry.js";
+import { BAN_DEFAULT_MINUTES, MUTE_DEFAULT_MINUTES } from "./admin-commands.js";
 import type { Logger } from "./types/channel-types.js";
 import {
   WS_HEARTBEAT_INTERVAL_MS,
@@ -112,10 +113,12 @@ export class OneBotClient extends EventEmitter {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
-    // 仅清理 timer，pending requests 由 handleDisconnect 负责 reject
+    // 先 reject 所有 pending requests，再 removeAllListeners
     for (const [, entry] of this.pendingRequests) {
       clearTimeout(entry.timer);
+      entry.reject(new ConnectionError(entry.action, "Connection closed"));
     }
+    this.pendingRequests.clear();
     this.sentFingerprints.clear();
     if (this.ws) {
       try {
@@ -272,7 +275,7 @@ export class OneBotClient extends EventEmitter {
   }
 
   sendFriendPoke(userId: number): void {
-    this.sendWs("friend_poke", { user_id: String(userId), target_id: String(userId) });
+    this.sendWs("friend_poke", { user_id: String(userId) });
   }
 
   async setMsgEmojiLike(messageId: number | string, emojiId: string): Promise<void> {
@@ -340,7 +343,7 @@ export class OneBotClient extends EventEmitter {
     await this.sendAction("upload_private_file", { user_id: String(userId), file, name });
   }
 
-  setGroupBan(groupId: number, userId: number, duration: number = 1800): void {
+  setGroupBan(groupId: number, userId: number, duration: number = BAN_DEFAULT_MINUTES * 60): void {
     this.sendWs("set_group_ban", { group_id: String(groupId), user_id: String(userId), duration });
   }
 
@@ -547,14 +550,16 @@ export class OneBotClient extends EventEmitter {
   }
 
   /** Try HTTP API first, fall back to WebSocket */
-  async sendAction(action: string, params: Record<string, unknown>): Promise<void> {
-    // outbound 幂等去重：同一 action+params 在短窗口内不重复发送
+  async sendAction(action: string, params: Record<string, unknown>, opts?: { force?: boolean }): Promise<void> {
+    // outbound 幂等去重：同一 action+params 在短窗口内不重复发送（force 可跳过）
     const fp = action + "\x00" + JSON.stringify(params);
     const now = Date.now();
-    const prev = this.sentFingerprints.get(fp);
-    if (prev && now - prev < OneBotClient.SENT_DEDUP_WINDOW_MS) {
-      this.log.log(`[napcat-QQ][sendAction] deduped duplicate send: ${action}`);
-      return;
+    if (!opts?.force) {
+      const prev = this.sentFingerprints.get(fp);
+      if (prev && now - prev < OneBotClient.SENT_DEDUP_WINDOW_MS) {
+        this.log.log(`[napcat-QQ][sendAction] deduped duplicate send: ${action}`);
+        return;
+      }
     }
     this.sentFingerprints.set(fp, now);
     // 惰性清理过期条目（每 1000 次写入清理一次，O(1) 摊还）

@@ -120,13 +120,9 @@ export async function startAccount(
 
     shared.clients.set(account.accountId, client);
 
-    const processedMsgIds = new Set<string>();
     let groupRouteRefreshTimer: ReturnType<typeof setInterval> | null = null;
     const cleanupInterval = setInterval(() => {
-      if (trimDedupSet(processedMsgIds)) {
-        log.log(`[napcat-QQ] Dedup set trimmed: kept ${processedMsgIds.size} recent IDs`);
-      }
-      // inboundStore.processedMsgIds 是 filter.ts 实际使用的去重集合，同样需要定期修剪
+      // inboundStore.processedMsgIds 是 filter.ts 实际使用的去重集合，定期修剪
       if (inboundStore && trimDedupSet(inboundStore.processedMsgIds)) {
         log.log(`[napcat-QQ] Inbound dedup set trimmed: kept ${inboundStore.processedMsgIds.size} recent IDs`);
       }
@@ -169,7 +165,6 @@ export async function startAccount(
       channelRuntime,
       uploadCache,
       inboundStore,
-      processedMsgIds,
       knownGroupIds: shared.knownGroupIds,
       passiveMode: shared.passiveMode,
       log,
@@ -188,26 +183,28 @@ export async function startAccount(
       accountMetrics.registerGauge("uploadCacheSize", () => uploadCache.size);
     }
 
-    client.connect();
-    client.startReverseWs();
+    try {
+      client.connect();
+      client.startReverseWs();
 
-    // 等待 abort 信号（兜底：无 abortSignal 时直接返回避免永久挂起）
-    if (ctx.abortSignal) {
-      await new Promise<void>((resolve) => {
-        if (ctx.abortSignal!.aborted) {
-          resolve();
-          return;
-        }
-        ctx.abortSignal!.addEventListener("abort", () => resolve(), { once: true });
-      });
-    } else {
-      log.warn("[napcat-QQ] No abortSignal provided, startAccount will not block");
+      // 等待 abort 信号（兜底：无 abortSignal 时直接返回避免永久挂起）
+      if (ctx.abortSignal) {
+        await new Promise<void>((resolve) => {
+          if (ctx.abortSignal!.aborted) {
+            resolve();
+            return;
+          }
+          ctx.abortSignal!.addEventListener("abort", () => resolve(), { once: true });
+        });
+      } else {
+        log.warn("[napcat-QQ] No abortSignal provided, startAccount will not block");
+      }
+    } finally {
+      clearInterval(cleanupInterval);
+      if (connResult.groupRouteRefreshTimer) clearInterval(connResult.groupRouteRefreshTimer);
     }
 
     // ── Cleanup ─────────────────────────────────────────
-    clearInterval(cleanupInterval);
-    if (connResult.groupRouteRefreshTimer) clearInterval(connResult.groupRouteRefreshTimer);
-
     // 卸载 message handler listener，防止重连时累积
     const msgCleanup = shared._messageHandlerCleanups?.get(account.accountId);
     if (msgCleanup) {

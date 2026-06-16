@@ -140,7 +140,8 @@ export interface InboundContext {
   channelRuntime: PluginRuntimeChannel;
   uploadCache: UploadCache;
   inboundStore: InboundRateLimitStore;
-  processedMsgIds: Set<string>;
+  /** @deprecated 实际去重使用 inboundStore.processedMsgIds，此字段保留以兼容旧测试 */
+  processedMsgIds?: Set<string>;
   knownGroupIds: Set<string>;
   passiveMode: PassiveModeManager;
   log: Logger;

@@ -94,13 +94,22 @@ export async function sendProactive(options: ProactiveSendOptions): Promise<Proa
 }
 
 /**
- * 批量发送主动消息，带 500ms 间隔以避免触发风控
+ * 批量发送主动消息，带间隔以避免触发风控
  */
 export async function sendBulkProactive(
   recipients: string[],
   text: string,
   accountId?: string,
+  options?: {
+    maxRecipients?: number;    // 默认 200
+    intervalMs?: number;       // 默认 1500
+  },
 ): Promise<Array<{ to: string; result: ProactiveSendResult }>> {
+  const maxRecipients = options?.maxRecipients ?? 200;
+  if (recipients.length > maxRecipients) {
+    recipients = recipients.slice(0, maxRecipients);
+  }
+
   const results: Array<{ to: string; result: ProactiveSendResult }> = [];
 
   for (let i = 0; i < recipients.length; i++) {
@@ -109,7 +118,7 @@ export async function sendBulkProactive(
     results.push({ to, result });
 
     if (i < recipients.length - 1) {
-      await new Promise((r) => setTimeout(r, 500));
+      await new Promise((r) => setTimeout(r, options?.intervalMs ?? 1500));
     }
   }
 
@@ -144,7 +153,7 @@ export async function broadcastToKnownUsers(
     }
   }
 
-  const results = await sendBulkProactive(recipients, text, options?.accountId);
+  const results = await sendBulkProactive(recipients, text, options?.accountId, { maxRecipients: 200, intervalMs: 1500 });
 
   const sent = results.filter(r => r.result.success).length;
   const failed = results.filter(r => !r.result.success).length;
