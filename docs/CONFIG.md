@@ -89,6 +89,7 @@
 | `silentKeywords` | string[] | `[]` | **静默关键词**。消息包含任一关键词时直接丢弃，不触发 AI、不回复（适合过滤其他 bot 指令）。 |
 | `sensitiveFileGuard` | object | 默认启用 | **系统文件预拦截**（v1.10+）。非 admin 用户试图修改 SOUL/AGENTS/IDENTITY/USER/MEMORY 等人设/记忆文件时直接拒绝并 reply 提示，不调用 OpenClaw。详见下方说明。 |
 | `passiveMode` | object | - | **旁观模式**配置，见下方详细说明。支持 `temperature`（0–100）快速调节主动程度。 |
+| `sleepMode` | object | - | **休眠模式**配置，见下方详细说明。支持通过 `/sleep` 命令运行时控制（v1.10+）。 |
 
 ## gateway 必填说明
 
@@ -139,6 +140,40 @@
 | `temperature` | number | - | **主动回复温度**（0–100）。单一数值映射 cooldownMs / minIntervalMs / botSuppressionMs 三个参数。设置后覆盖后三者的显式值。`0`=几乎不插话，`50`=均衡，`100`=很活跃。与子参数共存时 temperature 优先。 |
 
 **工作流程：** 群消息到达 → 检测触发（@/关键词）→ 通过 `minIntervalMs` 限流 → 通过 `botSuppressionMs` 友军抑制 → 通过 `cooldownMs` 冷却 → AI 判断 → 输出回复 或 `[SILENT]`。
+
+## sleepMode 详细说明
+
+```json
+{
+  "sleepMode": {
+    "enabled": true,
+    "startHour": 23,
+    "endHour": 7
+  }
+}
+```
+
+也可通过 `/sleep` 命令运行时控制（无需修改配置文件）。
+
+| 子字段 | 类型 | 默认值 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `enabled` | boolean | `false` | 是否开启休眠模式。开启后指定时段内 bot 仅响应 @mention 和关键词触发。 |
+| `startHour` | number | `23` | 休眠开始小时（0-23）。 |
+| `endHour` | number | `7` | 休眠结束小时（0-23）。 |
+
+**跨午夜区间：** `startHour > endHour` 时自动识别为跨午夜（如 23→7），逻辑为 `hour >= start || hour < end`。普通区间（如 2→6）逻辑为 `hour >= start && hour < end`。
+
+**与被动模式的关系：** 休眠模式是更上层的粗粒度开关。休眠期间，被动模式插话和名字触发全部静默，仅 @mention 和关键词触发正常响应。私聊不受休眠模式影响。
+
+**运行时控制：**
+```
+/sleep              # 查看当前状态
+/sleep on           # 开启休眠模式（使用已配置的时段）
+/sleep off          # 关闭休眠模式
+/sleep 晚上11点到早上7点   # 自然语言设时段
+/sleep 23:00-07:00  # 直接时间格式
+```
+变更即时生效，无需重启。使用 `/reload` 可重新加载配置文件中的值。
 
 ## sensitiveFileGuard 详细说明
 

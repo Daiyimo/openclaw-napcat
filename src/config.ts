@@ -117,17 +117,21 @@ export const QQConfigSchema = z.object({
    * 普通区间（如 2→6）：   hour >= startHour && hour < endHour
    */
   sleepMode: z.object({
-    enabled: z.boolean().optional().default(false).describe("Enable sleep mode. Default false."),
-    startHour: z.number().int().min(0).max(23).optional().default(23).describe("Sleep start hour (0-23). Default 23 (11 PM)."),
-    endHour: z.number().int().min(0).max(23).optional().default(7).describe("Sleep end hour (0-23). Default 7 (7 AM)."),
-  }).optional().describe("Sleep mode: during [startHour, endHour), only @mention and keyword triggers work. Passive mode and name triggers are suppressed. Uses server local time."),
+    enabled: z.boolean().default(false).describe("Enable sleep mode. Default false."),
+    startHour: z.number().int().min(0).max(23).default(23).describe("Sleep start hour (0-23). Default 23 (11 PM)."),
+    endHour: z.number().int().min(0).max(23).default(7).describe("Sleep end hour (0-23). Default 7 (7 AM)."),
+  }).default({ enabled: false, startHour: 23, endHour: 7 }).describe("Sleep mode: during [startHour, endHour), only @mention and keyword triggers work. Passive mode and name triggers are suppressed. Uses server local time."),
 });
 
 export type QQConfig = z.infer<typeof QQConfigSchema>;
 
-/** 从 schema 提取所有默认值。注意：safeParse 不填充 .default()，需手动合并。 */
+/** 从 schema 提取所有默认值。Zod v4 的 .optional() 会剥离字段，需手动补充有 .default() 的可选嵌套对象。 */
 export function getQQConfigDefaults(): QQConfig {
-  return QQConfigSchema.parse({});
+  const parsed = QQConfigSchema.parse({});
+  return {
+    ...parsed,
+    sleepMode: parsed.sleepMode ?? { enabled: false, startHour: 23, endHour: 7 },
+  };
 }
 
 // ── passiveMode temperature 映射 ───────────────────────────────────────────

@@ -65,7 +65,8 @@
 | `/honor [type]` | 仅群 | 群荣誉。type ∈ `all` / `talkative` / `performer` / `legend` / `strong_newbie` / `emotion` |
 | `/atallremain` | 仅群 | @全体 剩余次数（本群 / 你） |
 | `/groupinfo` | 仅群 | 群详情（成员数 / 最大数 / @全体剩余 / 群名） |
-| `/temperature [温度=N]` | 群/私 | 查看或调整被动模式温度。无参数显示当前子参数配置；`温度=50` 设置（0=几乎不插话，100=很活跃） |
+| `/temperature [N]` | 群/私 | 查看或调整被动模式温度。无参数显示当前子参数配置；`温度=50` 设置（0=几乎不插话，100=很活跃） |
+| `/sleep [on|off|描述]` | 群/私 | 休眠模式。无参查看当前状态；`/sleep on` 开启；`/sleep off` 关闭；`/sleep 晚上11点到早上7点` 自然语言设时段 |
 
 ## 📁 群文件
 
@@ -127,6 +128,7 @@
 - 频控参数（`rateLimitMs`、`inboundRateLimitMs`）
 - 静默关键词（`silentKeywords`）
 - 旁观模式（`passiveMode`）
+- 休眠模式（`sleepMode`）
 - 系统文件预拦截（`sensitiveFileGuard`，v1.10+）
 - 所有行为类开关
 

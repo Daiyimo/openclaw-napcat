@@ -714,6 +714,190 @@ export async function handleUnrateLimit(ctx: AdminCmdContext, parts: string[]): 
   return `ℹ️ ${target} 当前未被限流`;
 }
 
+export async function handleSleep(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
+  const configRef = getConfigRef();
+  if (!configRef) return "❌ 配置引用未初始化（需要重启后生效）";
+  const raw = ctx.text.trim();
+  const cmd = raw.startsWith("sleep ") ? raw.slice(6).trim() : raw === "sleep" ? "" : raw;
+
+  // 无参数 → 显示当前状态
+  if (!cmd) {
+    const sm = configRef.current.sleepMode;
+    if (sm?.enabled) {
+      return `🌙 休眠模式: 开启\n时段: ${sm.startHour ?? 23}:00 - ${sm.endHour ?? 7}:00\n用法: /sleep off | /sleep on | /sleep <时段描述>`;
+    }
+    return `🌙 休眠模式: 关闭\n用法: /sleep on | /sleep off | /sleep <时段描述>`;
+  }
+
+  // 显式开关
+  if (cmd === "on" || cmd === "off") {
+    const current = configRef.current;
+    const sm = current.sleepMode ?? {};
+    const updated = { ...current, sleepMode: { ...sm, enabled: cmd === "on" } };
+    const result = updateConfigRef(configRef, updated);
+    if (!result.success) return `❌ 设置失败: ${result.error}`;
+    if (cmd === "on") {
+      return `✅ 休眠模式已开启\n时段: ${sm.startHour ?? 23}:00 - ${sm.endHour ?? 7}:00\n（仅 @mention 和关键词触发有效，其他全部静默）`;
+    }
+    return "✅ 休眠模式已关闭";
+  }
+
+  // 自然语言解析时段
+  const parsed = parseSleepTime(cmd);
+  if (!parsed) {
+    return `❌ 无法识别时段描述\n支持格式：\n  /sleep on|off\n  /sleep 23 7\n  /sleep 晚上11点到早上7点\n  /sleep 每晚十一点到早上七点\n  /sleep 23:00-07:00`;
+  }
+
+  const { start, end, display } = parsed;
+  const current = configRef.current;
+  const sm = current.sleepMode ?? {};
+  const updated = { ...current, sleepMode: { ...sm, enabled: true, startHour: start, endHour: end } };
+  const result = updateConfigRef(configRef, updated);
+  if (!result.success) return `❌ 设置失败: ${result.error}`;
+  const isCrossMidnight = start > end;
+  return `✅ 休眠模式已开启\n时段: ${display}${isCrossMidnight ? "（跨午夜）" : ""}\n（仅 @mention 和关键词触发有效）`;
+}
+
+// ── 自然语言时间解析 ────────────────────────────────────────────────────────
+
+/** 中文数字 → 阿拉伯数字（支持 1-12） */
+function chineseNumToArabic(s: string): number | null {
+  const map: Record<string, number> = {
+    "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5,
+    "六": 6, "七": 7, "八": 8, "九": 9, "十": 10, "十一": 11, "十二": 12,
+  };
+  return map[s] ?? null;
+}
+
+/** 时间词 → 小时偏移 */
+function timeWordToHour(s: string): number | null {
+  const map: Record<string, number> = {
+    "凌晨": 0, "早上": 0, "上午": 0, "早上好": 0,
+    "中午": 12, "下午": 12, "晚上": 12, "晚": 12, "夜里": 12, "夜间": 12, "深夜": 12,
+  };
+  return map[s] ?? null;
+}
+
+/** 从文本中提取单个小时数，支持中文数字和阿拉伯数字 */
+function extractHour(text: string): number | null {
+  // 先尝试中文数字
+  for (const [cn, val] of Object.entries({
+    "十一": 11, "十二": 12, "十": 10, "九": 9, "八": 8, "七": 7,
+    "六": 6, "五": 5, "四": 4, "三": 3, "二": 2, "两": 2, "一": 1,
+  })) {
+    if (text.includes(cn)) return val;
+  }
+  // 再尝试阿拉伯数字
+  const numMatch = text.match(/\b(\d{1,2})\b/);
+  if (numMatch) {
+    const n = parseInt(numMatch[1], 10);
+    if (n >= 0 && n <= 23) return n;
+  }
+  return null;
+}
+
+/**
+ * 解析休眠时段描述。
+ * 返回 { start, end, display } 或 null。
+ */
+function parseSleepTime(cmd: string): { start: number; end: number; display: string } | null {
+  const text = cmd.trim();
+
+  // 格式1: 23:00-07:00 或 23:00到07:00
+  const directMatch = text.match(/(\d{1,2}):(\d{2})\s*[到\-—~至]\s*(\d{1,2}):(\d{2})/);
+  if (directMatch) {
+    const s = parseInt(directMatch[1], 10);
+    const e = parseInt(directMatch[3], 10);
+    if (s >= 0 && s <= 23 && e >= 0 && e <= 23) {
+      return { start: s, end: e, display: `${s}:00 - ${e}:00` };
+    }
+  }
+
+  // 格式2: 23 7（空格分隔）或 23到7 或 23-7
+  const spaceMatch = text.match(/^(\d{1,2})\s+(\d{1,2})$/);
+  if (spaceMatch && !text.match(/[点时分]/)) {
+    const s = parseInt(spaceMatch[1], 10);
+    const e = parseInt(spaceMatch[2], 10);
+    if (s >= 0 && s <= 23 && e >= 0 && e <= 23) {
+      return { start: s, end: e, display: `${s}:00 - ${e}:00` };
+    }
+  }
+  const simpleMatch = text.match(/(\d{1,2})\s*[到\-—~至]\s*(\d{1,2})/);
+  if (simpleMatch && !text.match(/[点时分]/)) {
+    const s = parseInt(simpleMatch[1], 10);
+    const e = parseInt(simpleMatch[2], 10);
+    if (s >= 0 && s <= 23 && e >= 0 && e <= 23) {
+      return { start: s, end: e, display: `${s}:00 - ${e}:00` };
+    }
+  }
+
+  // 格式3: 带时间词的描述，如"晚上11点到早上7点"
+  // 拆分为左右两半
+  const separatorMatch = text.match(/(.+?)[到\-—~至](.+)/);
+  if (separatorMatch) {
+    const left = separatorMatch[1];
+    const right = separatorMatch[2];
+
+    // 解析左侧（开始时间）
+    const leftHour = extractHour(left);
+    // 解析右侧（结束时间）
+    const rightHour = extractHour(right);
+
+    if (leftHour !== null && rightHour !== null) {
+      // 根据时间词调整
+      let start = leftHour;
+      let end = rightHour;
+
+      // 左侧有时间词 → 调整 start
+      const leftWord = Object.keys({ "晚上": 12, "晚": 12, "夜里": 12, "深夜": 12, "凌晨": 0, "早上": 0, "上午": 0, "下午": 12, "中午": 12 }).find(w => left.includes(w));
+      if (leftWord) {
+        if (leftWord === "凌晨" || leftWord === "早上" || leftWord === "上午") {
+          start = leftHour; // AM, keep as-is
+        } else if (leftWord === "下午" || leftWord === "中午") {
+          start = leftHour === 12 ? 12 : leftHour + 12;
+        } else {
+          // 晚上/晚/夜里/深夜 → PM
+          start = leftHour === 12 ? 12 : (leftHour < 12 ? leftHour + 12 : leftHour);
+        }
+      }
+
+      // 右侧有时间词 → 调整 end
+      const rightWord = Object.keys({ "晚上": 12, "晚": 12, "夜里": 12, "深夜": 12, "凌晨": 0, "早上": 0, "上午": 0, "下午": 12, "中午": 12 }).find(w => right.includes(w));
+      if (rightWord) {
+        if (rightWord === "凌晨" || rightWord === "早上" || rightWord === "上午") {
+          end = rightHour; // AM, keep as-is
+        } else if (rightWord === "下午" || rightWord === "中午") {
+          end = rightHour === 12 ? 12 : rightHour + 12;
+        } else {
+          // 晚上/晚/夜里/深夜 → PM
+          end = rightHour === 12 ? 12 : (rightHour < 12 ? rightHour + 12 : rightHour);
+        }
+      }
+
+      // 边界检查
+      if (start >= 0 && start <= 23 && end >= 0 && end <= 23) {
+        // 构建显示文本
+        const display = `${start}:00 - ${end}:00`;
+        return { start, end, display };
+      }
+    }
+  }
+
+  // 格式4: 纯中文数字 "十一点到七点"
+  const cnSeparatorMatch = text.match(/(.+?)[到\-—~至](.+)/);
+  if (cnSeparatorMatch) {
+    const left = cnSeparatorMatch[1];
+    const right = cnSeparatorMatch[2];
+    const leftHour = extractHour(left);
+    const rightHour = extractHour(right);
+    if (leftHour !== null && rightHour !== null) {
+      return { start: leftHour, end: rightHour, display: `${leftHour}:00 - ${rightHour}:00` };
+    }
+  }
+
+  return null;
+}
+
 export async function handleTemperature(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
   const configRef = getConfigRef();
   if (!configRef) return "❌ 配置引用未初始化（需要重启后生效）";
@@ -789,6 +973,8 @@ const HELP_TEXT =
   `  /honor [type]        群荣誉（type: all/talkative/performer/legend/strong_newbie/emotion）\n` +
   `  /atallremain         @全体 剩余次数\n` +
   `  /groupinfo           群详情\n` +
+  `  /temperature [N]     调整被动模式温度（0-100，无参查看当前值）\n` +
+  `  /sleep [on|off|描述]  休眠模式（on/off 切换，或自然语言设时段）\n` +
   `\n` +
   `📁 群文件\n` +
   `  /files [count]       列当前目录（默认 20）\n` +
@@ -871,6 +1057,7 @@ adminCommandRegistry.register("groups", "刷新群路由", handleGroups);
 adminCommandRegistry.register("ratelimit", "查看限流", handleRateLimit);
 adminCommandRegistry.register("unratelimit", "解除限流", handleUnrateLimit);
 adminCommandRegistry.register("temperature", "调整被动模式温度", handleTemperature);
+adminCommandRegistry.register("sleep", "休眠模式", handleSleep);
 
 /**
  * 管理命令统一入口。
