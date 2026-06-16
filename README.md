@@ -201,6 +201,25 @@ AI 连续输出多条碎片消息时，自动等待并合并为一条发送：
 { "deliverDebounce": { "enabled": true, "windowMs": 1500, "maxWaitMs": 8000 } }
 ```
 
+### 休眠模式
+
+夜间不想被 bot 打扰？配置 `sleepMode` 让 bot 在指定时段自动休眠，仅响应 @ 和关键词触发：
+
+```json
+{ "sleepMode": { "enabled": true, "startHour": 23, "endHour": 7 } }
+```
+
+```yaml
+# Docker 环境变量
+QQ_SLEEP_MODE_ENABLED: "true"
+QQ_SLEEP_MODE_START_HOUR: "23"
+QQ_SLEEP_MODE_END_HOUR: "7"
+```
+
+- `startHour` / `endHour`：使用服务器本地时间，支持跨午夜（如 23→7 表示晚上 11 点到早上 7 点）
+- 休眠期间：@机器人 + 关键词触发 → 正常响应；被动模式/旁观模式/名字触发 → 全部静默
+- 私聊不受影响
+
 ### 跨会话投递
 
 AI 回复中使用 `[TO:group:群号]内容` 可发送到任意群/用户，绕过 session 限制。管理员也可用 `/sendto group:群号 内容` 手动发送。
@@ -265,6 +284,9 @@ services:
       QQ_INBOUND_RATE_LIMIT_MS: "0"   # 入站频控（ms），0=禁用
       QQ_KEYWORD_TRIGGERS: ""          # 无需 @ 的触发关键词，逗号分隔
       QQ_SILENT_KEYWORDS: ""           # 静默关键词，命中即丢弃
+      QQ_SLEEP_MODE_ENABLED: "false"   # 休眠模式，默认关闭
+      QQ_SLEEP_MODE_START_HOUR: "23"   # 休眠开始小时（0-23）
+      QQ_SLEEP_MODE_END_HOUR: "7"      # 休眠结束小时（0-23）
       # ── 旁观模式 ─────────────────────────────────────────
       QQ_PASSIVE_MODE_ENABLED: "false" # 是否启用旁观模式
       QQ_PASSIVE_MODE_COOLDOWN_MS: "10000"      # 实质回复冷却（ms）
@@ -437,6 +459,7 @@ openclaw cron list --json
 | `rateLimitMs` | number | `1000` | 发送限速（ms） |
 | `passiveMode` | object | - | 旁观模式配置，支持 `temperature`（0–100）快速调节 |
 | `deliverDebounce` | object | - | 消息防抖配置 |
+| `sleepMode` | object | - | 休眠模式：夜间静默，仅 @和关键词触发 |
 
 完整配置见 [docs/CONFIG.md](docs/CONFIG.md)。
 

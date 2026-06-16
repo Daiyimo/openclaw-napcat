@@ -104,6 +104,7 @@ export function installMessageHandler(
     if (!filterResult) return;
 
     const { userId, groupId, guildId, channelId, isGroup, isGuild, selfId } = filterResult;
+    // filterStage 已在入口对 inbound.total 计数，此处无需重复
 
     // 每条消息创建独立的 MessageSender，携带正确的发送上下文
     // 修复：之前全局复用的 MessageSender isGroup 永远为 false，导致群消息走私聊 API

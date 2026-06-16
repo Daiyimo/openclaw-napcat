@@ -92,6 +92,17 @@ if (inboundRateMs !== undefined) qqEnv.inboundRateLimitMs = inboundRateMs;
 const silentKws = parseStringList(env.QQ_SILENT_KEYWORDS);
 if (silentKws)               qqEnv.silentKeywords   = silentKws;
 
+// ── 休眠模式 ──────────────────────────────────────────────────────────────────
+if (env.QQ_SLEEP_MODE_ENABLED !== undefined) {
+  const sleepMode = {};
+  sleepMode.enabled = parseBool(env.QQ_SLEEP_MODE_ENABLED, false);
+  const startHour = parseIntOpt(env.QQ_SLEEP_MODE_START_HOUR);
+  if (startHour !== undefined) sleepMode.startHour = startHour;
+  const endHour = parseIntOpt(env.QQ_SLEEP_MODE_END_HOUR);
+  if (endHour !== undefined) sleepMode.endHour = endHour;
+  qqEnv.sleepMode = sleepMode;
+}
+
 if (env.QQ_ANTI_RISK_MODE !== undefined)
                              qqEnv.antiRiskMode      = parseBool(env.QQ_ANTI_RISK_MODE, false);
 

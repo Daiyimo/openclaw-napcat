@@ -79,7 +79,7 @@ export async function startAccount(
     const lastTrigger = new Map<string, number>();
     const rateLimiter = new InboundRateLimiter(
       { windowMs: config.inboundRateLimitMs ?? 0, maxMessages: INBOUND_RATE_LIMIT_DEFAULT_MAX },
-      config.admins ?? [],
+      [...(config.admins ?? []), ...(config.sharedAdmins ?? [])],
     );
     const inboundStore: InboundRateLimitStore = {
       lastTrigger,
@@ -158,6 +158,9 @@ export async function startAccount(
     const accountMetrics = shared.metrics?.get(account.accountId);
     const accountAlertCooldown = shared.alertCooldown?.get(account.accountId);
 
+    // 闭包捕获本次实例的卸载函数，防止竞态：旧实例 cleanup 期间新实例可能已覆盖 Map
+    let myUninstall: (() => void) | undefined;
+
     // 防止重连时 message handler listener 累积：先卸载旧的
     const oldUninstall = shared._messageHandlerCleanups?.get(account.accountId);
     if (oldUninstall) {
@@ -165,7 +168,23 @@ export async function startAccount(
       shared._messageHandlerCleanups?.delete(account.accountId);
     }
 
-    const uninstallMessageHandler = installMessageHandler(client, {
+    // 创建 MessageSender 实例并注入（DI），便于测试时替换 mock
+    const messageSender = new MessageSender({
+      client,
+      config,
+      uploadCache,
+      accountId: account.accountId,
+      isGroup: false, // 运行时由 sendFile/sendByTarget 根据实际目标判断
+      isGuild: false,
+      groupId: undefined,
+      userId: undefined,
+      guildId: undefined,
+      channelId: undefined,
+      log,
+      metrics: accountMetrics,
+    });
+
+    myUninstall = installMessageHandler(client, {
       client,
       account,
       config,
@@ -182,7 +201,7 @@ export async function startAccount(
 
     // 保存卸载函数
     if (shared._messageHandlerCleanups) {
-      shared._messageHandlerCleanups.set(account.accountId, uninstallMessageHandler);
+      shared._messageHandlerCleanups.set(account.accountId, myUninstall);
     }
 
     // 注册 gauge 实时查询（提供最新值）
@@ -214,9 +233,10 @@ export async function startAccount(
 
     // ── Cleanup ─────────────────────────────────────────
     // 卸载 message handler listener，防止重连时累积
-    const msgCleanup = shared._messageHandlerCleanups?.get(account.accountId);
-    if (msgCleanup) {
-      msgCleanup();
+    // 卸载 message handler listener，防止重连时累积
+    // 用闭包变量 myUninstall（本次实例），避免竞态读到新实例的函数
+    if (myUninstall) {
+      myUninstall();
       shared._messageHandlerCleanups?.delete(account.accountId);
     }
 

@@ -190,6 +190,7 @@ export class OneBotClient extends EventEmitter {
 
   private handleDisconnect() {
     this.cleanup();
+    this.stopReverseHeartbeat();
     this.forwardAlive = false;
     this.reverseAlive = false;
     // 拒绝所有等待中的请求
