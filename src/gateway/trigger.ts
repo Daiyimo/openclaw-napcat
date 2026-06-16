@@ -568,6 +568,20 @@ export async function triggerStage(
     isMentioned = detectMention(event, selfId, text, null, config.debug, log);
   }
 
+  // ── 休眠模式 ────────────────────────────────────────────────────────
+  // 休眠时段内，仅 @mention 和关键词触发有效，名字触发全部静默
+  if (isGroup && isInSleepHours(config) && !isMentioned) {
+    if (detectKeywordTrigger(text, config.keywordTriggers)) {
+      isTriggered = true; // 关键词触发在休眠期仍有效
+    } else {
+      if (config.debug) {
+        log.log(`[napcat-QQ][debug-sleep] sleep mode active, dropping non-mention non-keyword message`);
+      }
+      metrics?.increment("inbound", "sleepSuppressed");
+      return null;
+    }
+  }
+
   if (!isTriggered && !isMentioned && checkMention) {
     const botName = config._selfName;
     if (botName && detectNameTrigger(text, botName, config.debug, log)) {
@@ -580,16 +594,6 @@ export async function triggerStage(
 
   if (!isTriggered) {
     isTriggered = detectKeywordTrigger(text, config.keywordTriggers);
-  }
-
-  // ── 休眠模式 ────────────────────────────────────────────────────────
-  // 休眠时段内，仅 @mention 和关键词触发有效，被动模式/名字触发全部静默
-  if (isGroup && isInSleepHours(config) && !isTriggered && !isMentioned) {
-    if (config.debug) {
-      log.log(`[napcat-QQ][debug-sleep] sleep mode active, dropping passive/name trigger`);
-    }
-    metrics?.increment("inbound", "sleepSuppressed");
-    return null;
   }
 
   // ── 被动模式 ────────────────────────────────────────────────────────
