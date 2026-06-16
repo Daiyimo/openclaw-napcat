@@ -55,6 +55,10 @@ services:
       QQ_INBOUND_RATE_LIMIT_MS: ${QQ_INBOUND_RATE_LIMIT_MS:-0}
       QQ_SILENT_KEYWORDS: ${QQ_SILENT_KEYWORDS:-}
       QQ_ANTI_RISK_MODE: ${QQ_ANTI_RISK_MODE:-false}
+      # ── 休眠模式 ───────────────────────────────────────────────────────────────
+      QQ_SLEEP_MODE_ENABLED: ${QQ_SLEEP_MODE_ENABLED:-false}
+      QQ_SLEEP_MODE_START_HOUR: ${QQ_SLEEP_MODE_START_HOUR:-23}
+      QQ_SLEEP_MODE_END_HOUR: ${QQ_SLEEP_MODE_END_HOUR:-7}
       # ── 友军识别（v1.7.1+，v1.9.2 移除 metadata 模式）───────────────
       QQ_BOT_SIGNATURE_STYLE: ${QQ_BOT_SIGNATURE_STYLE:-visible}    # 显式 visible,禁用 metadata 广播
       QQ_IGNORE_SENDER_BOT: ${QQ_IGNORE_SENDER_BOT:-true}

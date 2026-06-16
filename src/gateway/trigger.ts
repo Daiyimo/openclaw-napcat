@@ -32,7 +32,7 @@ import {
   setCachedOtherBotNames,
   invalidateOtherBotNamesCache,
 } from "./trigger-state.js";
-import { resolvePassiveModeTemperature } from "../config.js";
+import { resolvePassiveModeTemperature, type QQConfig } from "../config.js";
 import { registerGroupRoute } from "./group-route-registry.js";
 import { maskId } from "../utils/log-sanitize.js";
 import {
@@ -40,6 +40,8 @@ import {
   BOT_SIGNATURE_ZW_PATTERN,
   BOT_STOPPED_SUPPRESS_MS,
   DEFAULT_STOP_KEYWORDS,
+  DEFAULT_SLEEP_START_HOUR,
+  DEFAULT_SLEEP_END_HOUR,
 } from "../constants.js";
 
 import type { MetricsCollector } from "../metrics.js";
@@ -290,6 +292,22 @@ function detectUserStopIntent(
 }
 
 // ── 主函数 ──────────────────────────────────────────────────────────────
+
+/**
+ * 判断当前是否在休眠时段内。
+ * 支持跨午夜区间（如 23→7）和普通区间（如 2→6）。
+ */
+function isInSleepHours(config: QQConfig): boolean {
+  const sm = config.sleepMode;
+  if (!sm?.enabled) return false;
+  const hour = new Date().getHours();
+  const start = sm.startHour ?? DEFAULT_SLEEP_START_HOUR;
+  const end = sm.endHour ?? DEFAULT_SLEEP_END_HOUR;
+  if (start <= end) {
+    return hour >= start && hour < end;
+  }
+  return hour >= start || hour < end;
+}
 
 export async function triggerStage(
   input: TriggerInput,
@@ -562,6 +580,16 @@ export async function triggerStage(
 
   if (!isTriggered) {
     isTriggered = detectKeywordTrigger(text, config.keywordTriggers);
+  }
+
+  // ── 休眠模式 ────────────────────────────────────────────────────────
+  // 休眠时段内，仅 @mention 和关键词触发有效，被动模式/名字触发全部静默
+  if (isGroup && isInSleepHours(config) && !isTriggered && !isMentioned) {
+    if (config.debug) {
+      log.log(`[napcat-QQ][debug-sleep] sleep mode active, dropping passive/name trigger`);
+    }
+    metrics?.increment("inbound", "sleepSuppressed");
+    return null;
   }
 
   // ── 被动模式 ────────────────────────────────────────────────────────
