@@ -12,7 +12,6 @@ import { fileURLToPath } from "node:url";
 import * as os from "node:os";
 import type { OneBotMessage } from "./types.js";
 import type { OneBotClient } from "./client.js";
-import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { Logger } from "./types/channel-types.js";
 import { MAX_REDIRECT_COUNT } from "./constants.js";
 
