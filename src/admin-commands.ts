@@ -808,7 +808,7 @@ export async function handleReload(ctx: AdminCmdContext, _parts: string[]): Prom
     }
     if (ctx.rateLimiter && napcat?.inboundRateLimitMs !== undefined) {
       ctx.rateLimiter.updateWindowMs(napcat.inboundRateLimitMs);
-      ctx.rateLimiter.updateAdmins(napcat.admins ?? []);
+      ctx.rateLimiter.updateAdmins([...(napcat.admins ?? []), ...(napcat.sharedAdmins ?? [])]);
     }
     return msg;
   }

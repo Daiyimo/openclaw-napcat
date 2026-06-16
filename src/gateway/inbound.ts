@@ -105,8 +105,7 @@ export function installMessageHandler(
     if (!filterResult) return;
 
     const { userId, groupId, guildId, channelId, isGroup, isGuild, selfId } = filterResult;
-    // 入站计数（filter 已放行）
-    ctx.metrics?.increment("inbound", "total");
+    // filterStage 已在入口对 inbound.total 计数，此处无需重复
 
     try {
       const triggerResult = await triggerStage(

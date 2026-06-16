@@ -203,6 +203,15 @@
       "sensitiveFileGuard": {
         "type": "object",
         "description": "Pre-dispatch guard: block non-admin users from instructing the agent to modify persona/memory files (SOUL.md, AGENTS.md, IDENTITY.md, USER.md, MEMORY.md by default). Enabled by default."
+      },
+      "sleepMode": {
+        "type": "object",
+        "description": "Sleep mode: during [startHour, endHour), only @mention and keyword triggers work. Passive mode and name triggers are suppressed. Uses server local time.",
+        "properties": {
+          "enabled":   { "type": "boolean" },
+          "startHour": { "type": "number", "minimum": 0, "maximum": 23 },
+          "endHour":   { "type": "number", "minimum": 0, "maximum": 23 }
+        }
       }
     }
   },

@@ -153,3 +153,11 @@ export const GROUP_HISTORY_CACHE_TTL_MS = 30_000;
 
 /** 群对话状态清理最大未活跃时长（ms）。超过后清除对话状态 */
 export const DIALOG_STATE_CLEANUP_MS = 60 * 60 * 1_000;
+
+// === 休眠模式 ===
+
+/** 休眠模式默认开始小时（23 = 晚上 11 点） */
+export const DEFAULT_SLEEP_START_HOUR = 23;
+
+/** 休眠模式默认结束小时（7 = 早上 7 点） */
+export const DEFAULT_SLEEP_END_HOUR = 7;

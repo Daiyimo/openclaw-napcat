@@ -108,6 +108,19 @@ export const QQConfigSchema = z.object({
     nouns: z.array(z.string().min(1)).optional().describe("Intent nouns paired with verbs. Default contains 中文 人设/灵魂/记忆/身份/人格/性格 and 英文 soul/agents/memory/identity/persona."),
     rejectMessage: z.string().optional().describe("Custom rejection text sent to non-admin sender. Default contains a generic admin-only notice."),
   }).optional().describe("Pre-dispatch guard against non-admin persona/memory file modification."),
+  // ── 休眠模式 ─────────────────────────────────────────────────
+  /**
+   * 休眠模式：在指定时段内，bot 仅响应 @mention 和关键词触发，
+   * 被动模式/旁观模式/名字触发全部静默。使用服务器本地时间。
+   *
+   * 跨午夜区间（如 23→7）：hour >= startHour || hour < endHour
+   * 普通区间（如 2→6）：   hour >= startHour && hour < endHour
+   */
+  sleepMode: z.object({
+    enabled: z.boolean().optional().default(false).describe("Enable sleep mode. Default false."),
+    startHour: z.number().int().min(0).max(23).optional().default(23).describe("Sleep start hour (0-23). Default 23 (11 PM)."),
+    endHour: z.number().int().min(0).max(23).optional().default(7).describe("Sleep end hour (0-23). Default 7 (7 AM)."),
+  }).optional().describe("Sleep mode: during [startHour, endHour), only @mention and keyword triggers work. Passive mode and name triggers are suppressed. Uses server local time."),
 });
 
 export type QQConfig = z.infer<typeof QQConfigSchema>;
