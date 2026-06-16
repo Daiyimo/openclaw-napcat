@@ -22,7 +22,6 @@ import { triggerUpdateCheck } from "../update-checker.js";
 import { initRefIndexStore, flushRefIndex } from "../ref-index-store.js";
 import { flushKnownUsers } from "../known-users.js";
 import { UploadCache } from "../upload-cache.js";
-import { MessageSender } from "../message-sender.js";
 import {
   DEDUP_MAX_SIZE,
   DEDUP_KEEP_SIZE,
@@ -162,22 +161,6 @@ export async function startAccount(
       shared._messageHandlerCleanups?.delete(account.accountId);
     }
 
-    // 创建 MessageSender 实例并注入（DI），便于测试时替换 mock
-    const messageSender = new MessageSender({
-      client,
-      config,
-      uploadCache,
-      accountId: account.accountId,
-      isGroup: false, // 运行时由 sendFile/sendByTarget 根据实际目标判断
-      isGuild: false,
-      groupId: undefined,
-      userId: undefined,
-      guildId: undefined,
-      channelId: undefined,
-      log,
-      metrics: accountMetrics,
-    });
-
     const uninstallMessageHandler = installMessageHandler(client, {
       client,
       account,
@@ -192,7 +175,7 @@ export async function startAccount(
       log,
       metrics: accountMetrics,
       alertCooldown: accountAlertCooldown,
-    }, messageSender);
+    });
 
     // 保存卸载函数
     if (shared._messageHandlerCleanups) {

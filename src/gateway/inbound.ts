@@ -34,7 +34,7 @@ import {
   buildFromId,
   buildBodyWithReply,
 } from "../message-processor.js";
-import { MessageSender, type MessageSenderContext } from "../message-sender.js";
+import { MessageSender } from "../message-sender.js";
 import { filterStage, type FilterResult } from "./filter.js";
 import { triggerStage } from "./trigger.js";
 import { ERROR_NOTIFY_SLEEP_MS, GROUP_HISTORY_CACHE_TTL_MS } from "../constants.js";
@@ -86,7 +86,6 @@ async function getCachedGroupHistory(
 export function installMessageHandler(
   client: OneBotClient,
   ctx: InboundContext,
-  messageSender?: MessageSender,
 ): () => void {
   const {
     account,
@@ -107,6 +106,23 @@ export function installMessageHandler(
     const { userId, groupId, guildId, channelId, isGroup, isGuild, selfId } = filterResult;
     // 入站计数（filter 已放行）
     ctx.metrics?.increment("inbound", "total");
+
+    // 每条消息创建独立的 MessageSender，携带正确的发送上下文
+    // 修复：之前全局复用的 MessageSender isGroup 永远为 false，导致群消息走私聊 API
+    const sender = new MessageSender({
+      client,
+      config,
+      uploadCache,
+      accountId: account.accountId,
+      isGroup,
+      isGuild,
+      groupId,
+      userId,
+      guildId,
+      channelId,
+      log,
+      metrics: ctx.metrics,
+    });
 
     try {
       const triggerResult = await triggerStage(
@@ -185,18 +201,6 @@ export function installMessageHandler(
       }
 
       // ── 消息发送器 ────────────────────────────────────
-      const sender = messageSender ?? new MessageSender({
-        client,
-        config,
-        uploadCache,
-        accountId: account.accountId,
-        isGroup,
-        isGuild,
-        groupId,
-        userId,
-        guildId,
-        channelId,
-      });
       const actualDeliver = (payload: DeliverPayload) => sender.deliver(payload);
 
       const debouncer = createDeliverDebouncer(
