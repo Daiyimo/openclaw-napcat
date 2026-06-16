@@ -233,7 +233,6 @@ export async function startAccount(
 
     // ── Cleanup ─────────────────────────────────────────
     // 卸载 message handler listener，防止重连时累积
-    // 卸载 message handler listener，防止重连时累积
     // 用闭包变量 myUninstall（本次实例），避免竞态读到新实例的函数
     if (myUninstall) {
       myUninstall();

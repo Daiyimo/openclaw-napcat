@@ -125,7 +125,7 @@ QQ_BOT_SIGNATURE_STYLE: visible           # 默认：[BOT:xxx] 文本签名
 
 ```yaml
 # Docker 环境变量
-QQ_RESPONSE_GUIDELINES: ""  # 留空 = 用默认硬约束;设 "" = 关闭
+QQ_RESPONSE_GUIDELINES: ""  # 不设置 = 使用默认硬约束；设 "" = 关闭约束；设自定义文本 = 替换默认
 ```
 
 **默认约束摘要:**
