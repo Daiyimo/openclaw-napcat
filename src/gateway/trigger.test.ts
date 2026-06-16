@@ -1,110 +1,107 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { QQConfig } from "../config.js";
 import { isInSleepHours } from "./trigger.js";
 import { DEFAULT_SLEEP_START_HOUR, DEFAULT_SLEEP_END_HOUR } from "../constants.js";
 
+/** 保存原始 Date */
+let _OriginalDate: typeof Date;
+
 /**
- * 拦截 Date 构造函数，让 isInSleepHours 返回指定的 hour。
- * isInSleepHours 内部使用 new Date().getHours()，所以可以通过
- * 重写全局 Date 来控制测试时间。
+ * 用 class 覆写 globalThis.Date，使 new Date().getHours() 返回指定 hour。
+ * 同时保留 Date.now() 和正常构造参数透传。
  */
 function mockHour(hour: number): void {
-  const OriginalDate = globalThis.Date;
-  // @ts-ignore — 替换全局 Date
-  globalThis.Date = class extends OriginalDate {
-    constructor(...args: ConstructorParameters<typeof OriginalDate>) {
+  _OriginalDate = globalThis.Date as typeof Date;
+  const fixed = new _OriginalDate(`2024-06-15T${String(hour).padStart(2, "0")}:00:00`);
+  // @ts-ignore — 测试专用覆写
+  globalThis.Date = class extends _OriginalDate {
+    constructor(...args: unknown[]) {
       if (args.length === 0) {
-        super(`2024-06-15T${String(hour).padStart(2, "0")}:00:00`);
+        super(fixed.getTime());
       } else {
-        super(...args);
+        // @ts-ignore — 透传构造参数
+        super(...(args as ConstructorParameters<typeof _OriginalDate>));
       }
     }
     static now() {
-      return new OriginalDate(`2024-06-15T${String(hour).padStart(2, "0")}:00:00`).getTime();
+      return fixed.getTime();
     }
   };
 }
 
-/** 还原原始 Date */
+/** 恢复原始 Date */
 function restoreDate(): void {
-  // @ts-ignore
-  globalThis.Date = OriginalDate;
+  if (_OriginalDate) {
+    // @ts-ignore
+    globalThis.Date = _OriginalDate;
+    _OriginalDate = Date as typeof Date;
+  }
 }
 
-const makeConfig = (overrides?: Partial<QQConfig["sleepMode"]>): QQConfig => ({
-  sleepMode: {
-    enabled: true,
-    startHour: DEFAULT_SLEEP_START_HOUR,
-    endHour: DEFAULT_SLEEP_END_HOUR,
-    ...overrides,
-  },
-});
+/** 构造最小化 QQConfig（仅 sleepMode 相关字段） */
+function makeConfig(overrides?: Partial<QQConfig["sleepMode"]>): QQConfig {
+  return {
+    sleepMode: {
+      enabled: true,
+      startHour: DEFAULT_SLEEP_START_HOUR,
+      endHour: DEFAULT_SLEEP_END_HOUR,
+      ...overrides,
+    },
+  } as unknown as QQConfig;
+}
 
 describe("isInSleepHours", () => {
   beforeEach(() => {
-    vi.useFakeTimers();
+    mockHour(12); // 默认中午，不影响大多数测试（每个测试自行设置 hour）
   });
 
   afterEach(() => {
-    vi.useRealTimers();
-    // 确保恢复真实的 Date（避免 fake timers 影响其他测试）
-    // vi.useRealTimers() 内部会处理恢复
+    restoreDate();
   });
 
   describe("disabled mode", () => {
     it("test_disabled_returns_false", () => {
-      const config = makeConfig({ enabled: false });
       mockHour(23);
-      expect(isInSleepHours(config)).toBe(false);
+      expect(isInSleepHours(makeConfig({ enabled: false }))).toBe(false);
     });
 
-    it("test_missing_enabled_returns_false", () => {
-      // sleepMode 存在但 enabled 为 undefined/falsy
-      const config = makeConfig({ enabled: false });
-      mockHour(23);
-      expect(isInSleepHours(config)).toBe(false);
+    it("test_no_sleepMode_returns_false", () => {
+      expect(isInSleepHours({} as unknown as QQConfig)).toBe(false);
     });
   });
 
   describe("cross-midnight window (23→7)", () => {
     it("test_cross_midnight_during_sleep_hour_night", () => {
-      // 凌晨 2:00 → 在睡眠窗口内 (23→7)
       mockHour(2);
       expect(isInSleepHours(makeConfig())).toBe(true);
     });
 
     it("test_cross_midnight_during_sleep_hour_late_night", () => {
-      // 凌晨 6:59 → 仍在睡眠窗口内
       mockHour(6);
       expect(isInSleepHours(makeConfig())).toBe(true);
     });
 
     it("test_cross_midnight_before_sleep_hour", () => {
-      // 上午 8:00 → 不在睡眠窗口内
       mockHour(8);
       expect(isInSleepHours(makeConfig())).toBe(false);
     });
 
     it("test_cross_midnight_during_sleep_hour_evening", () => {
-      // 晚上 23:00 → 在睡眠窗口内
       mockHour(23);
       expect(isInSleepHours(makeConfig())).toBe(true);
     });
 
     it("test_cross_midnight_during_sleep_hour_midnight", () => {
-      // 午夜 0:00 → 在睡眠窗口内
       mockHour(0);
       expect(isInSleepHours(makeConfig())).toBe(true);
     });
 
     it("test_cross_midnight_at_boundary_hour_7", () => {
-      // 7:00 → 不在窗口内（half-open: hour < end）
       mockHour(7);
       expect(isInSleepHours(makeConfig())).toBe(false);
     });
 
     it("test_cross_midnight_at_boundary_hour_22", () => {
-      // 22:00 → 不在窗口内（hour < start）
       mockHour(22);
       expect(isInSleepHours(makeConfig())).toBe(false);
     });
@@ -143,13 +140,11 @@ describe("isInSleepHours", () => {
     const config = makeConfig({ startHour: 8, endHour: 22 });
 
     it("test_daytime_window_outside", () => {
-      // 23:00 → outside
       mockHour(23);
       expect(isInSleepHours(config)).toBe(false);
     });
 
     it("test_daytime_window_inside", () => {
-      // 12:00 → inside
       mockHour(12);
       expect(isInSleepHours(config)).toBe(true);
     });
@@ -167,52 +162,40 @@ describe("isInSleepHours", () => {
 
   describe("zero-length window (start === end)", () => {
     it("test_zero_length_returns_false", () => {
-      // start === end → 0长度窗口, 视为关闭
       mockHour(23);
-      const config = makeConfig({ startHour: 23, endHour: 23 });
-      expect(isInSleepHours(config)).toBe(false);
+      expect(isInSleepHours(makeConfig({ startHour: 23, endHour: 23 }))).toBe(false);
     });
 
     it("test_zero_length_midnight_returns_false", () => {
       mockHour(7);
-      const config = makeConfig({ startHour: 7, endHour: 7 });
-      expect(isInSleepHours(config)).toBe(false);
+      expect(isInSleepHours(makeConfig({ startHour: 7, endHour: 7 }))).toBe(false);
     });
   });
 
   describe("extreme hours", () => {
     it("test_full_day_window_0_23", () => {
-      // start=0, end=23 → 几乎整天
       mockHour(22);
-      const config = makeConfig({ startHour: 0, endHour: 23 });
-      expect(isInSleepHours(config)).toBe(true);
+      expect(isInSleepHours(makeConfig({ startHour: 0, endHour: 23 }))).toBe(true);
     });
 
     it("test_full_day_excluding_hour_23", () => {
-      // start=0, end=23 → 23 不在范围内
       mockHour(23);
-      const config = makeConfig({ startHour: 0, endHour: 23 });
-      expect(isInSleepHours(config)).toBe(false);
+      expect(isInSleepHours(makeConfig({ startHour: 0, endHour: 23 }))).toBe(false);
     });
 
     it("test_single_hour_window_23_0", () => {
-      // 只有 23:00 这一个小时
       mockHour(23);
-      const config = makeConfig({ startHour: 23, endHour: 0 });
-      expect(isInSleepHours(config)).toBe(true);
+      expect(isInSleepHours(makeConfig({ startHour: 23, endHour: 0 }))).toBe(true);
     });
 
     it("test_single_hour_window_exclusive_end", () => {
-      // 0:00 → 不在 23→0 的窗口内（end 是 exclusive）
       mockHour(0);
-      const config = makeConfig({ startHour: 23, endHour: 0 });
-      expect(isInSleepHours(config)).toBe(false);
+      expect(isInSleepHours(makeConfig({ startHour: 23, endHour: 0 }))).toBe(false);
     });
 
     it("test_overnight_window_minimal_23_0", () => {
       mockHour(1);
-      const config = makeConfig({ startHour: 23, endHour: 0 });
-      expect(isInSleepHours(config)).toBe(false);
+      expect(isInSleepHours(makeConfig({ startHour: 23, endHour: 0 }))).toBe(false);
     });
   });
 

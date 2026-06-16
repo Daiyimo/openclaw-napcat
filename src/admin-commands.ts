@@ -55,9 +55,9 @@ import {
   LOGS_MAX_COUNT,
   ESSENCE_MAX_DISPLAY,
   CONFIRM_TIMEOUT_SECONDS,
-  DEFAULT_SLEEP_START_HOUR,
-  DEFAULT_SLEEP_END_HOUR,
 } from "./admin-commands/constants.js";
+
+import { DEFAULT_SLEEP_START_HOUR, DEFAULT_SLEEP_END_HOUR } from "./constants.js";
 
 // 常量 re-export（供 client.ts 等外部模块引用）
 export { BAN_DEFAULT_MINUTES, MUTE_DEFAULT_MINUTES };
