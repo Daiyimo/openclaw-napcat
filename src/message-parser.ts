@@ -321,8 +321,8 @@ const ALLOWED_LOCAL_DIRS: string[] = (() => {
 /** 敏感目录黑名单：即使父目录在白名单内，这些子目录也不允许访问 */
 const BLOCKED_SUB_PATTERNS: RegExp[] = [
   /[\\/]\.ssh[\\/]/i,
-  /[\\/]\.env[\\/]/i,
-  /[\\/]\.env\.[a-z]+[\\/]/i,
+  /[\\/]\.env(?:[\\/]|$)/i,
+  /[\\/]\.env\.[a-z]+(?:[\\/]|$)/i,
   /[\\/]\.config[\\/]/i,
   /[\\/]\.gnupg[\\/]/i,
   /[\\/]\.docker[\\/]/i,
