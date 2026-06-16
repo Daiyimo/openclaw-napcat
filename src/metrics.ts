@@ -20,6 +20,7 @@ export interface MetricsCounters {
     rateLimited: number;  // 被速率限制拦截的
     silentDropped: number; // 被 silent keyword 拦截的
     triggered: number;    // 通过 triggerStage 的
+    sleepSuppressed: number; // 休眠模式拦截的
   };
   dispatch: {
     attempts: number;     // 尝试 AI 派发
@@ -56,7 +57,7 @@ export interface MetricsGauges {
 export class MetricsCollector {
   // 内部可变，increment/reset 需要写入
   counters: MetricsCounters = {
-    inbound: { total: 0, filtered: 0, rateLimited: 0, silentDropped: 0, triggered: 0 },
+    inbound: { total: 0, filtered: 0, rateLimited: 0, silentDropped: 0, triggered: 0, sleepSuppressed: 0 },
     dispatch: { attempts: 0, succeeded: 0, failed: 0 },
     outbound: { sent: 0, failed: 0, mediaSent: 0, silentDropped: 0 },
     cache: { memberHits: 0, memberMisses: 0, uploadHits: 0, uploadMisses: 0, botSigHits: 0 },
