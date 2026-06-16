@@ -122,4 +122,47 @@ describe("updateConfigRef", () => {
     expect(ref.current.passiveMode.minIntervalMs).toBe(45000);
     expect(ref.current.passiveMode.botSuppressionMs).toBe(180000);
   });
+
+  // ── sleepMode 运行时保留 ──────────────────────────────────────────────────
+
+  it("preserves runtime sleepMode when not in reload config", () => {
+    // 模拟 /sleep 命令修改了 sleepMode 后执行 /reload
+    const initial = {
+      sleepMode: { enabled: true, startHour: 23, endHour: 7 },
+    } as any;
+    const ref = createConfigRef(initial);
+    // /reload 传入的配置中不包含 sleepMode（用户通过 /sleep 设置，不会写回文件）
+    const result = updateConfigRef(ref, { rateLimitMs: 2000 });
+    expect(result.success).toBe(true);
+    expect(ref.current.sleepMode.enabled).toBe(true);
+    expect(ref.current.sleepMode.startHour).toBe(23);
+    expect(ref.current.sleepMode.endHour).toBe(7);
+  });
+
+  it("updates sleepMode when explicitly set in reload config", () => {
+    const initial = {
+      sleepMode: { enabled: true, startHour: 23, endHour: 7 },
+    } as any;
+    const ref = createConfigRef(initial);
+    const result = updateConfigRef(ref, {
+      sleepMode: { enabled: true, startHour: 0, endHour: 6 },
+    });
+    expect(result.success).toBe(true);
+    expect(ref.current.sleepMode.startHour).toBe(0);
+    expect(ref.current.sleepMode.endHour).toBe(6);
+  });
+
+  it("does not reset sleepMode to defaults when absent from reload", () => {
+    const initial = {
+      sleepMode: { enabled: true, startHour: 1, endHour: 5 },
+    } as any;
+    const ref = createConfigRef(initial);
+    // Empty reload → schema defaults would set sleepMode to { enabled: false, startHour: 23, endHour: 7 }
+    // but our fix preserves the runtime value
+    const result = updateConfigRef(ref, {});
+    expect(result.success).toBe(true);
+    expect(ref.current.sleepMode.enabled).toBe(true);
+    expect(ref.current.sleepMode.startHour).toBe(1);
+    expect(ref.current.sleepMode.endHour).toBe(5);
+  });
 });

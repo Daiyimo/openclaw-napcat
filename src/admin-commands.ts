@@ -55,6 +55,8 @@ import {
   LOGS_MAX_COUNT,
   ESSENCE_MAX_DISPLAY,
   CONFIRM_TIMEOUT_SECONDS,
+  DEFAULT_SLEEP_START_HOUR,
+  DEFAULT_SLEEP_END_HOUR,
 } from "./admin-commands/constants.js";
 
 // 常量 re-export（供 client.ts 等外部模块引用）
@@ -724,7 +726,9 @@ export async function handleSleep(ctx: AdminCmdContext, _parts: string[]): Promi
   if (!cmd) {
     const sm = configRef.current.sleepMode;
     if (sm?.enabled) {
-      return `🌙 休眠模式: 开启\n时段: ${sm.startHour ?? 23}:00 - ${sm.endHour ?? 7}:00\n用法: /sleep off | /sleep on | /sleep <时段描述>`;
+      const s = sm.startHour ?? DEFAULT_SLEEP_START_HOUR;
+      const e = sm.endHour ?? DEFAULT_SLEEP_END_HOUR;
+      return `🌙 休眠模式: 开启\n时段: ${s}:00 - ${e}:00\n用法: /sleep off | /sleep on | /sleep <时段描述>`;
     }
     return `🌙 休眠模式: 关闭\n用法: /sleep on | /sleep off | /sleep <时段描述>`;
   }
@@ -737,7 +741,9 @@ export async function handleSleep(ctx: AdminCmdContext, _parts: string[]): Promi
     const result = updateConfigRef(configRef, updated);
     if (!result.success) return `❌ 设置失败: ${result.error}`;
     if (cmd === "on") {
-      return `✅ 休眠模式已开启\n时段: ${sm.startHour ?? 23}:00 - ${sm.endHour ?? 7}:00\n（仅 @mention 和关键词触发有效，其他全部静默）`;
+      const s = sm.startHour ?? DEFAULT_SLEEP_START_HOUR;
+      const e = sm.endHour ?? DEFAULT_SLEEP_END_HOUR;
+      return `✅ 休眠模式已开启\n时段: ${s}:00 - ${e}:00\n（仅 @mention 和关键词触发有效，其他全部静默）`;
     }
     return "✅ 休眠模式已关闭";
   }
@@ -749,6 +755,9 @@ export async function handleSleep(ctx: AdminCmdContext, _parts: string[]): Promi
   }
 
   const { start, end, display } = parsed;
+  if (start === end) {
+    return `❌ 时段无效：开始和结束小时相同（${start}:00），休眠窗口为 0 长度。请设置不同的起止时间。`;
+  }
   const current = configRef.current;
   const sm = current.sleepMode ?? {};
   const updated = { ...current, sleepMode: { ...sm, enabled: true, startHour: start, endHour: end } };
@@ -760,31 +769,33 @@ export async function handleSleep(ctx: AdminCmdContext, _parts: string[]): Promi
 
 // ── 自然语言时间解析 ────────────────────────────────────────────────────────
 
-/** 中文数字 → 阿拉伯数字（支持 1-12） */
-function chineseNumToArabic(s: string): number | null {
-  const map: Record<string, number> = {
-    "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5,
-    "六": 6, "七": 7, "八": 8, "九": 9, "十": 10, "十一": 11, "十二": 12,
-  };
-  return map[s] ?? null;
-}
+/** 时间词 → 12h 基数。PM 词返回 12（需加偏移），AM 词返回 0 */
+const TIME_WORD_BASE: Record<string, number> = {
+  "凌晨": 0, "早上": 0, "上午": 0,
+  "中午": 12, "下午": 12, "晚上": 12, "晚": 12,
+};
 
-/** 时间词 → 小时偏移 */
-function timeWordToHour(s: string): number | null {
-  const map: Record<string, number> = {
-    "凌晨": 0, "早上": 0, "上午": 0, "早上好": 0,
-    "中午": 12, "下午": 12, "晚上": 12, "晚": 12, "夜里": 12, "夜间": 12, "深夜": 12,
-  };
-  return map[s] ?? null;
+/**
+ * 根据时间词将 12h 制小时转为 24h 制。
+ * 中文约定：12点（无论 AM/PM）= 0:00（午夜），其余 AM 直接使用，PM 加 12。
+ */
+function resolveHourByTimeWord(hour: number, timeWord: string): number {
+  const base = TIME_WORD_BASE[timeWord];
+  if (base === undefined) return hour; // 无时间词，保持原值
+  // 12 点无论 AM/PM 都是午夜 0:00
+  if (hour === 12) return 0;
+  // AM：直接使用；PM：加 12
+  return base === 0 ? hour : hour + 12;
 }
 
 /** 从文本中提取单个小时数，支持中文数字和阿拉伯数字 */
 function extractHour(text: string): number | null {
-  // 先尝试中文数字
-  for (const [cn, val] of Object.entries({
+  // 先尝试中文数字（长词优先，避免 "十" 先于 "十一" 匹配）
+  const cnMap: Record<string, number> = {
     "十一": 11, "十二": 12, "十": 10, "九": 9, "八": 8, "七": 7,
-    "六": 6, "五": 5, "四": 4, "三": 3, "二": 2, "两": 2, "一": 1,
-  })) {
+    "六": 6, "五": 5, "四": 4, "三": 3, "二": 2, "两": 2, "一": 1, "零": 0,
+  };
+  for (const [cn, val] of Object.entries(cnMap)) {
     if (text.includes(cn)) return val;
   }
   // 再尝试阿拉伯数字
@@ -799,6 +810,11 @@ function extractHour(text: string): number | null {
 /**
  * 解析休眠时段描述。
  * 返回 { start, end, display } 或 null。
+ *
+ * 支持的格式：
+ *   - "23:00-07:00" / "23:00到07:00"
+ *   - "23 7" / "23到7" / "23-7"
+ *   - "晚上11点到早上7点" / "每晚十一点到早上七点"
  */
 function parseSleepTime(cmd: string): { start: number; end: number; display: string } | null {
   const text = cmd.trim();
@@ -809,6 +825,12 @@ function parseSleepTime(cmd: string): { start: number; end: number; display: str
     const s = parseInt(directMatch[1], 10);
     const e = parseInt(directMatch[3], 10);
     if (s >= 0 && s <= 23 && e >= 0 && e <= 23) {
+      // ⚠️ 分钟字段当前 schema 不支持，静默丢弃并提示用户
+      const minS = directMatch[2];
+      const minE = directMatch[4];
+      if (minS !== "00" || minE !== "00") {
+        return { start: s, end: e, display: `${s}:00 - ${e}:00 (注: 分钟暂不支持，已取整到整点)` };
+      }
       return { start: s, end: e, display: `${s}:00 - ${e}:00` };
     }
   }
@@ -844,54 +866,26 @@ function parseSleepTime(cmd: string): { start: number; end: number; display: str
     const rightHour = extractHour(right);
 
     if (leftHour !== null && rightHour !== null) {
-      // 根据时间词调整
       let start = leftHour;
       let end = rightHour;
 
-      // 左侧有时间词 → 调整 start
-      const leftWord = Object.keys({ "晚上": 12, "晚": 12, "夜里": 12, "深夜": 12, "凌晨": 0, "早上": 0, "上午": 0, "下午": 12, "中午": 12 }).find(w => left.includes(w));
+      // 左侧时间词调整
+      const leftWord = Object.keys(TIME_WORD_BASE).find(w => left.includes(w));
       if (leftWord) {
-        if (leftWord === "凌晨" || leftWord === "早上" || leftWord === "上午") {
-          start = leftHour; // AM, keep as-is
-        } else if (leftWord === "下午" || leftWord === "中午") {
-          start = leftHour === 12 ? 12 : leftHour + 12;
-        } else {
-          // 晚上/晚/夜里/深夜 → PM
-          start = leftHour === 12 ? 12 : (leftHour < 12 ? leftHour + 12 : leftHour);
-        }
+        start = resolveHourByTimeWord(leftHour, leftWord);
       }
 
-      // 右侧有时间词 → 调整 end
-      const rightWord = Object.keys({ "晚上": 12, "晚": 12, "夜里": 12, "深夜": 12, "凌晨": 0, "早上": 0, "上午": 0, "下午": 12, "中午": 12 }).find(w => right.includes(w));
+      // 右侧时间词调整
+      const rightWord = Object.keys(TIME_WORD_BASE).find(w => right.includes(w));
       if (rightWord) {
-        if (rightWord === "凌晨" || rightWord === "早上" || rightWord === "上午") {
-          end = rightHour; // AM, keep as-is
-        } else if (rightWord === "下午" || rightWord === "中午") {
-          end = rightHour === 12 ? 12 : rightHour + 12;
-        } else {
-          // 晚上/晚/夜里/深夜 → PM
-          end = rightHour === 12 ? 12 : (rightHour < 12 ? rightHour + 12 : rightHour);
-        }
+        end = resolveHourByTimeWord(rightHour, rightWord);
       }
 
       // 边界检查
       if (start >= 0 && start <= 23 && end >= 0 && end <= 23) {
-        // 构建显示文本
         const display = `${start}:00 - ${end}:00`;
         return { start, end, display };
       }
-    }
-  }
-
-  // 格式4: 纯中文数字 "十一点到七点"
-  const cnSeparatorMatch = text.match(/(.+?)[到\-—~至](.+)/);
-  if (cnSeparatorMatch) {
-    const left = cnSeparatorMatch[1];
-    const right = cnSeparatorMatch[2];
-    const leftHour = extractHour(left);
-    const rightHour = extractHour(right);
-    if (leftHour !== null && rightHour !== null) {
-      return { start: leftHour, end: rightHour, display: `${leftHour}:00 - ${rightHour}:00` };
     }
   }
 

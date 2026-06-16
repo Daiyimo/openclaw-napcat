@@ -8,6 +8,9 @@
 import { QQConfigSchema, type QQConfig, resolvePassiveModeTemperature, getQQConfigDefaults } from "./config.js";
 import type { Logger } from "./types/channel-types.js";
 
+/** 运行时通过命令修改的字段：配置文件缺失时不应覆盖运行时值 */
+const RUNTIME_MUTABLE_FIELDS: (keyof QQConfig)[] = ["sleepMode", "passiveMode"];
+
 export interface ConfigRef {
   /** 当前生效的配置 */
   current: QQConfig;
@@ -97,6 +100,16 @@ export function updateConfigRef(ref: ConfigRef, raw: unknown): UpdateResult {
 
   // 原地赋值（而非替换引用），使所有已捕获 config 引用的闭包自动生效
   // （trigger.ts/inbound.ts 的 ctx.config 引用的是 ref.current 的同一对象）
+
+  // 运行时可变字段（sleepMode / passiveMode）仅在配置文件中显式存在时才更新；
+  // 缺失时保留 ref.current 中的运行时值（防止 /reload 重置 /sleep 命令的修改）
+  const rawKeys = new Set(Object.keys(raw as Record<string, unknown>));
+  for (const field of RUNTIME_MUTABLE_FIELDS) {
+    if (!rawKeys.has(field)) {
+      delete (newConfig as Record<string, unknown>)[field];
+    }
+  }
+
   Object.assign(ref.current, newConfig);
   return { success: true, connectionChanged };
 }

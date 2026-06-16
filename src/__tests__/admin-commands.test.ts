@@ -810,45 +810,6 @@ describe("handleAdminCommand — 群管扩展（v1.10+）", () => {
     expect(client.sendGroupMsg).toHaveBeenCalledWith(88888, expect.stringContaining("开启"));
   });
 
-  it("test_sleep_on_enables_sleep_mode", async () => {
-    await handleAdminCommand("/sleep on", ["/sleep", "on"], {
-      client, isGroup: true, groupId: 88888, userId: 1, text: "/sleep on",
-    });
-    expect(client.sendGroupMsg).toHaveBeenCalledWith(88888, expect.stringContaining("已开启"));
-  });
-
-  it("test_sleep_off_disables_sleep_mode", async () => {
-    await handleAdminCommand("/sleep on", ["/sleep", "on"], {
-      client, isGroup: true, groupId: 88888, userId: 1, text: "/sleep on",
-    });
-    vi.clearAllMocks();
-    await handleAdminCommand("/sleep off", ["/sleep", "off"], {
-      client, isGroup: true, groupId: 88888, userId: 1, text: "/sleep off",
-    });
-    expect(client.sendGroupMsg).toHaveBeenCalledWith(88888, expect.stringContaining("已关闭"));
-  });
-
-  it("test_sleep_with_hours_sets_time_window", async () => {
-    await handleAdminCommand("/sleep 23 7", ["/sleep", "23", "7"], {
-      client, isGroup: true, groupId: 88888, userId: 1, text: "/sleep 23 7",
-    });
-    const reply = vi.mocked(client.sendGroupMsg).mock.calls[0][1] as string;
-    expect(reply).toContain("23:00");
-    expect(reply).toContain("7:00");
-    expect(reply).toContain("已开启");
-  });
-
-  it("test_sleep_after_on_shows_status_on", async () => {
-    await handleAdminCommand("/sleep on", ["/sleep", "on"], {
-      client, isGroup: true, groupId: 88888, userId: 1, text: "/sleep on",
-    });
-    vi.clearAllMocks();
-    await handleAdminCommand("/sleep", ["/sleep"], {
-      client, isGroup: true, groupId: 88888, userId: 1, text: "/sleep",
-    });
-    expect(client.sendGroupMsg).toHaveBeenCalledWith(88888, expect.stringContaining("开启"));
-  });
-
   // ── 自然语言时段解析 ──────────────────────────────────────
 
   it("test_sleep_natural_language_chinese", async () => {
@@ -886,6 +847,102 @@ describe("handleAdminCommand — 群管扩展（v1.10+）", () => {
       client, isGroup: true, groupId: 88888, userId: 1, text: "/sleep 明天开始",
     });
     expect(client.sendGroupMsg).toHaveBeenCalledWith(88888, expect.stringContaining("无法识别"));
+  });
+
+  // ── 边界与修复验证 ──────────────────────────────────────
+
+  it("test_sleep_midnight_12pm_maps_to_0", async () => {
+    // "晚上12点" = 午夜 0:00, 不是 12:00
+    await handleAdminCommand("/sleep 晚上12点到早上7点", ["/sleep", "晚上12点到早上7点"], {
+      client, isGroup: true, groupId: 88888, userId: 1, text: "/sleep 晚上12点到早上7点",
+    });
+    const reply = vi.mocked(client.sendGroupMsg).mock.calls[0][1] as string;
+    expect(reply).toContain("0:00");
+    expect(reply).not.toContain("12:00 - 7:00");
+  });
+
+  it("test_sleep_lingye_1am_not_pm", async () => {
+    // "夜里1点" = 凌晨1:00, 不是下午13:00
+    await handleAdminCommand("/sleep 夜里1点到早上7点", ["/sleep", "夜里1点到早上7点"], {
+      client, isGroup: true, groupId: 88888, userId: 1, text: "/sleep 夜里1点到早上7点",
+    });
+    const reply = vi.mocked(client.sendGroupMsg).mock.calls[0][1] as string;
+    expect(reply).toContain("1:00");
+    expect(reply).not.toContain("13:00");
+  });
+
+  it("test_sleep_lingchen_12am_maps_to_0", async () => {
+    // "凌晨12点" = 0:00
+    await handleAdminCommand("/sleep 凌晨12点到早上7点", ["/sleep", "凌晨12点到早上7点"], {
+      client, isGroup: true, groupId: 88888, userId: 1, text: "/sleep 凌晨12点到早上7点",
+    });
+    const reply = vi.mocked(client.sendGroupMsg).mock.calls[0][1] as string;
+    expect(reply).toContain("0:00");
+  });
+
+  it("test_sleep_zero_hour_recognized", async () => {
+    // "零点" 应被识别为 0
+    await handleAdminCommand("/sleep 零点到七点", ["/sleep", "零点到七点"], {
+      client, isGroup: true, groupId: 88888, userId: 1, text: "/sleep 零点到七点",
+    });
+    const reply = vi.mocked(client.sendGroupMsg).mock.calls[0][1] as string;
+    expect(reply).toContain("0:00");
+    expect(reply).toContain("7:00");
+    expect(reply).toContain("已开启");
+  });
+
+  it("test_sleep_same_hour_rejected", async () => {
+    // start === end 应被拒绝（0长度窗口）
+    await handleAdminCommand("/sleep 7 7", ["/sleep", "7", "7"], {
+      client, isGroup: true, groupId: 88888, userId: 1, text: "/sleep 7 7",
+    });
+    expect(client.sendGroupMsg).toHaveBeenCalledWith(88888, expect.stringContaining("0 长度"));
+  });
+
+  it("test_sleep_updates_configRef_state", async () => {
+    await handleAdminCommand("/sleep 23 7", ["/sleep", "23", "7"], {
+      client, isGroup: true, groupId: 88888, userId: 1, text: "/sleep 23 7",
+    });
+    const { getConfigRef } = await import("../config-watcher.js");
+    const ref = getConfigRef();
+    expect(ref.current.sleepMode.enabled).toBe(true);
+    expect(ref.current.sleepMode.startHour).toBe(23);
+    expect(ref.current.sleepMode.endHour).toBe(7);
+  });
+
+  it("test_sleep_off_sets_enabled_false", async () => {
+    // First enable
+    await handleAdminCommand("/sleep on", ["/sleep", "on"], {
+      client, isGroup: true, groupId: 88888, userId: 1, text: "/sleep on",
+    });
+    vi.clearAllMocks();
+    // Then disable and verify configRef
+    await handleAdminCommand("/sleep off", ["/sleep", "off"], {
+      client, isGroup: true, groupId: 88888, userId: 1, text: "/sleep off",
+    });
+    const { getConfigRef } = await import("../config-watcher.js");
+    const ref = getConfigRef();
+    expect(ref.current.sleepMode.enabled).toBe(false);
+  });
+
+  it("test_sleep_pure_chinese_numerals_no_time_word", async () => {
+    await handleAdminCommand("/sleep 十一点到七点", ["/sleep", "十一点到七点"], {
+      client, isGroup: true, groupId: 88888, userId: 1, text: "/sleep 十一点到七点",
+    });
+    const reply = vi.mocked(client.sendGroupMsg).mock.calls[0][1] as string;
+    expect(reply).toContain("11:00");
+    expect(reply).toContain("7:00");
+    expect(reply).toContain("已开启");
+  });
+
+  it("test_sleep_dash_format_simple", async () => {
+    await handleAdminCommand("/sleep 23-7", ["/sleep", "23-7"], {
+      client, isGroup: true, groupId: 88888, userId: 1, text: "/sleep 23-7",
+    });
+    const reply = vi.mocked(client.sendGroupMsg).mock.calls[0][1] as string;
+    expect(reply).toContain("23:00");
+    expect(reply).toContain("7:00");
+    expect(reply).toContain("已开启");
   });
 });
 

@@ -297,12 +297,14 @@ function detectUserStopIntent(
  * 判断当前是否在休眠时段内。
  * 支持跨午夜区间（如 23→7）和普通区间（如 2→6）。
  */
-function isInSleepHours(config: QQConfig): boolean {
+export function isInSleepHours(config: QQConfig): boolean {
   const sm = config.sleepMode;
   if (!sm?.enabled) return false;
   const hour = new Date().getHours();
   const start = sm.startHour ?? DEFAULT_SLEEP_START_HOUR;
   const end = sm.endHour ?? DEFAULT_SLEEP_END_HOUR;
+  // 0 长度窗口视为关闭（如 /sleep 7 7）
+  if (start === end) return false;
   if (start <= end) {
     return hour >= start && hour < end;
   }
@@ -569,8 +571,8 @@ export async function triggerStage(
   }
 
   // ── 休眠模式 ────────────────────────────────────────────────────────
-  // 休眠时段内，仅 @mention 和关键词触发有效，名字触发全部静默
-  if (isGroup && isInSleepHours(config) && !isMentioned) {
+  // 休眠时段内，仅 @mention、poke（isTriggered）和关键词触发有效，名字触发全部静默
+  if (isGroup && isInSleepHours(config) && !isMentioned && !isTriggered) {
     if (detectKeywordTrigger(text, config.keywordTriggers)) {
       isTriggered = true; // 关键词触发在休眠期仍有效
     } else {
