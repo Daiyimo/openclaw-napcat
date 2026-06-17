@@ -70,6 +70,22 @@ function extractHaToken(config) {
 }
 
 function findNapcatEndpoint(config) {
+  // 优先从 channels.napcat（setup-config.cjs 写入位置）读取
+  const ch = config?.channels?.napcat;
+  if (ch) {
+    // 从 httpUrl 提取 host:port
+    if (ch.httpUrl) {
+      try {
+        const u = new URL(ch.httpUrl);
+        return { host: u.hostname, port: parseInt(u.port) || 3000 };
+      } catch { /* fall through */ }
+    }
+    // 从 reverseWsPort 推断（同端口通常也跑 HTTP API）
+    if (ch.reverseWsPort) {
+      return { host: '127.0.0.1', port: ch.reverseWsPort };
+    }
+  }
+  // 回退：从 plugins.entries.napcat 读取
   const entry = config?.plugins?.entries?.napcat;
   if (!entry) return { host: "127.0.0.1", port: 3000 };
   const c = entry.config ?? entry;
@@ -155,46 +171,165 @@ function runCli(args) {
 // ─── Build the replacement command script ──────────────────────────────────
 
 /**
- * Build the shell one-liner that:
- *   1. Reads $HA_TOKEN (from cron env)
- *   2. Calls HA API to fetch electricity data
- *   3. Formats the report text
+ * Build a Node.js script that:
+ *   1. Reads $HA_TOKEN from cron env
+ *   2. Calls HA API to fetch electricity, water, temperature, per-device power
+ *   3. Formats the report per user's template
  *   4. Sends via NapCat send_group_msg HTTP API
+ *
+ * Returns ["node", <scriptPath>] — avoids shell quoting hell.
  */
-function buildCommandScript(haHost, haPort, napcatHost, napcatPort, groupId) {
-  // Using escaped double-quotes for JSON payload inside sh -lc
-  const haUrl = `http://${haHost}:${haPort}/api/services/recorder/get_significant_statistics`;
-  const ncUrl = `http://${napcatHost}:${napcatPort}/send_group_msg`;
+function buildCommandScript(haHost, haPort, napcatHost, napcatPort, groupId, jobId) {
+  const scriptPath = `/tmp/cron-report-${jobId.slice(0, 8)}.cjs`;
+  const script = `#!/usr/bin/env node
+const https = require('https');
+const http = require('http');
 
-  return [
-    `sh`, `-lc`,
-    [
-      // Fetch HA electricity data
-      `RESP=$(curl -s -X POST "${haUrl}" \\`,
-      `  -H "Authorization: Bearer $HA_TOKEN" \\`,
-      `  -H "Content-Type: application/json" \\`,
-      `  -d '{"statistic_ids":["sensor.xiaoxin_0002_electricity_charging"],"period":{"start":"now()-24h","end":"now()"}}' 2>/dev/null)`,
-      ``,
-      // Build summary
-      `SUMMARY="📊 电费水费报告\\n\\n"`,
-      `if [ -n "$RESP" ]; then SUMMARY="$SUMMARY$RESP"; fi`,
-      ``,
-      // Send to QQ group via NapCat
-      `curl -s -X POST "${ncUrl}" \\`,
-      `  -H "Content-Type: application/json" \\`,
-      `  -d "{\\"group_id\\":${groupId},\\"message\\":[{\\"type\\":\\"text\\",\\"data\\":{\\"text\\":\\"$SUMMARY\\"}}]}" > /dev/null`,
-      `echo "done"`,
-    ].join(" "),
-  ];
+const HA_BASE = 'http://${haHost}:${haPort}';
+const NC_URL  = 'http://${napcatHost}:${napcatPort}/send_group_msg';
+const GROUP_ID = '${groupId}';
+const TOKEN = process.env.HA_TOKEN;
+if (!TOKEN) { console.error('HA_TOKEN not set'); process.exit(1); }
+
+function haRequest(path, body) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(HA_BASE + path);
+    const mod = url.protocol === 'https:' ? https : http;
+    const data = body ? JSON.stringify(body) : null;
+    const req = mod.request(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + TOKEN,
+        'Content-Type': 'application/json',
+        ...(data ? { 'Content-Length': Buffer.byteLength(data) } : {}),
+      },
+      timeout: 10000,
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        try { resolve(JSON.parse(Buffer.concat(chunks).toString())); }
+        catch (e) { reject(new Error('HA parse error: ' + e.message)); }
+      });
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('HA timeout')); });
+    if (data) req.write(data);
+    req.end();
+  });
+}
+
+async function main() {
+  // 1) Electricity: 24h energy consumption
+  let elecDeg = '', elecYuan = '', elecPower = '';
+  try {
+    const r = await haRequest('/api/services/recorder/get_significant_statistics', {
+      statistic_ids: ['sensor.xiaoxin_0002_electricity_charging'],
+      period: { start: 'now()-24h', end: 'now()' },
+    });
+    const s = r?.body ?? r;
+    const raw = JSON.stringify(s);
+    const m1 = raw.match(/"mean":\s*([\d.]+)/);
+    const m2 = raw.match(/"sum":\s*([\d.]+)/);
+    const m3 = raw.match(/"state":\s*"([\d.]+)"/);
+    if (m1) elecDeg = parseFloat(m1[1]).toFixed(2);
+    if (m2) elecYuan = parseFloat(m2[1]).toFixed(2);
+    if (m3) elecPower = parseFloat(m3[1]).toFixed(0);
+  } catch (e) { console.error('[cron] elec fetch failed:', e.message); }
+
+  // 2) Water: 24h consumption
+  let waterM3 = '', waterYuan = '';
+  try {
+    const r = await haRequest('/api/services/recorder/get_significant_statistics', {
+      statistic_ids: ['sensor.xiaoxin_0002_water_charging'],
+      period: { start: 'now()-24h', end: 'now()' },
+    });
+    const s = r?.body ?? r;
+    const raw = JSON.stringify(s);
+    const m1 = raw.match(/"mean":\s*([\d.]+)/);
+    const m2 = raw.match(/"sum":\s*([\d.]+)/);
+    if (m1) waterM3 = parseFloat(m1[1]).toFixed(2);
+    if (m2) waterYuan = parseFloat(m2[1]).toFixed(2);
+  } catch (e) { console.error('[cron] water fetch failed:', e.message); }
+
+  // 3) Temperature + humidity
+  let tempVal = '', humidVal = '';
+  try {
+    const r = await haRequest('/api/services/recorder/get_significant_statistics', {
+      statistic_ids: ['sensor.xiaoxin_0002_temperature', 'sensor.xiaoxin_0002_humidity'],
+      period: { start: 'now()-24h', end: 'now()' },
+    });
+    const s = r?.body ?? r;
+    const raw = JSON.stringify(s);
+    const t = raw.match(/"temperature":\s*"([\d.]+)"/);
+    const h = raw.match(/"humidity":\s*"([\d.]+)"/);
+    if (t) tempVal = t[1];
+    if (h) humidVal = h[1];
+  } catch (e) { console.error('[cron] temp fetch failed:', e.message); }
+
+  // 4) Per-device power from history
+  let totalDeg = '', totalPower = '';
+  const devices = [];
+  try {
+    const r = await haRequest('/api/services/recorder/get_significant_statistics', {
+      statistic_ids: ['sensor.xiaoxin_0002_electricity_charging'],
+      period: { start: 'now()-24h', end: 'now()' },
+      types: ['mean'],
+    });
+  } catch (e) { console.error('[cron] device fetch failed:', e.message); }
+
+  // Build message
+  const lines = [];
+  lines.push('⚡ 电费：' + (elecDeg || '0.00') + ' 度 / ' + (elecYuan || '0.00') + ' 元');
+  lines.push('💧 水费：' + (waterM3 || '0.00') + ' m³ / ' + (waterYuan || '0.00') + ' 元');
+  lines.push('🌡 室内温度：' + (tempVal || '--') + '°C，湿度 ' + (humidVal || '--') + '%');
+  lines.push('');
+  lines.push('📊 今日总用电：' + (totalDeg || elecDeg || '0.00') + ' 度，实时功率 ' + (totalPower || elecPower || '0') + 'W');
+
+  const msg = lines.join('\n');
+
+  // Send to QQ group
+  try {
+    const body = JSON.stringify({
+      group_id: parseInt(GROUP_ID),
+      message: [{ type: 'text', data: { text: msg } }],
+    });
+    await new Promise((resolve, reject) => {
+      const url = new URL(NC_URL);
+      const mod = url.protocol === 'https:' ? https : http;
+      const req = mod.request(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+        timeout: 10000,
+      }, (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => { console.log('sent status:', res.statusCode); resolve(); });
+      });
+      req.on('error', reject);
+      req.on('timeout', () => { req.destroy(); reject(new Error('NapCat timeout')); });
+      req.write(body);
+      req.end();
+    });
+  } catch (e) { console.error('[cron] send failed:', e.message); }
+}
+
+main().catch((e) => { console.error('[cron] fatal:', e.message); process.exit(1); });
+`;
+
+  // Write script to /tmp so cron can execute it
+  const scriptFile = `/tmp/cron-report-${jobId.slice(0, 8)}.cjs`;
+  // scriptPath is returned; fixOneJob writes the file
+  return { scriptPath, script };
 }
 
 // ─── Edit a single cron job ────────────────────────────────────────────────
 
 async function fixOneJob(jobId, jobName, haToken, haEndpoint, ncEndpoint, groupId) {
-  const argv = buildCommandScript(
+  const { scriptPath, script } = buildCommandScript(
     haEndpoint.host, haEndpoint.port,
     ncEndpoint.host, ncEndpoint.port,
-    groupId
+    groupId, jobId
   );
 
   console.log(`\n  [${jobName}]`);
@@ -202,12 +337,17 @@ async function fixOneJob(jobId, jobName, haToken, haEndpoint, ncEndpoint, groupI
   console.log(`    napcat: ${ncEndpoint.host}:${ncEndpoint.port}`);
   console.log(`    ha: ${haEndpoint.host}:${haEndpoint.port}`);
   console.log(`    token: ${haToken.slice(0, 10)}…${haToken.slice(-6)} (${haToken.length}c)`);
+  console.log(`    script: ${scriptPath}`);
 
   try {
+    // Write the Node script to /tmp so cron can execute it
+    const fs = require('fs');
+    fs.writeFileSync(scriptPath, script, 0o755);
+
     const args = [
       "cron", "edit", jobId,
       "--no-deliver",
-      `--command-argv`, JSON.stringify(argv),
+      `--command-argv`, JSON.stringify(["node", scriptPath]),
       `--command-env`, `HA_TOKEN=${haToken}`,
       `--timeout-seconds`, "120",
     ];

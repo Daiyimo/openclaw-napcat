@@ -123,6 +123,9 @@ if (env.QQ_PASSIVE_MODE_ENABLED !== undefined) {
       passiveMode.temperature = temperature;
     }
   }
+  // 友军识别静默时长
+  const botSuppressionMs = parseIntOpt(env.QQ_PASSIVE_MODE_BOT_SUPPRESSION_MS);
+  if (botSuppressionMs !== undefined) passiveMode.botSuppressionMs = botSuppressionMs;
   qqEnv.passiveMode = passiveMode;
 }
 
@@ -228,6 +231,7 @@ config.plugins.entries.napcat = { enabled: true };
 
 config.gateway             = config.gateway ?? {};
 if (!config.gateway.mode)  config.gateway.mode = "local";
+// Docker 部署通常通过反向代理或直接暴露端口，allowInsecureAuth 简化本地 WebUI 鉴权
 config.gateway.controlUi = { ...(config.gateway.controlUi ?? {}), allowInsecureAuth: true };
 
 const tmpPath = CONFIG_PATH + ".tmp";

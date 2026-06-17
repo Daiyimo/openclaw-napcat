@@ -132,7 +132,7 @@ export class DeliverDebouncer {
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     this.debounceTimer = setTimeout(() => {
       this.flush().catch((err) => {
-        this.log?.error(`${this.prefix} Flush error (debounce timer):`, err);
+        this.log?.error(`${this.prefix} Flush error (debounce timer): ${err}`);
       });
     }, this.windowMs);
 
@@ -142,7 +142,7 @@ export class DeliverDebouncer {
       this.maxWaitTimer = setTimeout(() => {
         this.log?.info(`${this.prefix} Max wait (${this.maxWaitMs}ms) reached, force flushing`);
         this.flush().catch((err) => {
-          this.log?.error(`${this.prefix} Flush error (max wait timer):`, err);
+          this.log?.error(`${this.prefix} Flush error (max wait timer): ${err}`);
         });
       }, this.maxWaitMs);
     }
@@ -183,8 +183,7 @@ export class DeliverDebouncer {
       this.lastInfo = info;
       this.retryCount++;
       this.log?.error(
-        `${this.prefix} Flush executor failed (attempt ${this.retryCount}/${MAX_FLUSH_RETRIES}), ${texts.length} message(s) restored to buffer:`,
-        err,
+        `${this.prefix} Flush executor failed (attempt ${this.retryCount}/${MAX_FLUSH_RETRIES}), ${texts.length} message(s) restored to buffer: ${err}`,
       );
 
       // 调度重试：未 disposed 且未超过最大重试次数
@@ -194,7 +193,7 @@ export class DeliverDebouncer {
         this.retryTimer = setTimeout(() => {
           this.retryTimer = null;
           this.flush().catch((retryErr) => {
-            this.log?.error(`${this.prefix} Retry flush failed:`, retryErr);
+            this.log?.error(`${this.prefix} Retry flush failed: ${retryErr}`);
           });
         }, retryDelay);
       } else if (this.retryCount > MAX_FLUSH_RETRIES) {

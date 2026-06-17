@@ -588,7 +588,7 @@ export class OneBotClient extends EventEmitter {
 
     if (this.options.httpUrl) {
       try {
-        this.log.log(`[napcat-QQ][sendAction] trying HTTP: ${maskUrl(this.options.httpUrl!.replace(/\/+$/, ""))}/${action}`);
+        this.log.log(`[napcat-QQ][sendAction] trying HTTP: ${maskUrl(new URL(this.options.httpUrl!).href.replace(/\/+$/, ""))}/${action}`);
         await this.sendViaHttp(action, params);
         this.log.log(`[napcat-QQ][sendAction] HTTP success: ${action}`);
         return;
@@ -608,8 +608,8 @@ export class OneBotClient extends EventEmitter {
 
   private async sendViaHttp(action: string, params: Record<string, unknown>): Promise<unknown> {
     return withRetry(async () => {
-      // 去除尾部斜杠，避免 //action 双斜杠路径
-      const baseUrl = this.options.httpUrl!.replace(/\/+$/, "");
+      // 用 URL 构造函数规范化，消除尾部斜杠和路径中的双斜杠
+      const baseUrl = new URL(this.options.httpUrl!).href.replace(/\/+$/, "");
       const url = `${baseUrl}/${action}`;
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (this.options.accessToken) {
