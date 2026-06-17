@@ -12,6 +12,7 @@ import { populateGroupMemberCache } from "../member-cache.js";
 import { trimDedupSet } from "../utils/cache-evict.js";
 import { maskId } from "../utils/log-sanitize.js";
 import { resolvePassiveModeTemperature } from "../config.js";
+import { DEDUP_TRIM_THRESHOLD } from "../constants.js";
 
 export interface FilterResult {
   event: OneBotEvent;
@@ -130,7 +131,7 @@ export function filterStage(
     }
     inboundStore.processedMsgIds.add(msgIdKey);
     // add 后立即检查 size，避免等待定时器修剪（60s 延迟过大）
-    if (inboundStore.processedMsgIds.size > 100_000) {
+    if (inboundStore.processedMsgIds.size > DEDUP_TRIM_THRESHOLD) {
       trimDedupSet(inboundStore.processedMsgIds);
     }
   }

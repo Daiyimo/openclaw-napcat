@@ -10,6 +10,7 @@ import {
   RateLimitError,
 } from "./errors/napcat-error.js";
 import { maskUrl } from "./utils/log-sanitize.js";
+import { getLog } from "./admin-commands/shared.js";
 import { withRetry, isRetryableError } from "./utils/retry.js";
 import { BAN_DEFAULT_MINUTES, MUTE_DEFAULT_MINUTES } from "./admin-commands.js";
 import { HONOR_TYPE_ALL, GROUP_FILE_DEFAULT_COUNT, SENT_FINGERPRINT_CLEANUP_THRESHOLD } from "./constants.js";
@@ -31,11 +32,6 @@ interface OneBotClientOptions {
   log?: Logger;
 }
 
-/** 带 cause 链的 Error（ES2022 Error.cause 的兼容写法） */
-interface CausableError extends Error {
-  cause: Error;
-}
-
 export class OneBotClient extends EventEmitter {
   private ws: WebSocket | null = null;
   private options: OneBotClientOptions;
@@ -45,28 +41,23 @@ export class OneBotClient extends EventEmitter {
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private reverseWss: WebSocketServer | null = null;
   private reverseWs: WebSocket | null = null;
-  /** 反向 WS 专用心跳定时器（独立于正向 WS 的 heartbeatTimer） */
   private reverseHeartbeatTimer: NodeJS.Timeout | null = null;
-  /** 请求-响应关联：echo → { resolve, reject, timer } */
   private readonly pendingRequests = new Map<string, {
     resolve: (value: unknown) => void;
     reject: (reason: Error) => void;
     timer: ReturnType<typeof setTimeout>;
     action: string;
   }>();
-  /** echo ID 递增计数器，避免 Math.random() 碰撞风险 */
   private echoCounter = 0;
   private log: Logger;
-  /** parseIncomingMessage 解析失败计数（用于监控 WS 数据质量） */
   private parseErrorCount = 0;
-  /** outbound 发送幂等去重：同一 action+params 在 5s 内不重复发送 */
   private readonly sentFingerprints = new Map<string, number>();
   private static readonly SENT_DEDUP_WINDOW_MS = 5_000;
 
   constructor(options: OneBotClientOptions) {
     super();
     this.options = options;
-    this.log = options.log ?? console;
+    this.log = getLog(options.log);
   }
 
   getSelfId(): number | null {
@@ -210,52 +201,64 @@ export class OneBotClient extends EventEmitter {
     // Do not self-reconnect here to avoid racing with the host framework.
   }
 
+  /** 向指定 QQ 用户发送私聊消息。 */
   async sendPrivateMsg(userId: number, message: OneBotMessage | string): Promise<void> {
     await this.sendAction("send_private_msg", { user_id: String(userId), message });
   }
 
+  /** 向指定群发送群消息。 */
   async sendGroupMsg(groupId: number, message: OneBotMessage | string): Promise<void> {
     await this.sendAction("send_group_msg", { group_id: String(groupId), message });
   }
 
+  /** 撤回消息。 */
   deleteMsg(messageId: number | string): void {
     this.sendWs("delete_msg", { message_id: String(messageId) });
   }
 
-  setGroupAddRequest(flag: string, subType: string, approve: boolean = true, reason: string = ""): void {
-    this.sendWs("set_group_add_request", { flag, sub_type: subType, approve, reason });
-  }
-
+  /** 处理好友添加请求（approve=true 同意，false 拒绝）。 */
   setFriendAddRequest(flag: string, approve: boolean = true, remark: string = ""): void {
     this.sendWs("set_friend_add_request", { flag, approve, remark });
   }
 
+  /** 处理群成员加入请求（approve=true 同意）。 */
+  setGroupAddRequest(flag: string, subType: string, approve: boolean = true, reason: string = ""): void {
+    this.sendWs("set_group_add_request", { flag, sub_type: subType, approve, reason });
+  }
+
+  /** 获取登录账号信息（QQ 号、昵称）。 */
   async getLoginInfo(): Promise<any> {
     return this.sendWithResponse("get_login_info", {});
   }
 
+  /** 获取单条消息详情。 */
   async getMsg(messageId: number | string): Promise<any> {
     return this.sendWithResponse("get_msg", { message_id: String(messageId) });
   }
 
+  /** 获取群聊天历史记录。 */
   async getGroupMsgHistory(groupId: number, count?: number): Promise<Record<string, unknown>> {
     const params: Record<string, string | number> = { group_id: String(groupId) };
     if (count !== undefined) params.count = count;
     return this.sendWithResponse("get_group_msg_history", params);
   }
 
+  /** 获取合并转发消息详情。 */
   async getForwardMsg(id: string): Promise<any> {
     return this.sendWithResponse("get_forward_msg", { id });
   }
 
+  /** 获取好友列表。 */
   async getFriendList(): Promise<any[]> {
     return this.sendWithResponse("get_friend_list", {});
   }
 
+  /** 获取群列表。 */
   async getGroupList(): Promise<any[]> {
     return this.sendWithResponse("get_group_list", {});
   }
 
+  /** 获取群信息（群名、群 ID 等）。 */
   async getGroupInfo(groupId: string | number): Promise<{ group_id: number; group_name?: string } | null> {
     try {
       const data = await this.sendWithResponse("get_group_info", { group_id: String(groupId) });
@@ -270,32 +273,39 @@ export class OneBotClient extends EventEmitter {
     }
   }
 
+  /** 发送频道消息。 */
   async sendGuildChannelMsg(guildId: string, channelId: string, message: OneBotMessage | string): Promise<void> {
     await this.sendAction("send_guild_channel_msg", { guild_id: guildId, channel_id: channelId, message });
   }
 
+  /** 获取频道（Guild）列表。 */
   async getGuildList(): Promise<any[]> {
     try { return await this.sendWithResponse("get_guild_list", {}); }
     catch (err) { this.log.warn("get_guild_list failed", err); return []; }
   }
 
+  /** 获取频道服务配置信息。 */
   async getGuildServiceProfile(): Promise<any> {
     try { return await this.sendWithResponse("get_guild_service_profile", {}); }
     catch (err) { this.log.warn("get_guild_service_profile failed", err); return null; }
   }
 
+  /** 在群内戳（poke）指定成员。 */
   sendGroupPoke(groupId: number, userId: number): void {
     this.sendWs("group_poke", { group_id: String(groupId), user_id: String(userId) });
   }
 
+  /** 私聊戳（poke）指定好友。 */
   sendFriendPoke(userId: number): void {
     this.sendWs("friend_poke", { user_id: String(userId) });
   }
 
+  /** 给消息表情点赞/取消点赞。 */
   async setMsgEmojiLike(messageId: number | string, emojiId: string): Promise<void> {
     await this.sendAction("set_msg_emoji_like", { message_id: String(messageId), emoji_id: emojiId, set: true });
   }
 
+  /** 标记群消息为已读。 */
   async markGroupMsgAsRead(groupId: number): Promise<void> {
     const activeWs = this.getActiveWs();
     if (activeWs) {
@@ -303,6 +313,7 @@ export class OneBotClient extends EventEmitter {
     }
   }
 
+  /** 标记私聊消息为已读。 */
   async markPrivateMsgAsRead(userId: number): Promise<void> {
     const activeWs = this.getActiveWs();
     if (activeWs) {
@@ -310,6 +321,7 @@ export class OneBotClient extends EventEmitter {
     }
   }
 
+  /** 获取群成员列表。 */
   async getGroupMemberList(groupId: number): Promise<any[]> {
     return this.sendWithResponse("get_group_member_list", { group_id: String(groupId) });
   }
@@ -341,26 +353,32 @@ export class OneBotClient extends EventEmitter {
     });
   }
 
+  /** 获取 AI 角色列表。 */
   async getAiCharacters(): Promise<any> {
     return this.sendWithResponse("get_ai_characters", {});
   }
 
+  /** 发送群 AI 语音消息。 */
   async sendGroupAiRecord(groupId: number, text: string, voiceId: string): Promise<void> {
     await this.sendAction("send_group_ai_record", { group_id: String(groupId), text, character: voiceId });
   }
 
+  /** 上传文件到群。 */
   async uploadGroupFile(groupId: number, file: string, name: string): Promise<void> {
     await this.sendAction("upload_group_file", { group_id: String(groupId), file, name });
   }
 
+  /** 上传文件到私聊。 */
   async uploadPrivateFile(userId: number, file: string, name: string): Promise<void> {
     await this.sendAction("upload_private_file", { user_id: String(userId), file, name });
   }
 
+  /** 禁言/解禁群成员（duration=0 解禁）。 */
   setGroupBan(groupId: number, userId: number, duration: number = BAN_DEFAULT_MINUTES * 60): void {
     this.sendWs("set_group_ban", { group_id: String(groupId), user_id: String(userId), duration });
   }
 
+  /** 踢出群成员。 */
   setGroupKick(groupId: number, userId: number, rejectAddRequest: boolean = false): void {
     this.sendWs("set_group_kick", { group_id: String(groupId), user_id: String(userId), reject_add_request: rejectAddRequest });
   }
@@ -588,7 +606,9 @@ export class OneBotClient extends EventEmitter {
 
     if (this.options.httpUrl) {
       try {
-        this.log.log(`[napcat-QQ][sendAction] trying HTTP: ${maskUrl(new URL(this.options.httpUrl!).href.replace(/\/+$/, ""))}/${action}`);
+        this.log.log(
+          `[napcat-QQ][sendAction] trying HTTP: ${maskUrl(new URL(this.options.httpUrl!).origin)}/${action}`,
+        );
         await this.sendViaHttp(action, params);
         this.log.log(`[napcat-QQ][sendAction] HTTP success: ${action}`);
         return;
@@ -608,8 +628,8 @@ export class OneBotClient extends EventEmitter {
 
   private async sendViaHttp(action: string, params: Record<string, unknown>): Promise<unknown> {
     return withRetry(async () => {
-      // 用 URL 构造函数规范化，消除尾部斜杠和路径中的双斜杠
-      const baseUrl = new URL(this.options.httpUrl!).href.replace(/\/+$/, "");
+      // 用 URL.origin 获取 scheme+host+port，彻底消除 pathname 中的双斜杠
+      const baseUrl = new URL(this.options.httpUrl!).origin;
       const url = `${baseUrl}/${action}`;
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (this.options.accessToken) {
@@ -810,8 +830,7 @@ export class OneBotClient extends EventEmitter {
         activeWs.off("close", closeHandler);
         clearTimeout(timer);
         const cause = err instanceof Error ? err : new Error(String(err));
-        const connectionErr = new ConnectionError(action, cause.message) as CausableError;
-        connectionErr.cause = cause;
+        const connectionErr = new ConnectionError(action, cause.message, cause);
         reject(connectionErr);
       }
     });

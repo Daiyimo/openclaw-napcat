@@ -3,6 +3,14 @@
  * 所有跨文件的魔法数字集中在此，每条带来源注释。
  */
 
+// === CQ 码 ===
+
+/**
+ * CQ at 码正则：匹配 [CQ:at,qq=数字] 或 [CQ:at,qq=all]。
+ * 用于检测消息中是否 @ 了 bot。
+ */
+export const CQ_AT_PATTERN = /\[CQ:at,qq=(\d+|all)\]/;
+
 // === WebSocket / Client ===
 
 /** WebSocket ping 间隔（ms）。NapCat 默认心跳 30s，45s 穿透大多数 NAT 60s 空闲超时 */
@@ -16,8 +24,14 @@ export const WS_RESPONSE_TIMEOUT_MS = 5_000;
 /** connect handler 中 getLoginInfo 的超时保护（ms） */
 export const LOGIN_INFO_TIMEOUT_MS = 5_000;
 
+/** 图片下载最大并发数。防止大量图片同时下载耗尽连接池 */
+export const CONCURRENT_DOWNLOADS = 3;
+
 /** 去重集合最大容量，超过后触发修剪 */
 export const DEDUP_MAX_SIZE = 2_000;
+
+/** 去重集合修剪触发阈值。超过此大小时触发修剪（防止集合无限增长） */
+export const DEDUP_TRIM_THRESHOLD = 100_000;
 
 /** 修剪后保留最新的 N 条消息 ID */
 export const DEDUP_KEEP_SIZE = 1_000;
@@ -178,6 +192,9 @@ export const FLUSH_DELAY_MS = 100;
 
 /** downloadImages 最大重定向跳数 */
 export const MAX_REDIRECT_COUNT = 3;
+
+/** Silk 语音默认采样率（Hz）。NapCat 语音消息标准采样率 */
+export const SILK_SAMPLE_RATE = 24_000;
 
 // === 主动推送 ===
 

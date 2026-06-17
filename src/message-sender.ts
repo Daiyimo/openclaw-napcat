@@ -24,6 +24,7 @@ import {
 import { parseMediaTagsToSendQueue } from "./media-send.js";
 import { appendBotSignature } from "./utils/bot-signature.js";
 import { markStopped } from "./dialog-state.js";
+import { isSilentToken, getLog } from "./admin-commands/shared.js";
 import { DEFAULT_BOT_SIGNATURE_STYLE } from "./constants.js";
 
 import { sleep } from "./utils/sleep.js";
@@ -96,7 +97,7 @@ export class MessageSender {
       else await this.ctx.client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${url}`);
       return true;
     } catch (uploadErr) {
-      (this.ctx.log ?? console).warn(
+      getLog(this.ctx.log).warn(
         `[message-sender] upload failed for ${url}, falling back to file segment:`,
         uploadErr instanceof Error ? uploadErr.message : uploadErr,
       );
@@ -123,17 +124,26 @@ export class MessageSender {
     // v1.9.4 拦截 silent 类 token:真 silent(完全不发送任何消息,只 log)
     // 之前只在 outbound.sendText 路径拦截,但 AI 派发走 MessageSender.deliver,
     // 漏拦截导致"[SILENT]"或"@user [SILENT]"真的发出去了。
-    // 拦截 [END_DIALOG](多 bot 对话结束)、[SILENT](旁观/被动决策不回复)、NO_REPLY。
+    // [END_DIALOG] 同步标记对话停止状态，避免 stale state。
     const trimmed = payload.text?.trim() ?? "";
-    const isSilentToken = trimmed === "[END_DIALOG]" || trimmed === "[SILENT]" ||
-      /^NO[_\s]?REPLY[.!?。!！,，;；…]*$/i.test(trimmed);
-    if (isSilentToken) {
+    if (isSilentToken(trimmed)) {
       if (trimmed === "[END_DIALOG]" && this.ctx.isGroup && this.ctx.groupId !== undefined) {
         markStopped(this.ctx.accountId, `group:${this.ctx.groupId}`);
       }
       // 真 silent:什么都不发,仅 log 留痕(便于 /logs 命令查)
-      (this.ctx.log ?? console).log(`[napcat-QQ][silent] dropped token "${trimmed}" (to=${this.ctx.isGroup ? `group:${this.ctx.groupId}` : `private:${this.ctx.userId}`})`);
+      getLog(this.ctx.log).log(`[napcat-QQ][silent] dropped token "${trimmed}" (to=${this.ctx.isGroup ? `group:${this.ctx.groupId}` : `private:${this.ctx.userId}`})`);
       this.ctx.metrics?.increment("outbound", "silentDropped");
+      return;
+    }
+
+    // 检测 incomplete turn 错误（模型返回空响应），替换为友好提示
+    if (trimmed && /incomplete\s+turn\s+detected/i.test(trimmed)) {
+      getLog(this.ctx.log).warn(
+        `[napcat-QQ][incomplete-turn] detected, suppressed raw error, sending friendly message. ` +
+        `provider=stepfun-plan/step-3.7-flash, payloads=0`
+      );
+      this.ctx.metrics?.increment("outbound", "incompleteTurn");
+      // 不发送原始错误堆栈给用户，改为静默失败（框架会在 session 内记录）
       return;
     }
     try {
@@ -197,7 +207,7 @@ export class MessageSender {
           if (botSelfId && idx === lastTextIdx) {
             content = appendBotSignature(content, botName, botSelfId, style);
           }
-          const chunks = splitMessage(content, config.maxMessageLength || 4000);
+          const chunks = splitMessage(content, config.maxMessageLength);
           for (const chunk of chunks) {
             await this.sendTextChunk(chunk, effectiveMarkdownMode, isFirstChunk);
             isFirstChunk = false;
@@ -209,7 +219,7 @@ export class MessageSender {
             const imgSeg: OneBotMessage = [{ type: "image", data: { file: resolvedUrl } }];
             await sendByTarget(client, imgSeg, this.ctx);
           } catch (err) {
-            (this.ctx.log ?? console).warn(`[message-sender] Failed to send media tag image ${item.content}:`, err);
+            getLog(this.ctx.log).warn(`[message-sender] Failed to send media tag image ${item.content}:`, err);
           }
           if (config.rateLimitMs > 0) await sleep(config.rateLimitMs);
         }
@@ -219,7 +229,7 @@ export class MessageSender {
 
     // ── 回退路径 ──
     // 签名追加到最后一个 chunk（避免被 splitMessage 切开）
-    const chunks = [...splitMessage(processed, config.maxMessageLength || 4000)];
+    const chunks = [...splitMessage(processed, config.maxMessageLength)];
     if (botSelfId && chunks.length > 0) {
       chunks[chunks.length - 1] = appendBotSignature(chunks[chunks.length - 1], botName, botSelfId, style);
     }
@@ -274,7 +284,7 @@ export class MessageSender {
         try {
           await this.sendTts(tts);
         } catch (ttsErr) {
-          (this.ctx.log ?? console).debug("[message-sender] TTS failed (non-critical):", ttsErr instanceof Error ? ttsErr.message : ttsErr);
+          getLog(this.ctx.log).debug("[message-sender] TTS failed (non-critical):", ttsErr instanceof Error ? ttsErr.message : ttsErr);
         }
       }
     }
@@ -286,7 +296,7 @@ export class MessageSender {
         // SSRF 防护：先校验 URL 不指向私有网络
         if (media.url.startsWith("http:") || media.url.startsWith("https:")) {
           if (isUrlPrivate(media.url)) {
-            (this.ctx.log ?? console).warn(`[message-sender] SSRF blocked: private URL from text, skipping media: ${media.url.slice(0, 100)}`);
+            getLog(this.ctx.log).warn(`[message-sender] SSRF blocked: private URL from text, skipping media: ${media.url.slice(0, 100)}`);
             continue;
           }
         }
@@ -303,7 +313,7 @@ export class MessageSender {
         }
         if (config.rateLimitMs > 0) await sleep(config.rateLimitMs);
       } catch (mediaErr) {
-        (this.ctx.log ?? console).warn(`[message-sender] Failed to send extracted media ${media.url}:`, mediaErr);
+        getLog(this.ctx.log).warn(`[message-sender] Failed to send extracted media ${media.url}:`, mediaErr);
       }
     }
   }
@@ -320,7 +330,7 @@ export class MessageSender {
     // SSRF 防护：拒绝指向私有网络的 URL
     if (rawUrl.startsWith("http:") || rawUrl.startsWith("https:")) {
       if (isUrlPrivate(rawUrl)) {
-        (this.ctx.log ?? console).warn(`[message-sender] SSRF blocked: private URL in sendMediaUrl, dropping: ${rawUrl.slice(0, 100)}`);
+        getLog(this.ctx.log).warn(`[message-sender] SSRF blocked: private URL in sendMediaUrl, dropping: ${rawUrl.slice(0, 100)}`);
         return;
       }
     }
@@ -349,7 +359,7 @@ export class MessageSender {
     const cachedFileId = uploadCache.get(cacheKey);
 
     if (cachedFileId) {
-      (this.ctx.log ?? console).log(`[message-sender] Upload cache hit for ${rawUrl}`);
+      getLog(this.ctx.log).log(`[message-sender] Upload cache hit for ${rawUrl}`);
       const fileSegment: OneBotMessage = [{ type: "file", data: { file: cachedFileId, name: name || "file" } }];
       if (isGuild) {
         await client.sendGuildChannelMsg(guildId!, channelId!, `[文件] ${rawUrl}`);

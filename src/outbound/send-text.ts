@@ -22,6 +22,8 @@ import { maskIdsInText } from "../utils/log-sanitize.js";
 import { appendBotSignature } from "../utils/bot-signature.js";
 import { sleep } from "../utils/sleep.js";
 import { sendProactive } from "../proactive.js";
+import { markStopped } from "../dialog-state.js";
+import { isSilentToken, getLog } from "../admin-commands/shared.js";
 
 export interface SendTextParams {
   to: string;
@@ -45,6 +47,39 @@ export interface SendTextDeps {
   log?: Logger;
 }
 
+// ============ 共享：裸数字目标解析 ============
+
+/**
+ * 将裸数字 to 解析为带前缀的目标字符串。
+ * 逻辑：已知群列表命中 → group:xxx；否则 API 确认 → group:xxx；否则保持原样（由 parseTarget 按默认路由）。
+ *
+ * @param to - 原始目标字符串
+ * @param knownGroupIds - 已知群号集合（API 确认后会 add）
+ * @param getGroupInfo - 延迟注入的群信息查询函数
+ * @param log - 可选日志器
+ * @returns 解析后的目标字符串
+ */
+export async function resolveBareGroupTarget(
+  to: string,
+  knownGroupIds: Set<string>,
+  getGroupInfo: (id: string) => Promise<{ group_id?: number } | null>,
+  log?: Logger,
+): Promise<string> {
+  if (!/^\d+$/.test(to)) return to;
+  if (knownGroupIds.has(to)) {
+    log?.log?.(`[napcat-QQ] 裸数字 ${to} 识别为群聊（已知列表） → group:${to}`);
+    return `group:${to}`;
+  }
+  const info = await getGroupInfo(to);
+  if (info?.group_id) {
+    knownGroupIds.add(to);
+    log?.log?.(`[napcat-QQ] 裸数字 ${to} 经 API 确认为群聊 → group:${to}`);
+    return `group:${to}`;
+  }
+  log?.warn?.(`[napcat-QQ] 裸数字 "${to}" 无法确认为群，按默认路由到群聊。如需私聊请使用 "private:${to}" 格式。`);
+  return to;
+}
+
 /**
  * 发送纯文本消息到指定目标。
  * 处理旁观模式 [SILENT]、跨会话 [TO:] 前缀、裸数字群号探测。
@@ -59,7 +94,7 @@ export async function sendText(
 
   if (!to || to === "heartbeat") {
     if (!to) {
-      (log ?? console).warn(
+      getLog(log).warn(
         `[napcat-QQ][outbound.sendText] received empty target, params keys: ${Object.keys(params).join(",")}`,
       );
     }
@@ -71,13 +106,13 @@ export async function sendText(
   if (to === "group" || to === "channel") {
     const fallbackId = [...knownGroupIds].sort((a, b) => Number(a) - Number(b))[0];
     if (fallbackId) {
-      (log ?? console).warn(
+      getLog(log).warn(
         `[napcat-QQ][outbound.sendText] incomplete target "${to}", ` +
         `fallback to known group ${fallbackId}`,
       );
       to = fallbackId;
     } else {
-      (log ?? console).error(
+      getLog(log).error(
         `[napcat-QQ][outbound.sendText] cannot resolve incomplete target "${to}" — ` +
         `no known groups. Message dropped.`,
       );
@@ -85,12 +120,15 @@ export async function sendText(
     }
   }
 
-  // ── 旁观模式 [SILENT] / NO_REPLY 拦截 ──────────────────────
+  // ── 旁观模式 [SILENT] / NO_REPLY / [END_DIALOG] 拦截 ─────────────────
   const resolvedAccountId = params.accountId || DEFAULT_ACCOUNT_ID;
   const cooldownKey = `${resolvedAccountId}:${to}`;
   const trimmed = text?.trim() ?? "";
-  if (/^\[SILENT\]$/i.test(trimmed) || /^NO[_\s]?REPLY[.!?。！,，;；…]*$/i.test(trimmed)) {
-    (log ?? console).log(`[napcat-QQ][passive] AI 选择静默 (to=${to})`);
+  if (isSilentToken(trimmed)) {
+    if (trimmed === "[END_DIALOG]" && to) {
+      markStopped(resolvedAccountId, to);
+    }
+    getLog(log).log(`[napcat-QQ][passive] AI 选择静默 (to=${to})`);
     passiveMode.markSilent(cooldownKey);
     return { channel: "napcat", sent: true };
   }
@@ -103,12 +141,12 @@ export async function sendText(
     const crossMsg = crossMatch[2].trim();
     if (crossMsg) {
       const result = await sendProactive({ to: crossTarget, text: crossMsg, accountId: resolvedAccountId });
-      (log ?? console).log(`[napcat-QQ][cross-session] ${result.success ? "✅" : "❌"} to=${crossTarget}`);
+      getLog(log).log(`[napcat-QQ][cross-session] ${result.success ? "✅" : "❌"} to=${crossTarget}`);
       return { channel: "napcat", sent: result.success, error: result.error };
     }
   }
 
-  (log ?? console).log(
+  getLog(log).log(
     `[napcat-QQ][outbound.sendText] called: to=${to}, accountId=${params.accountId ?? "default"}, text=${maskIdsInText(text?.slice(0, 100) || "")}`,
   );
 
@@ -123,32 +161,15 @@ export async function sendText(
 
   try {
     // 裸数字 to 处理
-    let effectiveTo = to;
-    if (/^\d+$/.test(to)) {
-      if (knownGroupIds.has(to)) {
-        effectiveTo = `group:${to}`;
-        (log ?? console).log(
-          `[napcat-QQ][outbound.sendText] 裸数字 ${to} 识别为群聊（已知列表） → ${effectiveTo}`,
-        );
-      } else {
-        const groupInfo = await client.getGroupInfo(to);
-        if (groupInfo?.group_id) {
-          knownGroupIds.add(to);
-          effectiveTo = `group:${to}`;
-          (log ?? console).log(
-            `[napcat-QQ][outbound.sendText] 裸数字 ${to} 经 API 确认为群聊 → ${effectiveTo}`,
-          );
-        } else {
-          (log ?? console).warn(
-            `[napcat-QQ][outbound.sendText] 裸数字 "${to}" 无法确认为群，按默认路由到群聊。` +
-              `如需私聊请使用 "private:${to}" 格式。`,
-          );
-        }
-      }
-    }
+    const effectiveTo = await resolveBareGroupTarget(
+      to,
+      knownGroupIds,
+      async (id) => client.getGroupInfo(id),
+      log,
+    );
 
     const target = parseTarget(effectiveTo);
-    const chunks = splitMessage(finalText, 4000);
+    const chunks = splitMessage(finalText, params.cfg?.maxMessageLength ?? 4000);
     for (let i = 0; i < chunks.length; i++) {
       let message: OneBotMessage | string = chunks[i];
       if (replyToId && i === 0)
@@ -161,7 +182,7 @@ export async function sendText(
     }
     return { channel: "napcat", sent: true };
   } catch (err) {
-    (log ?? console).error("[napcat-QQ][outbound.sendText] FAILED:", err);
+    getLog(log).error("[napcat-QQ][outbound.sendText] FAILED:", err);
     return { channel: "napcat", sent: false, error: String(err) };
   }
 }

@@ -27,8 +27,9 @@ export class NapcatApiError extends Error {
     statusText: string,
     action: string,
     message?: string,
+    cause?: unknown,
   ) {
-    super(message ?? `${code}: ${statusCode} ${statusText} for ${action}`);
+    super(message ?? `${code}: ${statusCode} ${statusText} for ${action}`, { cause });
     this.code = code;
     this.statusCode = statusCode;
     this.statusText = statusText;
@@ -37,36 +38,36 @@ export class NapcatApiError extends Error {
 }
 
 export class ConnectionError extends NapcatApiError {
-  constructor(action: string, message?: string) {
-    super(NapcatErrorCode.CONNECTION_CLOSED, 0, "Disconnected", action, message);
+  constructor(action: string, message?: string, cause?: unknown) {
+    super(NapcatErrorCode.CONNECTION_CLOSED, 0, "Disconnected", action, message, cause);
     Object.defineProperty(this, "name", { value: "ConnectionError" });
   }
 }
 
 export class TimeoutError extends NapcatApiError {
-  constructor(action: string, message?: string) {
-    super(NapcatErrorCode.REQUEST_TIMEOUT, 0, "Timeout", action, message);
+  constructor(action: string, message?: string, cause?: unknown) {
+    super(NapcatErrorCode.REQUEST_TIMEOUT, 0, "Timeout", action, message, cause);
     Object.defineProperty(this, "name", { value: "TimeoutError" });
   }
 }
 
 export class ClientApiError extends NapcatApiError {
-  constructor(statusCode: number, statusText: string, action: string, message?: string) {
-    super(NapcatErrorCode.CLIENT_ERROR, statusCode, statusText, action, message);
+  constructor(statusCode: number, statusText: string, action: string, message?: string, cause?: unknown) {
+    super(NapcatErrorCode.CLIENT_ERROR, statusCode, statusText, action, message, cause);
     Object.defineProperty(this, "name", { value: "ClientApiError" });
   }
 }
 
 export class ServerApiError extends NapcatApiError {
-  constructor(statusCode: number, statusText: string, action: string, message?: string) {
-    super(NapcatErrorCode.SERVER_ERROR, statusCode, statusText, action, message);
+  constructor(statusCode: number, statusText: string, action: string, message?: string, cause?: unknown) {
+    super(NapcatErrorCode.SERVER_ERROR, statusCode, statusText, action, message, cause);
     Object.defineProperty(this, "name", { value: "ServerApiError" });
   }
 }
 
 export class RateLimitError extends NapcatApiError {
-  constructor(action: string, retryAfterMs?: number) {
-    super(NapcatErrorCode.RATE_LIMIT, 429, "Rate Limited", action, retryAfterMs ? `Retry after ${retryAfterMs}ms` : undefined);
+  constructor(action: string, retryAfterMs?: number, cause?: unknown) {
+    super(NapcatErrorCode.RATE_LIMIT, 429, "Rate Limited", action, retryAfterMs ? `Retry after ${retryAfterMs}ms` : undefined, cause);
     this.retryAfterMs = retryAfterMs;
   }
   readonly retryAfterMs?: number;

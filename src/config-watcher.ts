@@ -7,6 +7,7 @@
 
 import { QQConfigSchema, type QQConfig, resolvePassiveModeTemperature, getQQConfigDefaults } from "./config.js";
 import type { Logger } from "./types/channel-types.js";
+import { getLog } from "./admin-commands/shared.js";
 
 /** 运行时通过命令修改的字段：配置文件缺失时不应覆盖运行时值 */
 const RUNTIME_MUTABLE_FIELDS: (keyof QQConfig)[] = ["sleepMode", "passiveMode"];
@@ -64,7 +65,7 @@ const CONNECTION_FIELDS: (keyof QQConfig)[] = [
  */
 export function updateConfigRef(ref: ConfigRef, raw: unknown): UpdateResult {
   const parsed = QQConfigSchema.safeParse(raw ?? {});
-  const log = ref.log ?? console;
+  const log = getLog(ref.log);
 
   if (!parsed.success) {
     const errMsg = parsed.error.issues

@@ -9,9 +9,11 @@ import { listKnownUsers, getKnownUsersStats } from "./known-users.js";
 import type { KnownUser } from "./known-users.js";
 import { parseTarget, isImageFile, dispatchMessage } from "./message-parser.js";
 import type { OneBotMessage } from "./types.js";
+import { sleep } from "./utils/sleep.js";
 
 import type { Logger } from "./types/channel-types.js";
 import { PROACTIVE_DEFAULT_MAX_RECIPIENTS, PROACTIVE_DEFAULT_INTERVAL_MS } from "./constants.js";
+import { getLog } from "./admin-commands/shared.js";
 
 // Re-export for convenience
 export { listKnownUsers, getKnownUsersStats };
@@ -89,7 +91,7 @@ export async function sendProactive(options: ProactiveSendOptions): Promise<Proa
     return { success: true };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    (options.log ?? console).error(`[proactive] sendProactive failed: to=${options.to}, error=${errorMsg}`);
+    getLog(options.log).error(`[proactive] sendProactive failed: to=${options.to}, error=${errorMsg}`);
     return { success: false, error: errorMsg };
   }
 }
@@ -119,7 +121,7 @@ export async function sendBulkProactive(
     results.push({ to, result });
 
     if (i < recipients.length - 1) {
-      await new Promise((r) => setTimeout(r, options?.intervalMs ?? PROACTIVE_DEFAULT_INTERVAL_MS));
+      await sleep(options?.intervalMs ?? PROACTIVE_DEFAULT_INTERVAL_MS);
     }
   }
 

@@ -14,6 +14,8 @@ import {
   resolveMediaUrl,
   isImageFile,
 } from "../message-parser.js";
+import { resolveBareGroupTarget } from "./send-text.js";
+import { getLog } from "../admin-commands/shared.js";
 
 export interface SendMediaParams {
   to: string;
@@ -48,23 +50,12 @@ export async function sendMedia(
   if (!client) return { channel: "napcat", sent: false, error: "Client not connected" };
 
   try {
-    let effectiveTo = to;
-    if (/^\d+$/.test(to)) {
-      if (knownGroupIds.has(to)) {
-        effectiveTo = `group:${to}`;
-      } else {
-        const groupInfo = await client.getGroupInfo(to);
-        if (groupInfo?.group_id) {
-          knownGroupIds.add(to);
-          effectiveTo = `group:${to}`;
-        } else {
-          (deps.log ?? console).warn(
-            `[napcat-QQ][outbound.sendMedia] 裸数字 "${to}" 无法确认为群，将作私聊处理。` +
-              `如需指定群请使用 "group:${to}" 格式。`,
-          );
-        }
-      }
-    }
+    const effectiveTo = await resolveBareGroupTarget(
+      to,
+      knownGroupIds,
+      async (id) => client.getGroupInfo(id),
+      deps.log,
+    );
 
     const target = parseTarget(effectiveTo);
     const finalUrl = await resolveMediaUrl(mediaUrl);
@@ -83,7 +74,7 @@ export async function sendMedia(
     await dispatchMessage(client, target, message);
     return { channel: "napcat", sent: true };
   } catch (err) {
-    (deps.log ?? console).error("[napcat-QQ] outbound.sendMedia failed:", err);
+    getLog(deps.log).error("[napcat-QQ] outbound.sendMedia failed:", err);
     return { channel: "napcat", sent: false, error: String(err) };
   }
 }

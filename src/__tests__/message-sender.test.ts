@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { MessageSender, type MessageSenderContext } from "../message-sender.js";
+import { MetricsCollector } from "../metrics.js";
 
 // ============ message-parser mock（避免 resolveMediaUrl 发起真实网络请求）============
 vi.mock("../message-parser.js", () => ({
@@ -65,6 +66,10 @@ function makeSender(overrides: Partial<MessageSenderContext> = {}) {
     channelId: undefined,
     ...overrides,
   });
+}
+
+function makeMetrics() {
+  return new MetricsCollector();
 }
 
 // ============ deliver — 基础路径 ============
@@ -143,6 +148,30 @@ describe("MessageSender.deliver — silent token 真拦截", () => {
     const sender = makeSender({ client });
     await sender.deliver({ text: "正常回复" });
     expect(client.sendGroupMsg).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ============ deliver — incomplete turn 拦截 ============
+
+describe("MessageSender.deliver — incomplete turn 拦截", () => {
+  it("incomplete turn detected 不发送任何消息，静默丢弃", async () => {
+    const client = makeClient();
+    const metrics = makeMetrics();
+    const sender = makeSender({ client, metrics });
+    await sender.deliver({ text: "An error occurred: incomplete turn detected. provider=stepfun-plan/step-3.7-flash, payloads=0" });
+    expect(client.sendGroupMsg).not.toHaveBeenCalled();
+    expect(client.sendPrivateMsg).not.toHaveBeenCalled();
+    expect(metrics.counters.outbound.incompleteTurn).toBe(1);
+    expect(metrics.counters.outbound.sent).toBe(0);
+  });
+
+  it("incomplete turn 带换行也正确拦截", async () => {
+    const client = makeClient();
+    const metrics = makeMetrics();
+    const sender = makeSender({ client, metrics });
+    await sender.deliver({ text: "Error: Incomplete Turn Detected, model returned no content." });
+    expect(client.sendGroupMsg).not.toHaveBeenCalled();
+    expect(metrics.counters.outbound.incompleteTurn).toBe(1);
   });
 });
 

@@ -7,6 +7,7 @@
 
 import type { OneBotClient } from "./client.js";
 import type { Logger } from "./types/channel-types.js";
+import { sleep } from "./utils/sleep.js";
 
 // ============ 状态 ============
 
@@ -122,7 +123,7 @@ export async function populateGroupMemberCache(client: OneBotClient, groupId: nu
   const retryAfter = failedUntil.get(key);
   if (retryAfter && Date.now() < retryAfter) {
     // 在退避期内：等待（调用方可通过 Promise.race 自行超时）
-    await new Promise((resolve) => setTimeout(resolve, retryAfter - Date.now()));
+    await sleep(retryAfter - Date.now());
     return;
   }
   // 退避期已过：清除标记，允许重试

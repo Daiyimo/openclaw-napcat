@@ -14,7 +14,7 @@ export interface ResolvedSessionRoute {
   sessionKey: string;
   baseSessionKey: string;
   peer: { kind: "direct" | "group" | "channel"; id: string };
-  chatType: string;
+  chatType: "direct" | "group" | "channel";
   from: string;
   to: string;
 }
@@ -77,6 +77,10 @@ export function resolveOutboundSessionRoute(
     peer: { kind: peerKind, id: peerIdNorm },
     chatType: peerKind === "direct" ? "direct" : peerKind === "channel" ? "channel" : "group",
     from: peerKind === "direct" ? `napcat:${peerIdNorm}` : `napcat:${peerKind}:${peerIdNorm}`,
-    to: peerKind === "direct" ? `user:${peerIdNorm}` : `channel:${peerIdNorm}`,
+    to: peerKind === "direct"
+      ? `user:${peerIdNorm}`
+      : peerKind === "group"
+        ? `group:${peerIdNorm}`
+        : `${peerKind}:${peerIdNorm}`,
   };
 }

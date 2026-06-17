@@ -105,7 +105,7 @@ describe("不变量 4：关键群号的稳定性", () => {
     expect(route!.peer).toEqual({ kind: "group", id: "1081646667" });
     expect(route!.chatType).toBe("group");
     expect(route!.from).toBe("napcat:group:1081646667");
-    expect(route!.to).toBe("channel:1081646667");
+    expect(route!.to).toBe("group:1081646667");
   });
 
   it("群 1081646667 的裸数字形式也正确解析", () => {

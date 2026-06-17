@@ -36,6 +36,7 @@ import { cleanupDialogState } from "../dialog-state.js";
 import { InboundRateLimiter } from "../rate-limiter.js";
 import { trimSet, trimDedupSet } from "../utils/cache-evict.js";
 import { startTtlSweep, stopTtlSweep } from "../member-cache.js";
+import { getLog } from "../admin-commands/shared.js";
 
 /**
  * 启动单个 QQ 账号的完整生命周期。
@@ -47,7 +48,7 @@ export async function startAccount(
 ): Promise<void> {
   const { account, cfg } = ctx;
   const config = account.config;
-  const log = ctx.log ?? console;
+  const log = getLog(ctx.log);
 
   // 优先使用 ctx.channelRuntime（3.31+ 注入方式），回退到全局单例
   const channelRuntime: PluginRuntimeChannel =

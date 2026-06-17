@@ -32,6 +32,7 @@ export interface MetricsCounters {
     failed: number;       // 发送失败
     mediaSent: number;    // 媒体发送
     silentDropped: number; // [SILENT]/[END_DIALOG] 丢弃
+    incompleteTurn: number; // 模型返回空响应的 incomplete turn 次数
   };
   cache: {
     memberHits: number;   // member-cache 命中
@@ -59,7 +60,7 @@ export class MetricsCollector {
   counters: MetricsCounters = {
     inbound: { total: 0, filtered: 0, rateLimited: 0, silentDropped: 0, triggered: 0, sleepSuppressed: 0 },
     dispatch: { attempts: 0, succeeded: 0, failed: 0 },
-    outbound: { sent: 0, failed: 0, mediaSent: 0, silentDropped: 0 },
+    outbound: { sent: 0, failed: 0, mediaSent: 0, silentDropped: 0, incompleteTurn: 0 },
     cache: { memberHits: 0, memberMisses: 0, uploadHits: 0, uploadMisses: 0, botSigHits: 0 },
   };
 
@@ -130,7 +131,7 @@ export class MetricsCollector {
     lines.push(`── 消息流量 ──`);
     lines.push(`  入站: ${c.inbound.total} (过滤=${c.inbound.filtered} 限速=${c.inbound.rateLimited} 静默=${c.inbound.silentDropped} 触发=${c.inbound.triggered})`);
     lines.push(`  派发: ${c.dispatch.attempts} 次 (成功=${c.dispatch.succeeded} 失败=${c.dispatch.failed})`);
-    lines.push(`  出站: ${c.outbound.sent} 条 (媒体=${c.outbound.mediaSent} 静默=${c.outbound.silentDropped} 失败=${c.outbound.failed})`);
+    lines.push(`  出站: ${c.outbound.sent} 条 (媒体=${c.outbound.mediaSent} 静默=${c.outbound.silentDropped} 不完整=${c.outbound.incompleteTurn} 失败=${c.outbound.failed})`);
 
     lines.push(`── 缓存 ──`);
     lines.push(`  member: ${c.cache.memberHits} hit / ${c.cache.memberMisses} miss`);

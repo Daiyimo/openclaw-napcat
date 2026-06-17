@@ -11,6 +11,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import { execFile } from "node:child_process";
 import type { Logger } from "../types/channel-types.js";
+import { getLog } from "../admin-commands/shared.js";
 
 // ============ 基础平台信息 ============
 
@@ -33,7 +34,7 @@ export function getHomeDir(log?: Logger): string {
     const home = os.homedir();
     if (home && fs.existsSync(home)) return home;
   } catch (err) {
-    (log ?? console).warn(`[platform] os.homedir() failed: ${err instanceof Error ? err.message : err}`);
+    getLog(log).warn(`[platform] os.homedir() failed: ${err instanceof Error ? err.message : err}`);
   }
 
   // fallback 环境变量
@@ -77,16 +78,16 @@ export function detectFfmpeg(log?: Logger): Promise<string | null> {
       try {
         const stat = await fs.promises.stat(resolved);
         if (!stat.isFile()) {
-          (log ?? console).warn(`[platform] FFMPEG_PATH is not a regular file: ${resolved}`);
+          getLog(log).warn(`[platform] FFMPEG_PATH is not a regular file: ${resolved}`);
         } else if (await testExecutable(resolved, ["-version"])) {
           _ffmpegPath = resolved;
-          (log ?? console).log(`[platform] ffmpeg found via FFMPEG_PATH: ${resolved}`);
+          getLog(log).log(`[platform] ffmpeg found via FFMPEG_PATH: ${resolved}`);
           return _ffmpegPath;
         } else {
-          (log ?? console).warn(`[platform] FFMPEG_PATH set but not working: ${resolved}`);
+          getLog(log).warn(`[platform] FFMPEG_PATH set but not working: ${resolved}`);
         }
       } catch (e) {
-        (log ?? console).warn(`[platform] FFMPEG_PATH validation failed: ${envPath}: ${e instanceof Error ? e.message : e}`);
+        getLog(log).warn(`[platform] FFMPEG_PATH validation failed: ${envPath}: ${e instanceof Error ? e.message : e}`);
       }
     }
 
@@ -95,7 +96,7 @@ export function detectFfmpeg(log?: Logger): Promise<string | null> {
     const ok = await testExecutable(cmd, ["-version"]);
     if (ok) {
       _ffmpegPath = cmd;
-      (log ?? console).log(`[platform] ffmpeg detected in PATH`);
+      getLog(log).log(`[platform] ffmpeg detected in PATH`);
       return _ffmpegPath;
     }
 
@@ -118,7 +119,7 @@ export function detectFfmpeg(log?: Logger): Promise<string | null> {
         const works = await testExecutable(p, ["-version"]);
         if (works) {
           _ffmpegPath = p;
-          (log ?? console).log(`[platform] ffmpeg found at: ${p}`);
+          getLog(log).log(`[platform] ffmpeg found at: ${p}`);
           return _ffmpegPath;
         }
       }

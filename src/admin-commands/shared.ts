@@ -4,11 +4,13 @@
  */
 
 import type { AdminCmdContext } from "../admin-registry.js";
+import type { Logger } from "../types/channel-types.js";
 import { requireConfirm } from "../utils/confirm-pending.js";
 import { NapcatApiError } from "../errors/napcat-error.js";
 
 // ============ 常量（从 constants.ts 引入） ============
 
+import { CQ_AT_PATTERN } from "../constants.js";
 import { CONFIRM_TIMEOUT_SECONDS } from "./constants.js";
 
 // ============ 消息提取辅助 ============
@@ -25,7 +27,7 @@ export function extractAtTarget(
       }
     }
   }
-  const m = text.match(/\[CQ:at,qq=(\d+)\]/);
+  const m = text.match(CQ_AT_PATTERN);
   return m ? parseInt(m[1], 10) : null;
 }
 
@@ -44,7 +46,7 @@ export function extractAtTargets(message: AdminCmdContext["message"], text: stri
       }
     }
   }
-  const re = /\[CQ:at,qq=(\d+)\]/g;
+  const re = CQ_AT_PATTERN;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     const id = parseInt(m[1], 10);
@@ -76,6 +78,21 @@ export function extractImageFile(message: AdminCmdContext["message"]): string | 
     }
   }
   return null;
+}
+
+// ============ 文本分类 ============
+
+/**
+ * 判断文本是否为 silent token。
+ * 统一口径：message-sender.deliver 和 outbound.sendText 共用此函数。
+ */
+export function isSilentToken(text: string): boolean {
+  const trimmed = text.trim();
+  return (
+    trimmed === "[END_DIALOG]" ||
+    trimmed === "[SILENT]" ||
+    /^NO[_\s]?REPLY[.!?。！,，;；…]*$/i.test(trimmed)
+  );
 }
 
 // ============ 发送辅助 ============
@@ -170,4 +187,39 @@ export function formatUptime(seconds: number): string {
   if (h > 0) return `${h}小时 ${m}分 ${s}秒`;
   if (m > 0) return `${m}分 ${s}秒`;
   return `${s}秒`;
+}
+
+// ============ 日志获取 ============
+
+/**
+ * 统一日志获取：传入框架 logger 或降级到 console。
+ * 替代全项目 40+ 处的 `(log ?? console)` 重复模式。
+ */
+export function getLog(log?: Logger): Logger {
+  return log ?? console;
+}
+
+// ============ 管理命令错误处理 ============
+
+/**
+ * 管理命令 try/catch 包装器。
+ * 消除 handler 中 25+ 处重复的 try → success / catch → log warn + fmtError 模式。
+ *
+ * @param ctx - 管理命令上下文
+ * @param fn - 异步操作函数，抛错时由包装器捕获
+ * @param successMsg - 成功时返回的用户可见消息
+ * @returns 成功返回 successMsg，失败返回错误消息
+ */
+export async function withAdminCatch(
+  ctx: AdminCmdContext,
+  fn: () => Promise<void>,
+  successMsg: string,
+): Promise<string> {
+  try {
+    await fn();
+    return successMsg;
+  } catch (err) {
+    getLog(ctx.log).warn?.("[admin-command]", err);
+    return `❌ ${fmtError(err)}`;
+  }
 }

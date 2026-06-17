@@ -40,6 +40,7 @@ import { cleanCQCodes } from "./message-parser.js";
 import { convertSilkToWav } from "./utils/audio-convert.js";
 import { transcribeAudioForNapcat, isUrlPrivate } from "./message-parser.js";
 import type { Logger } from "./types/channel-types.js";
+import { getLog } from "./admin-commands/shared.js";
 
 /** 允许的 URL scheme：仅 http/https，防止 SSRF */
 const ALLOWED_URL_SCHEMES = ["http:", "https:"];
@@ -52,17 +53,17 @@ function validateFetchUrl(url: string, log?: Logger): boolean {
   try {
     const parsed = new URL(url);
     if (!ALLOWED_URL_SCHEMES.includes(parsed.protocol)) {
-      (log ?? console).warn(`[message-processor] SSRF blocked: disallowed scheme "${parsed.protocol}" in URL: ${url.slice(0, 100)}`);
+      getLog(log).warn(`[message-processor] SSRF blocked: disallowed scheme "${parsed.protocol}" in URL: ${url.slice(0, 100)}`);
       return false;
     }
     // IP 层 SSRF 检查
     if (isUrlPrivate(url)) {
-      (log ?? console).warn(`[message-processor] SSRF blocked: private/loopback URL: ${url.slice(0, 100)}`);
+      getLog(log).warn(`[message-processor] SSRF blocked: private/loopback URL: ${url.slice(0, 100)}`);
       return false;
     }
     return true;
   } catch {
-    (log ?? console).warn(`[message-processor] SSRF blocked: invalid URL: ${url.slice(0, 100)}`);
+    getLog(log).warn(`[message-processor] SSRF blocked: invalid URL: ${url.slice(0, 100)}`);
     return false;
   }
 }
@@ -139,11 +140,11 @@ export async function resolveMessageText(
           }
         } catch (sttErr) {
           const errMsg = sttErr instanceof Error ? sttErr.message : String(sttErr);
-          (log ?? console).warn(`[message-processor] STT failed: ${errMsg}`, sttErr instanceof Error ? sttErr.cause : undefined);
+          getLog(log).warn(`[message-processor] STT failed: ${errMsg}`, sttErr instanceof Error ? sttErr.cause : undefined);
           parts.push(` [语音消息: 转写失败]`);
         } finally {
-          try { fsSync.unlinkSync(tmpFile); } catch (e) { (log ?? console).warn(`[message-processor] cleanup tmpFile failed: ${e}`); }
-          if (wavPath) { try { fsSync.unlinkSync(wavPath); } catch (e) { (log ?? console).warn(`[message-processor] cleanup wav failed: ${e}`); } }
+          try { fsSync.unlinkSync(tmpFile); } catch (e) { getLog(log).warn(`[message-processor] cleanup tmpFile failed: ${e}`); }
+          if (wavPath) { try { fsSync.unlinkSync(wavPath); } catch (e) { getLog(log).warn(`[message-processor] cleanup wav failed: ${e}`); } }
         }
       } else {
         const textData = seg.data?.text;
@@ -169,7 +170,7 @@ export async function resolveMessageText(
           parts.push(forwardLines.join(""));
         }
       } catch (e) {
-        (log ?? console).debug(`[message-processor] forward msg fetch failed: ${e}`);
+        getLog(log).debug(`[message-processor] forward msg fetch failed: ${e}`);
       }
     } else if (seg.type === "file") {
       let fileSeg = seg;
@@ -182,7 +183,7 @@ export async function resolveMessageText(
           });
           if (info?.url) fileSeg = { ...fileSeg, data: { ...fileSeg.data, url: info.url } };
         } catch (e) {
-          (log ?? console).debug(`[message-processor] file URL fetch failed: ${e}`);
+          getLog(log).debug(`[message-processor] file URL fetch failed: ${e}`);
         }
       }
       parts.push(` [文件: ${fileSeg.data?.file || "未命名"}]`);

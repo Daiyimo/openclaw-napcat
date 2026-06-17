@@ -13,7 +13,9 @@ import * as os from "node:os";
 import type { OneBotMessage } from "./types.js";
 import type { OneBotClient } from "./client.js";
 import type { Logger } from "./types/channel-types.js";
-import { MAX_REDIRECT_COUNT } from "./constants.js";
+import { MAX_REDIRECT_COUNT, CONCURRENT_DOWNLOADS } from "./constants.js";
+import { maskUrl } from "./utils/log-sanitize.js";
+import { getLog } from "./admin-commands/shared.js";
 
 // 模块级日志引用（默认 console，可由调用方通过 setModuleLogger 替换）
 let _log: Logger = console;
@@ -22,7 +24,6 @@ let _log: Logger = console;
 export function setModuleLogger(log: Logger): void {
   _log = log;
 }
-import { maskUrl } from "./utils/log-sanitize.js";
 
 // ============ CQ 码参数转义 ============
 
@@ -62,7 +63,7 @@ export function extractImageUrls(message: OneBotMessage | string | undefined, ma
         const raw =
           segment.data?.url ||
           (typeof segment.data?.file === "string" ? segment.data.file : undefined);
-        (log ?? console).debug(`[napcat-QQ][extractImageUrls] segment.data=`, JSON.stringify(segment.data), `raw=`, maskUrl(raw ?? ""));
+        getLog(log).debug(`[napcat-QQ][extractImageUrls] segment.data=`, JSON.stringify(segment.data), `raw=`, maskUrl(raw ?? ""));
         if (!raw) continue;
         // 接受 http(s)、base64、file: 协议，以及裸路径（由下游 resolveMediaUrl 处理）
         const url =
@@ -357,7 +358,7 @@ async function isPathAllowed(filePath: string, log?: Logger): Promise<boolean> {
   // 敏感目录黑名单检查
   for (const pattern of BLOCKED_SUB_PATTERNS) {
     if (pattern.test(resolved)) {
-      (log ?? console).warn(`[napcat-QQ] Path traversal blocked (sensitive dir): ${filePath}`);
+      getLog(log).warn(`[napcat-QQ] Path traversal blocked (sensitive dir): ${filePath}`);
       return false;
     }
   }
@@ -371,18 +372,18 @@ export async function resolveMediaUrl(url: string, log?: Logger): Promise<string
       const filePath = fileURLToPath(url);
       // 路径遍历防护：仅允许访问白名单目录
       if (!(await isPathAllowed(filePath, log))) {
-        (log ?? console).warn(`[napcat-QQ] Path traversal blocked: ${url} not in allowed directories`);
+        getLog(log).warn(`[napcat-QQ] Path traversal blocked: ${url} not in allowed directories`);
         return url;
       }
       const stat = await fs.stat(filePath);
       if (stat.size > MAX_LOCAL_FILE_SIZE) {
-        (log ?? console).warn(`[napcat-QQ] File too large to base64 encode (${stat.size} bytes), passing as-is: ${url}`);
+        getLog(log).warn(`[napcat-QQ] File too large to base64 encode (${stat.size} bytes), passing as-is: ${url}`);
         return url;
       }
       const data = await fs.readFile(filePath);
       return `base64://${data.toString("base64")}`;
     } catch (e) {
-      (log ?? console).warn(`[napcat-QQ] Failed to convert local file to base64: ${e}`);
+      getLog(log).warn(`[napcat-QQ] Failed to convert local file to base64: ${e}`);
       return url;
     }
   }
@@ -391,26 +392,31 @@ export async function resolveMediaUrl(url: string, log?: Logger): Promise<string
     try {
       // 路径遍历防护
       if (!(await isPathAllowed(url, log))) {
-        (log ?? console).warn(`[napcat-QQ] Path traversal blocked: ${url} not in allowed directories`);
+        getLog(log).warn(`[napcat-QQ] Path traversal blocked: ${url} not in allowed directories`);
         return url;
       }
       const stat = await fs.stat(url);
       if (stat.size > MAX_LOCAL_FILE_SIZE) {
-        (log ?? console).warn(`[napcat-QQ] File too large to base64 encode (${stat.size} bytes), passing as-is: ${url}`);
+        getLog(log).warn(`[napcat-QQ] File too large to base64 encode (${stat.size} bytes), passing as-is: ${url}`);
         return url;
       }
       const data = await fs.readFile(url);
       return `base64://${data.toString("base64")}`;
     } catch (e) {
-      (log ?? console).warn(`[napcat-QQ] Failed to read local file, passing as-is: ${e}`);
+      getLog(log).warn(`[napcat-QQ] Failed to read local file, passing as-is: ${e}`);
       return url;
     }
   }
-  // SSRF 防护：http(s) URL 不允许指向私有网络
+  // SSRF 防护：验证初始 URL + 重定向链不指向私有网络
   if (/^https?:\/\//i.test(url)) {
     if (isUrlPrivate(url)) {
-      (log ?? console).warn(`[napcat-QQ] SSRF blocked: private network URL rejected: ${url.slice(0, 100)}`);
-      // 返回原始 URL 让调用方决定降级处理
+      getLog(log).warn(`[napcat-QQ] SSRF blocked: private network URL rejected: ${url.slice(0, 100)}`);
+      return url;
+    }
+    // 验证重定向链（最多 5 跳），防止 302 → 内网绕过
+    if (!(await validateRedirectChain(url))) {
+      getLog(log).warn(`[napcat-QQ] SSRF blocked: redirect chain leads to private network: ${url.slice(0, 100)}`);
+      return url;
     }
   }
   return url;
@@ -442,7 +448,7 @@ function guessImageExtension(url: string, contentType: string | null, log?: Logg
       return ext === "jpeg" ? "jpg" : ext;
     }
   } catch (err) {
-    (log ?? console).warn(`[message-parser] Cannot guess extension from URL "${url.slice(0, 100)}": ${err instanceof Error ? err.message : err}`);
+    getLog(log).warn(`[message-parser] Cannot guess extension from URL "${url.slice(0, 100)}": ${err instanceof Error ? err.message : err}`);
   }
   return "jpg"; // 默认
 }
@@ -509,8 +515,8 @@ export function isPrivateIp(ip: string): boolean {
   // IPv6 回环 ::1 和链路本地 fe80::/10
   if (ip === "::1" || ip === "0:0:0:0:0:0:0:1") return true;
   if (ip.startsWith("fe80")) return true;
-  // IPv6 回环映射 ::ffff:127.0.0.1
-  if (ip.startsWith("::ffff:127.")) return true;
+  // IPv6 回环映射 ::ffff:x.x.x.x → 递归检查映射的 IPv4
+  if (ip.startsWith("::ffff:")) return isPrivateIp(ip.slice(7));
   // IPv6 全零 ::（等效于 0.0.0.0）
   if (ip === "::") return true;
   // IPv6 唯一本地地址 fc00::/7（含 fd00::/8 实际部署段）
@@ -544,8 +550,46 @@ export function isUrlPrivate(urlStr: string): boolean {
   }
 }
 
+/** 最大重定向跳数（防止无限重定向循环） */
+const MAX_REDIRECT_CHAIN = 5;
+/** 单跳超时（毫秒） */
+const REDIRECT_CHECK_TIMEOUT_MS = 10_000;
+
+/**
+ * 验证 URL 重定向链不指向私有网络。
+ * 使用 fetch redirect:"manual" 逐跳检查，最多 MAX_REDIRECT_CHAIN 跳。
+ * 网络错误时保守放行（调用方会处理实际下载失败）。
+ */
+export async function validateRedirectChain(url: string): Promise<boolean> {
+  let currentUrl = url;
+  for (let hop = 0; hop < MAX_REDIRECT_CHAIN; hop++) {
+    try {
+      const resp = await fetch(currentUrl, {
+        method: "HEAD",
+        redirect: "manual",
+        signal: AbortSignal.timeout(REDIRECT_CHECK_TIMEOUT_MS),
+      });
+      const location = resp.headers.get("location");
+      if (!location) return true; // 无重定向，直接到达目标
+      const nextUrl = new URL(location, currentUrl).toString();
+      if (isUrlPrivate(nextUrl)) {
+        _log.warn(
+          `[napcat-QQ] SSRF blocked: redirect hop ${hop + 1} → private network: ${nextUrl.slice(0, 100)}`,
+        );
+        return false;
+      }
+      currentUrl = nextUrl;
+    } catch {
+      // 网络错误（超时、DNS 失败等）：保守放行，调用方会处理下载失败
+      return true;
+    }
+  }
+  // 超过最大跳数：保守放行（通常是合法的 CDN 链）
+  return true;
+}
+
 export async function downloadImages(urls: string[], log?: Logger): Promise<DownloadedImage[]> {
-  (log ?? _log ?? console).log(`[napcat-QQ][downloadImages] downloading ${urls.length} image(s):`, urls.map(u => u.slice(0, 100)));
+  getLog(log ?? _log).log(`[napcat-QQ][downloadImages] downloading ${urls.length} image(s):`, urls.map(u => u.slice(0, 100)));
   // 下载到 workspace 目录（框架的 workspaceOnly 限制只能读取 workspace 下的文件）
   const homeDir = os.homedir();
   const downloadDir = path.join(homeDir, ".openclaw", "workspace");
@@ -554,25 +598,24 @@ export async function downloadImages(urls: string[], log?: Logger): Promise<Down
   }
   const results: DownloadedImage[] = [];
 
-  // 并发控制：最多 3 张同时下载，避免并发过大被限流
-  const CONCURRENT_DOWNLOADS = 3;
+  // 并发控制：最多同时下载数，避免并发过大被限流
   const downloadOne = async (rawUrl: string, idx: number): Promise<DownloadedImage> => {
     // SSRF 防护：仅允许 http/https scheme
     let url = rawUrl;
     try {
       const parsed = new URL(url);
       if (!["http:", "https:"].includes(parsed.protocol)) {
-        (log ?? _log ?? console).warn(`[napcat-QQ][downloadImages] blocked non-http(s) URL: ${parsed.protocol}//${parsed.host}`);
+        getLog(log ?? _log).warn(`[napcat-QQ][downloadImages] blocked non-http(s) URL: ${parsed.protocol}//${parsed.host}`);
         return { path: url, type: "image/jpeg" };
       }
     } catch {
-      (log ?? _log ?? console).warn(`[napcat-QQ][downloadImages] blocked invalid URL: ${url.slice(0, 100)}`);
+      getLog(log ?? _log).warn(`[napcat-QQ][downloadImages] blocked invalid URL: ${url.slice(0, 100)}`);
       return { path: url, type: "image/jpeg" };
     }
 
     // SSRF 防护：检查目标主机是否为私有/回环 IP
     if (isUrlPrivate(url)) {
-      (log ?? _log ?? console).warn(`[napcat-QQ][downloadImages] blocked private IP URL: ${url}`);
+      getLog(log ?? _log).warn(`[napcat-QQ][downloadImages] blocked private IP URL: ${url}`);
       return { path: url, type: "image/jpeg" };
     }
 
@@ -588,30 +631,30 @@ export async function downloadImages(urls: string[], log?: Logger): Promise<Down
         if (resp.status >= 300 && resp.status < 400) {
           const redirectUrl = resp.headers.get("location");
           if (!redirectUrl) {
-            (log ?? _log ?? console).warn(`[napcat-QQ][downloadImages] redirect without Location header: ${url}`);
+            getLog(log ?? _log).warn(`[napcat-QQ][downloadImages] redirect without Location header: ${url}`);
             return { path: url, type: "image/jpeg" };
           }
           try {
             const parsedRedirect = new URL(redirectUrl, url);
             if (!["http:", "https:"].includes(parsedRedirect.protocol)) {
-              (log ?? _log ?? console).warn(`[napcat-QQ][downloadImages] blocked redirect to non-http(s) URL: ${parsedRedirect.protocol}//${parsedRedirect.host}`);
+              getLog(log ?? _log).warn(`[napcat-QQ][downloadImages] blocked redirect to non-http(s) URL: ${parsedRedirect.protocol}//${parsedRedirect.host}`);
               return { path: url, type: "image/jpeg" };
             }
             const nextUrl = parsedRedirect.toString();
             // 每跳都检查私有 IP
             if (isUrlPrivate(nextUrl)) {
-              (log ?? _log ?? console).warn(`[napcat-QQ][downloadImages] blocked redirect to private IP: ${nextUrl}`);
+              getLog(log ?? _log).warn(`[napcat-QQ][downloadImages] blocked redirect to private IP: ${nextUrl}`);
               return { path: url, type: "image/jpeg" };
             }
             url = nextUrl;
             continue; // 用新 URL 重新下载
           } catch {
-            (log ?? _log ?? console).warn(`[napcat-QQ][downloadImages] blocked invalid redirect URL: ${redirectUrl.slice(0, 100)}`);
+            getLog(log ?? _log).warn(`[napcat-QQ][downloadImages] blocked invalid redirect URL: ${redirectUrl.slice(0, 100)}`);
             return { path: url, type: "image/jpeg" };
           }
         }
         if (!resp.ok) {
-          (log ?? _log ?? console).warn(`[napcat-QQ] Image download failed (${resp.status}): ${url}`);
+          getLog(log ?? _log).warn(`[napcat-QQ] Image download failed (${resp.status}): ${url}`);
           return { path: url, type: "image/jpeg" };
         }
         const contentType = resp.headers.get("content-type");
@@ -622,10 +665,10 @@ export async function downloadImages(urls: string[], log?: Logger): Promise<Down
         const filePath = path.join(downloadDir, filename);
         const buf = Buffer.from(await resp.arrayBuffer());
         fsSync.writeFileSync(filePath, buf);
-        (log ?? _log ?? console).log(`[napcat-QQ][downloadImages] saved: ${filePath} (${buf.length} bytes)`);
+        getLog(log ?? _log).log(`[napcat-QQ][downloadImages] saved: ${filePath} (${buf.length} bytes)`);
         return { path: filePath, type: mime };
       } catch (err) {
-        (log ?? _log ?? console).warn(`[napcat-QQ] Image download error: ${err instanceof Error ? err.message : String(err)}`);
+        getLog(log ?? _log).warn(`[napcat-QQ] Image download error: ${err instanceof Error ? err.message : String(err)}`);
         return { path: url, type: "image/jpeg" };
       }
     }
@@ -824,6 +867,7 @@ export async function transcribeAudioForNapcat(
     method: "POST",
     headers: { Authorization: `Bearer ${sttCfg.apiKey}` },
     body: form,
+    signal: AbortSignal.timeout(30_000),
   });
 
   if (!resp.ok) {

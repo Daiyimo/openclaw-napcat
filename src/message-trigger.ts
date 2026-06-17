@@ -10,6 +10,8 @@ import type { OneBotEvent } from "./types.js";
 import { getBotInfo } from "./known-bots-store.js";
 import { maskId } from "./utils/log-sanitize.js";
 import type { Logger } from "./types/channel-types.js";
+import { getLog } from "./admin-commands/shared.js";
+import { CQ_AT_PATTERN } from "./constants.js";
 
 // ============ @ 检测 ============
 
@@ -29,18 +31,18 @@ export function detectMention(
     for (const s of event.message) {
       if (s.type === "at") {
         if (String(s.data?.qq) === String(selfId) || s.data?.qq === "all") {
-          if (debug) (log ?? console).log(`[napcat-QQ][debug-mention] MATCH at segment qq=${s.data?.qq} selfId=${selfId}`);
+          if (debug) getLog(log).log(`[napcat-QQ][debug-mention] MATCH at segment qq=${s.data?.qq} selfId=${selfId}`);
           return true;
         }
       }
     }
   } else if (text.includes(`[CQ:at,qq=${selfId}]`)) {
-    if (debug) (log ?? console).log(`[napcat-QQ][debug-mention] MATCH text fallback selfId=${selfId}`);
+    if (debug) getLog(log).log(`[napcat-QQ][debug-mention] MATCH text fallback selfId=${selfId}`);
     return true;
   }
   if (repliedMsg?.sender?.user_id !== undefined) {
     if (String(repliedMsg.sender.user_id) === String(selfId)) {
-      if (debug) (log ?? console).log(`[napcat-QQ][debug-mention] MATCH reply sender userId=${maskId(repliedMsg.sender.user_id)} selfId=${selfId}`);
+      if (debug) getLog(log).log(`[napcat-QQ][debug-mention] MATCH reply sender userId=${maskId(repliedMsg.sender.user_id)} selfId=${selfId}`);
       return true;
     }
   }
@@ -62,7 +64,7 @@ export function hasMentionOtherUser(
   if (!Array.isArray(event.message)) {
     if (typeof event.message === "string") {
       const selfIdStr = String(selfId);
-      const atRegex = /\[CQ:at,qq=(\d+)\]/g;
+      const atRegex = CQ_AT_PATTERN;
       let m;
       while ((m = atRegex.exec(event.message)) !== null) {
         if (m[1] !== "all" && m[1] !== selfIdStr) return true;
@@ -144,7 +146,7 @@ export function detectNameTrigger(
   const matched = textLower.includes(nameLower);
 
   if (debug && matched) {
-    (log ?? console).log(`[napcat-QQ][debug-name-trigger] MATCH botName="${cleanName}" in text="${text.slice(0, 50)}"`);
+    getLog(log).log(`[napcat-QQ][debug-name-trigger] MATCH botName="${cleanName}" in text="${text.slice(0, 50)}"`);
   }
 
   return matched;
@@ -187,7 +189,7 @@ export function isMessageDirectedAtBot(
   } else if (selfIdStr) {
     if (text.includes(`[CQ:at,qq=${selfIdStr}]`) || text.includes("[CQ:at,qq=all]")) {
       isMentionedSelf = true;
-    } else if (/\[CQ:at,qq=\d+\]/.test(text)) {
+    } else if (CQ_AT_PATTERN.test(text)) {
       isMentionedOther = true;
     }
   }

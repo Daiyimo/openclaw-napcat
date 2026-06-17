@@ -1,8 +1,13 @@
 // OpenClaw Plugin SDK Type Declarations
-// 对齐 openclaw 2026.3.31 source
+// 对齐 openclaw 2026.6.8 source
 // 采用最小化声明：仅覆盖插件实际使用的接口
 
 declare module "openclaw/plugin-sdk" {
+  // ── 基础类型 ─────────────────────────────────────────────────────────────
+
+  /** 聊天类型：direct（私聊）/ group（群）/ channel（频道） */
+  export type ChatType = "direct" | "group" | "channel";
+
   // ── 基础运行时 ─────────────────────────────────────────────────────────────
 
   /** channel 子命名空间（对应 PluginRuntimeChannel） */
@@ -69,6 +74,8 @@ declare module "openclaw/plugin-sdk" {
     text?: {
       chunkByNewline?: (text: string, limit: number) => string[];
       chunkMarkdownText?: (text: string, limit: number) => string[];
+      chunkMarkdownTextWithMode?: (params: { text: string; limit: number; mode?: string }) => string[];
+      chunkTextWithMode?: (params: { text: string; limit: number; mode?: string }) => string[];
       hasControlCommand?: (text: string) => boolean;
       resolveTextChunkLimit?: (params: any) => number;
     };
@@ -80,8 +87,14 @@ declare module "openclaw/plugin-sdk" {
       fetchRemoteMedia?: (params: any) => Promise<any>;
       saveMediaBuffer?: (params: any) => Promise<string>;
     };
-    mentions?: any;
-    reactions?: any;
+    mentions?: {
+      implicitMentionKindWhen?: (params: any) => any;
+      resolveInboundMentionDecision?: (params: any) => any;
+      matchesMentionWithExplicit?: (params: any) => boolean;
+    };
+    reactions?: {
+      createAckReactionHandle?: (params: any) => any;
+    };
     groups?: any;
     debounce?: any;
     commands?: {
@@ -221,6 +234,16 @@ declare module "openclaw/plugin-sdk" {
     gatewayClientScopes?: readonly string[];
   };
 
+  export type ChannelOutboundSessionRoute = {
+    sessionKey: string;
+    baseSessionKey: string;
+    peer: { kind: ChatType; id: string };
+    chatType: "direct" | "group" | "channel";
+    from: string;
+    to: string;
+    threadId?: string | number;
+  };
+
   // ── Message Tool / Actions ─────────────────────────────────────────────────
 
   export type ChannelMessageActionDiscoveryContext = {
@@ -269,6 +292,8 @@ declare module "openclaw/plugin-sdk" {
     runtime: any;
   };
 
+  export type ChannelDirectoryEntryKind = "user" | "group" | "channel";
+
   export type ChannelDirectoryEntry = {
     kind: "user" | "group" | "channel";
     id: string;
@@ -289,16 +314,21 @@ declare module "openclaw/plugin-sdk" {
     name?: string;
     enabled?: boolean;
     configured?: boolean;
+    statusState?: string;
     linked?: boolean;
     running?: boolean;
     connected?: boolean;
     restartPending?: boolean;
     reconnectAttempts?: number;
     lastConnectedAt?: number | null;
-    lastDisconnect?: string | { at: number; status?: number; error?: string; loggedOut?: boolean } | null;
+    lastDisconnect?: string | {
+      at: number;
+      status?: number;
+      error?: string;
+      loggedOut?: boolean;
+    } | null;
     lastMessageAt?: number | null;
     lastEventAt?: number | null;
-    /** 3.31 新增：最后传输活动时间 */
     lastTransportActivityAt?: number | null;
     lastError?: string | null;
     healthState?: string;
@@ -310,15 +340,37 @@ declare module "openclaw/plugin-sdk" {
     activeRuns?: number;
     lastRunActivityAt?: number | null;
     mode?: string;
-    /** 3.31 新增 */
     dmPolicy?: string;
     allowFrom?: string[];
     tokenSource?: string;
     botTokenSource?: string;
+    appTokenSource?: string;
+    signingSecretSource?: string;
+    tokenStatus?: string;
+    botTokenStatus?: string;
+    appTokenStatus?: string;
+    signingSecretStatus?: string;
+    userTokenStatus?: string;
+    credentialSource?: string;
+    secretSource?: string;
+    audienceType?: string;
+    audience?: string;
+    webhookPath?: string;
+    webhookUrl?: string;
+    baseUrl?: string;
+    allowUnmentionedGroups?: boolean;
+    cliPath?: string | null;
+    dbPath?: string | null;
+    port?: number | null;
     probe?: unknown;
     lastProbeAt?: number | null;
     audit?: unknown;
-    [key: string]: unknown;
+    application?: unknown;
+    bot?: unknown;
+    publicKey?: string | null;
+    profile?: unknown;
+    channelAccessToken?: string;
+    channelSecret?: string;
   }
 
   // ── ChannelPlugin ───────────────────────────────────────────────────────────
@@ -341,22 +393,35 @@ declare module "openclaw/plugin-sdk" {
       aliases?: readonly string[];
       docsLabel?: string;
       markdownCapable?: boolean;
+      selectionDocsPrefix?: string;
+      selectionDocsOmitLabel?: boolean;
+      selectionExtras?: readonly string[];
+      detailLabel?: string;
+      systemImage?: string;
+      exposure?: ChannelExposure;
+      showConfigured?: boolean;
+      showInSetup?: boolean;
+      quickstartAllowFrom?: boolean;
+      forceAccountBinding?: boolean;
+      preferSessionLookupForAnnounceTarget?: boolean;
+      preferOver?: readonly string[];
     };
-    /** 静态能力声明（3.31 起 deleteMessage 已废弃，用 unsend） */
+    /** 静态能力声明 */
     capabilities: {
-      chatTypes: string[];
-      media?: boolean;
+      chatTypes: Array<ChatType | "thread">;
       polls?: boolean;
       reactions?: boolean;
       edit?: boolean;
       unsend?: boolean;
       reply?: boolean;
+      effects?: boolean;
+      groupManagement?: boolean;
       threads?: boolean;
+      media?: boolean;
       nativeCommands?: boolean;
       blockStreaming?: boolean;
-      /** @deprecated 使用 unsend */
-      deleteMessage?: boolean;
     };
+    setupWizard?: any;
     defaults?: { queue?: { debounceMs?: number } };
     reload?: { configPrefixes: string[]; noopPrefixes?: string[] };
     configSchema?: ChannelConfigSchema;
@@ -426,6 +491,8 @@ declare module "openclaw/plugin-sdk" {
         runtime: any;
       }) => Promise<void> | void;
     };
+    gatewayMethods?: string[];
+    gatewayMethodDescriptors?: { name: string; scope?: string; description?: string }[];
     /** 3.31 起 startAccount 不再提供 onReady/onError，使用 setStatus；getStatus/setStatus 为必选 */
     gateway?: {
       startAccount?: (ctx: ChannelGatewayContext<TAccount>) => Promise<unknown>;
@@ -501,7 +568,21 @@ declare module "openclaw/plugin-sdk" {
       hasStructuredReplyPayload?: (params: any) => boolean;
       parseExplicitTarget?: (params: any) => any | null;
       inferTargetChatType?: (params: any) => string | undefined;
-      resolveOutboundSessionRoute?: (params: any) => any;
+      resolveOutboundSessionRoute?: (params: {
+        cfg: OpenClawConfig;
+        agentId: string;
+        accountId?: string | null;
+        target: string;
+        currentSessionKey?: string;
+        resolvedTarget?: {
+          to: string;
+          kind: ChannelDirectoryEntryKind | "channel";
+          display?: string;
+          source: "normalized" | "directory";
+        };
+        replyToId?: string | null;
+        threadId?: string | number | null;
+      }) => ChannelOutboundSessionRoute | Promise<ChannelOutboundSessionRoute | null> | null;
       resolveSessionTarget?: (params: any) => string | undefined;
     };
     /** 3.31 新增：统一 message tool discovery + 动作处理（describeMessageTool 从 messaging 迁移至此） */
@@ -569,7 +650,7 @@ declare module "openclaw/plugin-sdk" {
   export type BeforeDispatchHook = (ctx: any) => any;
 
   /** 3.31: registrationMode 区分完整注册 vs setup-only vs cli-metadata */
-  export type PluginRegistrationMode = "full" | "setup-only" | "setup-runtime" | "cli-metadata";
+  export type PluginRegistrationMode = "full" | "setup-only" | "setup-runtime" | "cli-metadata" | "discovery" | "tool-discovery";
 
   export interface OpenClawPluginApi {
     id?: string;

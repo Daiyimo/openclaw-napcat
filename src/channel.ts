@@ -17,6 +17,7 @@ import type { InboundRateLimitStore, Logger } from "./types/channel-types.js";
 import { resolveOutboundSessionRoute } from "./utils/resolve-session-route.js";
 import { initConfigRef } from "./config-watcher.js";
 import { PROBE_DEFAULT_TIMEOUT_MS } from "./constants.js";
+import { getLog } from "./admin-commands/shared.js";
 
 // ── 子模块委托 ─────────────────────────────────────────────────────────────
 import { startAccount } from "./gateway/index.js";
@@ -327,7 +328,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
           cfg: ctx.cfg,
           accountId: ctx.accountId,
           abortSignal: ctx.abortSignal,
-          log: ctx.log ?? console,
+          log: getLog(ctx.log),
           getStatus: ctx.getStatus,
           setStatus: ctx.setStatus,
           channelRuntime: ctx.channelRuntime,
@@ -385,12 +386,18 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
     },
     resolveOutboundSessionRoute: (params: {
       cfg: any;
-      channel: string;
       agentId: string;
-      accountId: string;
+      accountId?: string | null;
       target: string;
       currentSessionKey?: string;
-      threadId?: string;
+      resolvedTarget?: {
+        to: string;
+        kind: string;
+        display?: string;
+        source: "normalized" | "directory";
+      };
+      replyToId?: string | null;
+      threadId?: string | number | null;
     }) => resolveOutboundSessionRoute(params.agentId, params.target),
   },
   actions: {

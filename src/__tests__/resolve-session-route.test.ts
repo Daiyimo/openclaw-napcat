@@ -16,7 +16,7 @@ describe("resolveOutboundSessionRoute", () => {
     expect(result!.peer).toEqual({ kind: "group", id: "88888" });
     expect(result!.chatType).toBe("group");
     expect(result!.from).toBe("napcat:group:88888");
-    expect(result!.to).toBe("channel:88888");
+    expect(result!.to).toBe("group:88888");
   });
 
   it("group 目标的 peerId 转小写", () => {
@@ -36,7 +36,7 @@ describe("resolveOutboundSessionRoute", () => {
     expect(result!.peer.id).toBe("815833475");
     expect(result!.sessionKey).toBe("agent:default:napcat:group:815833475");
     expect(result!.from).toBe("napcat:group:815833475");
-    expect(result!.to).toBe("channel:815833475");
+    expect(result!.to).toBe("group:815833475");
   });
 
   it("裸数字群号 1081646667 正确识别为 group", () => {
@@ -63,7 +63,7 @@ describe("resolveOutboundSessionRoute", () => {
     expect(result).not.toBeNull();
     expect(result!.peer.kind).toBe("group");
     expect(result!.sessionKey).toBe("agent:default:napcat:group:12345");
-    expect(result!.to).toBe("channel:12345");
+    expect(result!.to).toBe("group:12345");
   });
 
   // ── guild 目标 ──

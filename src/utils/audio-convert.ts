@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { decode, isSilk } from "silk-wasm";
+import { SILK_SAMPLE_RATE } from "../constants.js";
 
 /** 最大允许的输入文件大小（10 MB），防止 OOM */
 const MAX_AUDIO_FILE_SIZE = 10 * 1024 * 1024;
@@ -84,7 +85,7 @@ export async function convertSilkToWav(
     return null;
   }
 
-  const sampleRate = 24000;
+  const sampleRate = SILK_SAMPLE_RATE;
   let result: { data: Uint8Array; duration: number };
   try {
     result = await Promise.race([

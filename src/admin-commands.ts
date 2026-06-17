@@ -42,7 +42,11 @@ import {
   requireGroup,
   resolveMsgId,
   formatUptime,
+  getLog,
+  withAdminCatch,
 } from "./admin-commands/shared.js";
+
+import { CQ_AT_PATTERN } from "./constants.js";
 
 import {
   BAN_DEFAULT_MINUTES,
@@ -86,7 +90,7 @@ export async function handleVersion(ctx: AdminCmdContext, _parts: string[]): Pro
       msg += `\n更新状态: ✅ 已是最新版本`;
     }
   } catch (err) {
-    (ctx.log ?? console).warn("[napcat-QQ] Version check failed:", err);
+    getLog(ctx.log).warn("[napcat-QQ] Version check failed:", err);
     msg += `\n更新状态: 检查失败`;
   }
 
@@ -135,13 +139,9 @@ export async function handleUnmute(ctx: AdminCmdContext, parts: string[]): Promi
   if (!(await requireGroup(ctx))) return null;
   const targetId = extractAtTarget(ctx.message, ctx.text) ?? (parts[0] ? parseInt(parts[0], 10) : null);
   if (targetId && targetId > 0) {
-    try {
+    return withAdminCatch(ctx, async () => {
       ctx.client.setGroupBan(ctx.groupId!, targetId, 0);
-      return `已解除禁言 ${targetId}。`;
-    } catch (err) {
-      ctx.log?.warn?.("[admin-command]", err);
-      return `❌ 解除禁言失败：${fmtError(err)}`;
-    }
+    }, `已解除禁言 ${targetId}。`);
   }
   return "用法：/unmute @用户";
 }
@@ -160,13 +160,9 @@ export async function handleMuteBan(
   if (targetId && targetId > 0) {
     const rawMin = parts[1] ? parseInt(parts[1], 10) : MUTE_DEFAULT_MINUTES;
     const minutes = isNaN(rawMin) ? MUTE_DEFAULT_MINUTES : Math.max(1, Math.min(rawMin, MUTE_MAX_MINUTES));
-    try {
+    return withAdminCatch(ctx, async () => {
       ctx.client.setGroupBan(ctx.groupId!, targetId, minutes * 60);
-      return `已禁言 ${targetId} ${minutes} 分钟。`;
-    } catch (err) {
-      ctx.log?.warn?.("[admin-command]", err);
-      return `❌ 禁言失败：${fmtError(err)}`;
-    }
+    }, `已禁言 ${targetId} ${minutes} 分钟。`);
   }
   return usage;
 }
@@ -175,13 +171,9 @@ export async function handleKick(ctx: AdminCmdContext, parts: string[]): Promise
   if (!(await requireGroup(ctx))) return null;
   const targetId = extractAtTarget(ctx.message, ctx.text) ?? (parts[0] ? parseInt(parts[0], 10) : null);
   if (targetId && targetId > 0) {
-    try {
+    return withAdminCatch(ctx, async () => {
       ctx.client.setGroupKick(ctx.groupId!, targetId);
-      return `已踢出 ${targetId}。`;
-    } catch (err) {
-      ctx.log?.warn?.("[admin-command]", err);
-      return `❌ 踢人失败：${fmtError(err)}`;
-    }
+    }, `已踢出 ${targetId}。`);
   }
   return "用法：/kick @用户";
 }
@@ -192,13 +184,9 @@ export async function handleKickBatch(ctx: AdminCmdContext, _parts: string[]): P
   if (targets.length === 0) return "用法：/kickbatch @a @b @c（至少一个 @ 目标）";
   if (await needConfirm(ctx, "kickbatch", `${ctx.groupId}:${targets.join(",")}`, `批量踢出 ${targets.length} 人`))
     return null;
-  try {
+  return withAdminCatch(ctx, async () => {
     ctx.client.setGroupKickMembers(ctx.groupId!, targets);
-    return `✅ 已批量踢出 ${targets.length} 人：${targets.join(", ")}`;
-  } catch (err) {
-      ctx.log?.warn?.("[admin-command]", err);
-    return `❌ 批量踢人失败：${fmtError(err)}`;
-  }
+  }, `✅ 已批量踢出 ${targets.length} 人：${targets.join(", ")}`);
 }
 
 export async function handleAdmin(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
@@ -207,13 +195,9 @@ export async function handleAdmin(ctx: AdminCmdContext, _parts: string[]): Promi
   const targetId = extractAtTarget(ctx.message, ctx.text) ?? (parseInt(_parts[0], 10) || null);
   if (!targetId || targetId <= 0) return "用法：/admin @用户";
   if (await needConfirm(ctx, "admin", `${ctx.groupId}:${targetId}`, `任命管理员 ${targetId}`)) return null;
-  try {
+  return withAdminCatch(ctx, async () => {
     ctx.client.setGroupAdmin(ctx.groupId!, targetId, enable);
-    return `✅ 已任命 ${targetId} 为群管理员。`;
-  } catch (err) {
-      ctx.log?.warn?.("[admin-command]", err);
-    return `❌ 任命管理员失败：${fmtError(err)}（需 bot 为群主）`;
-  }
+  }, `✅ 已任命 ${targetId} 为群管理员。`);
 }
 
 export async function handleUnadmin(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
@@ -222,42 +206,30 @@ export async function handleUnadmin(ctx: AdminCmdContext, _parts: string[]): Pro
   const targetId = extractAtTarget(ctx.message, ctx.text) ?? (parseInt(_parts[0], 10) || null);
   if (!targetId || targetId <= 0) return "用法：/unadmin @用户";
   if (await needConfirm(ctx, "unadmin", `${ctx.groupId}:${targetId}`, `撤销管理员 ${targetId}`)) return null;
-  try {
+  return withAdminCatch(ctx, async () => {
     ctx.client.setGroupAdmin(ctx.groupId!, targetId, enable);
-    return `✅ 已撤销 ${targetId} 的群管理员。`;
-  } catch (err) {
-      ctx.log?.warn?.("[admin-command]", err);
-    return `❌ 撤销管理员失败：${fmtError(err)}（需 bot 为群主）`;
-  }
+  }, `✅ 已撤销 ${targetId} 的群管理员。`);
 }
 
 export async function handleCard(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
   if (!(await requireGroup(ctx))) return null;
   const targetId = extractAtTarget(ctx.message, ctx.text);
   if (!targetId) return "用法：/card @用户 [新名片]（空 = 清除）";
-  const newCard = parts.join(" ").replace(/\[CQ:at,qq=\d+\]\s*/g, "").trim();
-  try {
+  const newCard = parts.join(" ").replace(new RegExp(`${CQ_AT_PATTERN.source}\\s*`, "g"), "").trim();
+  return withAdminCatch(ctx, async () => {
     ctx.client.setGroupCard(ctx.groupId!, targetId, newCard);
-    return newCard ? `✅ 已将 ${targetId} 的名片改为「${newCard}」` : `✅ 已清除 ${targetId} 的名片`;
-  } catch (err) {
-      ctx.log?.warn?.("[admin-command]", err);
-    return `❌ 修改名片失败：${fmtError(err)}`;
-  }
+  }, newCard ? `✅ 已将 ${targetId} 的名片改为「${newCard}」` : `✅ 已清除 ${targetId} 的名片`);
 }
 
 export async function handleTitle(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
   if (!(await requireGroup(ctx))) return null;
   const targetId = extractAtTarget(ctx.message, ctx.text);
   if (!targetId) return "用法：/title @用户 <头衔>（需 bot 为群主）";
-  const title = parts.join(" ").replace(/\[CQ:at,qq=\d+\]\s*/g, "").trim();
+  const title = parts.join(" ").replace(new RegExp(`${CQ_AT_PATTERN.source}\\s*`, "g"), "").trim();
   if (!title) return "用法：/title @用户 <头衔>";
-  try {
+  return withAdminCatch(ctx, async () => {
     ctx.client.setGroupSpecialTitle(ctx.groupId!, targetId, title);
-    return `✅ 已为 ${targetId} 设置头衔「${title}」`;
-  } catch (err) {
-      ctx.log?.warn?.("[admin-command]", err);
-    return `❌ 设置头衔失败：${fmtError(err)}（需 bot 为群主）`;
-  }
+  }, `✅ 已为 ${targetId} 设置头衔「${title}」`);
 }
 
 export async function handleShutList(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
@@ -278,24 +250,16 @@ export async function handleShutList(ctx: AdminCmdContext, _parts: string[]): Pr
 
 export async function handleBanAll(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
   if (!(await requireGroup(ctx))) return null;
-  try {
+  return withAdminCatch(ctx, async () => {
     ctx.client.setGroupWholeBan(ctx.groupId!, true);
-    return "✅ 已开启全员禁言。";
-  } catch (err) {
-      ctx.log?.warn?.("[admin-command]", err);
-    return `❌ 设置全员禁言失败：${fmtError(err)}`;
-  }
+  }, "✅ 已开启全员禁言。");
 }
 
 export async function handleUnbanAll(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
   if (!(await requireGroup(ctx))) return null;
-  try {
+  return withAdminCatch(ctx, async () => {
     ctx.client.setGroupWholeBan(ctx.groupId!, false);
-    return "✅ 已关闭全员禁言。";
-  } catch (err) {
-      ctx.log?.warn?.("[admin-command]", err);
-    return `❌ 关闭全员禁言失败：${fmtError(err)}`;
-  }
+  }, "✅ 已关闭全员禁言。");
 }
 
 export async function handleSetName(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
@@ -303,13 +267,9 @@ export async function handleSetName(ctx: AdminCmdContext, parts: string[]): Prom
   const newName = parts.join(" ").trim();
   if (!newName) return "用法：/setname <新群名>";
   if (await needConfirm(ctx, "setname", `${ctx.groupId}:${newName}`, `修改群名为「${newName}」`)) return null;
-  try {
+  return withAdminCatch(ctx, async () => {
     ctx.client.setGroupName(ctx.groupId!, newName);
-    return `✅ 已修改群名为「${newName}」`;
-  } catch (err) {
-      ctx.log?.warn?.("[admin-command]", err);
-    return `❌ 修改群名失败：${fmtError(err)}`;
-  }
+  }, `✅ 已修改群名为「${newName}」`);
 }
 
 export async function handleSetRemark(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
@@ -317,13 +277,9 @@ export async function handleSetRemark(ctx: AdminCmdContext, parts: string[]): Pr
   const remark = parts.join(" ").trim();
   if (!remark) return "用法：/setremark <备注>（备注仅 bot 自己可见）";
   if (await needConfirm(ctx, "setremark", `${ctx.groupId}`, `设置群备注为「${remark}」`)) return null;
-  try {
+  return withAdminCatch(ctx, async () => {
     await ctx.client.setGroupRemark(ctx.groupId!, remark);
-    return `✅ 已设置群备注为「${remark}」`;
-  } catch (err) {
-      ctx.log?.warn?.("[admin-command]", err);
-    return `❌ 设置群备注失败：${fmtError(err)}`;
-  }
+  }, `✅ 已设置群备注为「${remark}」`);
 }
 
 export async function handleSetPortrait(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
@@ -331,63 +287,43 @@ export async function handleSetPortrait(ctx: AdminCmdContext, _parts: string[]):
   const file = extractImageFile(ctx.message);
   if (!file) return "用法：回复一张图片，并发送 /setportrait";
   if (await needConfirm(ctx, "setportrait", `${ctx.groupId}`, "修改群头像")) return null;
-  try {
+  return withAdminCatch(ctx, async () => {
     await ctx.client.setGroupPortrait(ctx.groupId!, file);
-    return "✅ 已修改群头像。";
-  } catch (err) {
-      ctx.log?.warn?.("[admin-command]", err);
-    return `❌ 修改群头像失败：${fmtError(err)}`;
-  }
+  }, "✅ 已修改群头像。");
 }
 
 export async function handleLeave(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
   if (!(await requireGroup(ctx))) return null;
   if (await needConfirm(ctx, "leave", `${ctx.groupId}`, "bot 退出本群")) return null;
-  try {
+  return withAdminCatch(ctx, async () => {
     ctx.client.setGroupLeave(ctx.groupId!, false);
-    return "👋 bot 已退出本群。";
-  } catch (err) {
-      ctx.log?.warn?.("[admin-command]", err);
-    return `❌ 退群失败：${fmtError(err)}`;
-  }
+  }, "👋 bot 已退出本群。");
 }
 
 export async function handleDismiss(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
   if (!(await requireGroup(ctx))) return null;
   if (await needConfirm(ctx, "dismiss", `${ctx.groupId}`, "解散本群（不可逆）")) return null;
-  try {
+  return withAdminCatch(ctx, async () => {
     ctx.client.setGroupLeave(ctx.groupId!, true);
-    return "💥 群已解散。";
-  } catch (err) {
-      ctx.log?.warn?.("[admin-command]", err);
-    return `❌ 解散群失败：${fmtError(err)}（需 bot 为群主）`;
-  }
+  }, "💥 群已解散。");
 }
 
 export async function handleEssence(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
   if (!(await requireGroup(ctx))) return null;
   const msgId = resolveMsgId(ctx, parts);
   if (!msgId) return `用法：回复目标消息并发送 /essence，或 /essence <message_id>`;
-  try {
+  return withAdminCatch(ctx, async () => {
     await ctx.client.setEssenceMsg(msgId);
-    return "✅ 已设为精华消息。";
-  } catch (err) {
-      ctx.log?.warn?.("[admin-command]", err);
-    return `❌ 操作精华消息失败：${fmtError(err)}`;
-  }
+  }, "✅ 已设为精华消息。");
 }
 
 export async function handleDeEssence(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
   if (!(await requireGroup(ctx))) return null;
   const msgId = resolveMsgId(ctx, parts);
   if (!msgId) return `用法：回复目标消息并发送 /deessence，或 /deessence <message_id>`;
-  try {
+  return withAdminCatch(ctx, async () => {
     await ctx.client.deleteEssenceMsg(msgId);
-    return "✅ 已移出精华消息。";
-  } catch (err) {
-      ctx.log?.warn?.("[admin-command]", err);
-    return `❌ 操作精华消息失败：${fmtError(err)}`;
-  }
+  }, "✅ 已移出精华消息。");
 }
 
 export async function handleEssenceList(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
@@ -446,7 +382,7 @@ export async function handleGroupInfo(ctx: AdminCmdContext, _parts: string[]): P
     const memberCount = (info as Record<string, unknown>).member_count ?? "?";
     const maxMember = (info as Record<string, unknown>).max_member_count ?? "?";
     const atAll = await ctx.client.getGroupAtAllRemain(ctx.groupId!).catch((err) => {
-      (ctx.log ?? console).warn(`[napcat-QQ] getGroupAtAllRemain failed (group ${ctx.groupId}): ${err instanceof Error ? err.message : err}`);
+      getLog(ctx.log).warn(`[napcat-QQ] getGroupAtAllRemain failed (group ${ctx.groupId}): ${err instanceof Error ? err.message : err}`);
       return null;
     });
     const atAllRemain = atAll ? `${atAll.remain_at_all_count_for_group ?? atAll.group_remain_at_all_count ?? "?"}` : "?";
@@ -533,39 +469,27 @@ export async function handleDelFile(ctx: AdminCmdContext, parts: string[]): Prom
   if (!(await requireGroup(ctx))) return null;
   const fileId = parts[0];
   if (!fileId) return "用法：/delfile <file_id>";
-  try {
+  return withAdminCatch(ctx, async () => {
     await ctx.client.deleteGroupFile(ctx.groupId!, fileId);
-    return `✅ 已删除文件 ${fileId}`;
-  } catch (err) {
-      ctx.log?.warn?.("[admin-command]", err);
-    return `❌ 删除文件失败：${fmtError(err)}`;
-  }
+  }, `✅ 已删除文件 ${fileId}`);
 }
 
 export async function handleMkdir(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
   if (!(await requireGroup(ctx))) return null;
   const name = parts.join(" ").trim();
   if (!name) return "用法：/mkdir <文件夹名>";
-  try {
+  return withAdminCatch(ctx, async () => {
     await ctx.client.createGroupFileFolder(ctx.groupId!, name);
-    return `✅ 已创建文件夹「${name}」`;
-  } catch (err) {
-      ctx.log?.warn?.("[admin-command]", err);
-    return `❌ 创建文件夹失败：${fmtError(err)}`;
-  }
+  }, `✅ 已创建文件夹「${name}」`);
 }
 
 export async function handleRmdir(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
   if (!(await requireGroup(ctx))) return null;
   const folderId = parts[0];
   if (!folderId) return "用法：/rmdir <folder_id>（从 /files 获取）";
-  try {
+  return withAdminCatch(ctx, async () => {
     await ctx.client.deleteGroupFolder(ctx.groupId!, folderId);
-    return `✅ 已删除文件夹 ${folderId}`;
-  } catch (err) {
-      ctx.log?.warn?.("[admin-command]", err);
-    return `❌ 删除文件夹失败：${fmtError(err)}`;
-  }
+  }, `✅ 已删除文件夹 ${folderId}`);
 }
 
 export async function handleMvFile(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
@@ -574,13 +498,9 @@ export async function handleMvFile(ctx: AdminCmdContext, parts: string[]): Promi
   const targetDir = parts[1];
   if (!fileId || !targetDir) return "用法：/mvfile <file_id> <target_folder_id>（target 用 / 表示根目录）";
   const curDir = currentFolderId(getCwd(ctx.userId!, ctx.groupId!));
-  try {
+  return withAdminCatch(ctx, async () => {
     await ctx.client.moveGroupFile(ctx.groupId!, fileId, curDir, targetDir);
-    return `✅ 已移动文件 ${fileId} → ${targetDir}`;
-  } catch (err) {
-      ctx.log?.warn?.("[admin-command]", err);
-    return `❌ 移动文件失败：${fmtError(err)}`;
-  }
+  }, `✅ 已移动文件 ${fileId} → ${targetDir}`);
 }
 
 export async function handleRenameFile(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
@@ -589,13 +509,9 @@ export async function handleRenameFile(ctx: AdminCmdContext, parts: string[]): P
   const newName = parts.slice(1).join(" ").trim();
   if (!fileId || !newName) return "用法：/renamefile <file_id> <新名>";
   const curDir = currentFolderId(getCwd(ctx.userId!, ctx.groupId!));
-  try {
+  return withAdminCatch(ctx, async () => {
     await ctx.client.renameGroupFile(ctx.groupId!, fileId, curDir, newName);
-    return `✅ 已重命名为「${newName}」`;
-  } catch (err) {
-      ctx.log?.warn?.("[admin-command]", err);
-    return `❌ 重命名失败：${fmtError(err)}`;
-  }
+  }, `✅ 已重命名为「${newName}」`);
 }
 
 export async function handleUpload(_ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
@@ -611,63 +527,43 @@ export async function handlePoke(ctx: AdminCmdContext, parts: string[]): Promise
   if (!(await requireGroup(ctx))) return null;
   const targetId = extractAtTarget(ctx.message, ctx.text) ?? (parts[0] ? parseInt(parts[0], 10) : null);
   if (!targetId) return "用法：/poke @用户";
-  try {
+  return withAdminCatch(ctx, async () => {
     ctx.client.sendGroupPoke(ctx.groupId!, targetId);
-    return `👉 已戳一戳 ${targetId}`;
-  } catch (err) {
-      ctx.log?.warn?.("[admin-command]", err);
-    return `❌ 戳一戳失败：${fmtError(err)}`;
-  }
+  }, `👉 已戳一戳 ${targetId}`);
 }
 
 export async function handleSign(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
   if (!(await requireGroup(ctx))) return null;
-  try {
+  return withAdminCatch(ctx, async () => {
     await ctx.client.setGroupSign(ctx.groupId!);
-    return "✅ 已群签到。";
-  } catch (err) {
-      ctx.log?.warn?.("[admin-command]", err);
-    return `❌ 签到失败：${fmtError(err)}`;
-  }
+  }, "✅ 已群签到。");
 }
 
 export async function handleTodo(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
   if (!(await requireGroup(ctx))) return null;
   const msgId = resolveMsgId(ctx, parts);
   if (!msgId) return `用法：回复目标消息并发送 /todo，或 /todo <message_id>`;
-  try {
+  return withAdminCatch(ctx, async () => {
     await ctx.client.setGroupTodo(ctx.groupId!, msgId);
-    return `✅ 已标记消息 ${msgId} 为待办`;
-  } catch (err) {
-      ctx.log?.warn?.("[admin-command]", err);
-    return `❌ 待办操作失败：${fmtError(err)}`;
-  }
+  }, `✅ 已标记消息 ${msgId} 为待办`);
 }
 
 export async function handleDoneTodo(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
   if (!(await requireGroup(ctx))) return null;
   const msgId = resolveMsgId(ctx, parts);
   if (!msgId) return `用法：回复目标消息并发送 /donetodo，或 /donetodo <message_id>`;
-  try {
+  return withAdminCatch(ctx, async () => {
     await ctx.client.completeGroupTodo(ctx.groupId!, msgId);
-    return `✅ 已完成消息 ${msgId}`;
-  } catch (err) {
-      ctx.log?.warn?.("[admin-command]", err);
-    return `❌ 待办操作失败：${fmtError(err)}`;
-  }
+  }, `✅ 已完成消息 ${msgId}`);
 }
 
 export async function handleCancelTodo(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
   if (!(await requireGroup(ctx))) return null;
   const msgId = resolveMsgId(ctx, parts);
   if (!msgId) return `用法：回复目标消息并发送 /canceltodo，或 /canceltodo <message_id>`;
-  try {
+  return withAdminCatch(ctx, async () => {
     await ctx.client.cancelGroupTodo(ctx.groupId!, msgId);
-    return `✅ 已取消消息 ${msgId} 的待办`;
-  } catch (err) {
-      ctx.log?.warn?.("[admin-command]", err);
-    return `❌ 待办操作失败：${fmtError(err)}`;
-  }
+  }, `✅ 已取消消息 ${msgId} 的待办`);
 }
 
 export async function handleSendTo(ctx: AdminCmdContext, parts: string[]): Promise<string | null> {
@@ -680,14 +576,10 @@ export async function handleSendTo(ctx: AdminCmdContext, parts: string[]): Promi
       `  /sendto 12345678 你好`
     );
   }
-  try {
+  return withAdminCatch(ctx, async () => {
     const result = await sendProactive({ to: target, text: msgText });
-    if (result.success) return `✅ 已发送到 ${target}`;
-    return `❌ 发送失败：${result.error}`;
-  } catch (err) {
-      ctx.log?.warn?.("[admin-command]", err);
-    return `❌ 发送失败：${fmtError(err)}`;
-  }
+    if (!result.success) throw new Error(result.error);
+  }, `✅ 已发送到 ${target}`);
 }
 
 export async function handleReload(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {
@@ -715,7 +607,7 @@ export async function handleGroups(ctx: AdminCmdContext, _parts: string[]): Prom
     const count = await ctx.refreshGroupRoutes();
     return `✅ 已刷新 ${count} 个群路由，cron 投递现在可用`;
   } catch (err) {
-      ctx.log?.warn?.("[admin-command]", err);
+    getLog(ctx.log).warn?.("[admin-command]", err);
     return `❌ 刷新失败：${fmtError(err)}`;
   }
 }
