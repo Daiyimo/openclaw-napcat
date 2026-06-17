@@ -115,7 +115,7 @@ export function triggerUpdateCheck(log?: {
       }
     })
     .catch((err) => {
-      _log?.debug?.("[napcat-qq:update-checker] check failed:", err);
+      _log?.warn?.("[napcat-qq:update-checker] check failed:", err);
     });
 }
 

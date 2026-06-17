@@ -53,10 +53,37 @@ export async function sendText(
   params: SendTextParams,
   deps: SendTextDeps,
 ): Promise<{ channel: "napcat"; sent: boolean; error?: string }> {
-  const { to, text, replyToId } = params;
+  let to = params.to ?? "";
+  const { text, replyToId } = params;
   const { getClient, knownGroupIds, passiveMode, log } = deps;
 
-  if (!to || to === "heartbeat") return { channel: "napcat", sent: true };
+  if (!to || to === "heartbeat") {
+    if (!to) {
+      (log ?? console).warn(
+        `[napcat-QQ][outbound.sendText] received empty target, params keys: ${Object.keys(params).join(",")}`,
+      );
+    }
+    return { channel: "napcat", sent: true };
+  }
+
+  // ── 防御性归一化：处理不完整的 to 值 ──────────────────────
+  // cron agent 可能只传 "group" 或 "channel" 不带 ID
+  if (to === "group" || to === "channel") {
+    const fallbackId = [...knownGroupIds].sort((a, b) => Number(a) - Number(b))[0];
+    if (fallbackId) {
+      (log ?? console).warn(
+        `[napcat-QQ][outbound.sendText] incomplete target "${to}", ` +
+        `fallback to known group ${fallbackId}`,
+      );
+      to = fallbackId;
+    } else {
+      (log ?? console).error(
+        `[napcat-QQ][outbound.sendText] cannot resolve incomplete target "${to}" — ` +
+        `no known groups. Message dropped.`,
+      );
+      return { channel: "napcat", sent: false, error: `Cannot resolve "${to}": no group ID and no known groups` };
+    }
+  }
 
   // ── 旁观模式 [SILENT] / NO_REPLY 拦截 ──────────────────────
   const resolvedAccountId = params.accountId || DEFAULT_ACCOUNT_ID;
@@ -82,7 +109,7 @@ export async function sendText(
   }
 
   (log ?? console).log(
-    `[napcat-QQ][outbound.sendText] called: to=${to}, accountId=${params.accountId}, text=${maskIdsInText(text?.slice(0, 100) || "")}`,
+    `[napcat-QQ][outbound.sendText] called: to=${to}, accountId=${params.accountId ?? "default"}, text=${maskIdsInText(text?.slice(0, 100) || "")}`,
   );
 
   // ── 追加友军签名（仅群消息） ─────────────────────────────────

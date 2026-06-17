@@ -89,6 +89,23 @@ function setBotSelfId(accountId: string, selfId: number): void {
   botSelfIds.set(accountId, selfId);
 }
 
+/**
+ * Bot 自身昵称缓存（按账号隔离）。
+ * 由 connect handler 写入，outbound.sendText 读取用于生成友军签名。
+ * 避免依赖框架传入的 config 对象（resolveAccount 会删除 _selfName 字段）。
+ */
+const botSelfNames = new Map<string, string>();
+
+/** 获取指定账号的 bot 昵称 */
+function getBotSelfName(accountId: string): string | undefined {
+  return botSelfNames.get(accountId);
+}
+
+/** 设置指定账号的 bot 昵称 */
+function setBotSelfName(accountId: string, name: string): void {
+  botSelfNames.set(accountId, name);
+}
+
 export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
   id: "napcat",
   meta: {
@@ -162,7 +179,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
           kind: "user" as const,
         }));
       } catch (err) {
-        _log.debug(`[napcat-QQ] listPeers failed for ${params.accountId || DEFAULT_ACCOUNT_ID}:`, err);
+        _log.warn(`[napcat-QQ] listPeers failed for ${params.accountId || DEFAULT_ACCOUNT_ID}:`, err);
         return [];
       }
     },
@@ -177,7 +194,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
           kind: "group" as const,
         }));
       } catch (err) {
-        _log.debug(`[napcat-QQ] listGroups failed for ${params.accountId || DEFAULT_ACCOUNT_ID}:`, err);
+        _log.warn(`[napcat-QQ] listGroups failed for ${params.accountId || DEFAULT_ACCOUNT_ID}:`, err);
         return [];
       }
     },
@@ -322,6 +339,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
           inboundStores,
           passiveMode,
           setBotSelfId,
+          setBotSelfName,
           startingPromises,
           _messageHandlerCleanups: new Map<string, () => void>(),
           metrics: new Map([[ctx.accountId, createMetricsCollector()]]),
@@ -335,16 +353,20 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
   },
   outbound: {
     deliveryMode: "direct" as const,
-    sendText: async ({ to, text, accountId, replyToId, cfg, log }: { to: string; text: string; accountId?: string | null; replyToId?: string | null; cfg?: any; log?: any }) => {
-      const resolvedAid = accountId || DEFAULT_ACCOUNT_ID;
+    sendText: async (params: { to?: string; text: string; target?: string; channel?: string; accountId?: string | null; replyToId?: string | null; cfg?: any; log?: any }): Promise<{ channel: "napcat"; sent: boolean; error?: string }> => {
+      // 防御性归一化：cron agent 可能用 channel 代替 target，兼容处理
+      const to = params.to ?? params.target ?? params.channel ?? "";
+      const text = params.text;
+      const resolvedAid = params.accountId || DEFAULT_ACCOUNT_ID;
       // 提取本 bot 的 QQ 号和昵称用于生成友军签名
       // 优先用昵称（更可读），UID 作为兜底
-      const accountCfg = (resolvedAid === DEFAULT_ACCOUNT_ID ? cfg?.channels?.napcat : cfg?.channels?.napcat?.accounts?.[resolvedAid]) as QQConfig | undefined;
-      const selfId = getBotSelfId(resolvedAid) ?? cfg?.channels?.napcat?._selfId;
-      const selfName = accountCfg?._selfName;
+      const accountCfg = (resolvedAid === DEFAULT_ACCOUNT_ID ? params.cfg?.channels?.napcat : params.cfg?.channels?.napcat?.accounts?.[resolvedAid]) as QQConfig | undefined;
+      const selfId = getBotSelfId(resolvedAid) ?? params.cfg?.channels?.napcat?._selfId;
+      // resolveAccount 会删除 _selfName，优先从模块级缓存读取（connect handler 写入）
+      const selfName = getBotSelfName(resolvedAid) ?? accountCfg?._selfName;
       return sendText(
-        { to, text, accountId, replyToId, botSelfId: selfId, botSelfName: selfName, cfg: accountCfg },
-        { getClient: getClientForAccount, knownGroupIds: getKnownGroupIds(resolvedAid), passiveMode, log },
+        { to, text, accountId: params.accountId, replyToId: params.replyToId, botSelfId: selfId, botSelfName: selfName, cfg: accountCfg },
+        { getClient: getClientForAccount, knownGroupIds: getKnownGroupIds(resolvedAid), passiveMode, log: params.log },
       );
     },
     sendMedia: async ({ to, text, mediaUrl, accountId, replyToId }) => {
@@ -389,6 +411,8 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
       return [
         "跨会话发送消息：如需将消息发往非当前会话（如指定群聊），请在消息开头使用 [TO:目标] 前缀。" +
         "目标格式：group:群号（群聊）或 private:QQ号（私聊）。示例：[TO:group:88888888]早上好！",
+        "发送消息时必须使用 target 参数指定接收方（如 group:1081646667 或 private:QQ号），" +
+        "不要使用 channel 参数。channel 是内部路由标识，不是发送目标。",
       ];
     },
   },

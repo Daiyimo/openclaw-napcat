@@ -15,6 +15,7 @@ vi.mock("../message-parser.js", () => ({
   isVideoFile: (url: string) => /\.(mp4|avi|mov|mkv|webm)$/i.test(url),
   extractMediaUrlsFromText: () => [],
   resolveMediaUrl: async (url: string) => url,  // passthrough
+  isUrlPrivate: (_url: string) => false,  // SSRF guard mock — allow all URLs in tests
 }));
 
 // ============ Mock 工厂 ============

@@ -139,6 +139,7 @@ export async function handleUnmute(ctx: AdminCmdContext, parts: string[]): Promi
       ctx.client.setGroupBan(ctx.groupId!, targetId, 0);
       return `已解除禁言 ${targetId}。`;
     } catch (err) {
+      ctx.log?.warn?.("[admin-command]", err);
       return `❌ 解除禁言失败：${fmtError(err)}`;
     }
   }
@@ -163,6 +164,7 @@ export async function handleMuteBan(
       ctx.client.setGroupBan(ctx.groupId!, targetId, minutes * 60);
       return `已禁言 ${targetId} ${minutes} 分钟。`;
     } catch (err) {
+      ctx.log?.warn?.("[admin-command]", err);
       return `❌ 禁言失败：${fmtError(err)}`;
     }
   }
@@ -177,6 +179,7 @@ export async function handleKick(ctx: AdminCmdContext, parts: string[]): Promise
       ctx.client.setGroupKick(ctx.groupId!, targetId);
       return `已踢出 ${targetId}。`;
     } catch (err) {
+      ctx.log?.warn?.("[admin-command]", err);
       return `❌ 踢人失败：${fmtError(err)}`;
     }
   }
@@ -193,6 +196,7 @@ export async function handleKickBatch(ctx: AdminCmdContext, _parts: string[]): P
     ctx.client.setGroupKickMembers(ctx.groupId!, targets);
     return `✅ 已批量踢出 ${targets.length} 人：${targets.join(", ")}`;
   } catch (err) {
+      ctx.log?.warn?.("[admin-command]", err);
     return `❌ 批量踢人失败：${fmtError(err)}`;
   }
 }
@@ -207,6 +211,7 @@ export async function handleAdmin(ctx: AdminCmdContext, _parts: string[]): Promi
     ctx.client.setGroupAdmin(ctx.groupId!, targetId, enable);
     return `✅ 已任命 ${targetId} 为群管理员。`;
   } catch (err) {
+      ctx.log?.warn?.("[admin-command]", err);
     return `❌ 任命管理员失败：${fmtError(err)}（需 bot 为群主）`;
   }
 }
@@ -221,6 +226,7 @@ export async function handleUnadmin(ctx: AdminCmdContext, _parts: string[]): Pro
     ctx.client.setGroupAdmin(ctx.groupId!, targetId, enable);
     return `✅ 已撤销 ${targetId} 的群管理员。`;
   } catch (err) {
+      ctx.log?.warn?.("[admin-command]", err);
     return `❌ 撤销管理员失败：${fmtError(err)}（需 bot 为群主）`;
   }
 }
@@ -234,6 +240,7 @@ export async function handleCard(ctx: AdminCmdContext, parts: string[]): Promise
     ctx.client.setGroupCard(ctx.groupId!, targetId, newCard);
     return newCard ? `✅ 已将 ${targetId} 的名片改为「${newCard}」` : `✅ 已清除 ${targetId} 的名片`;
   } catch (err) {
+      ctx.log?.warn?.("[admin-command]", err);
     return `❌ 修改名片失败：${fmtError(err)}`;
   }
 }
@@ -248,6 +255,7 @@ export async function handleTitle(ctx: AdminCmdContext, parts: string[]): Promis
     ctx.client.setGroupSpecialTitle(ctx.groupId!, targetId, title);
     return `✅ 已为 ${targetId} 设置头衔「${title}」`;
   } catch (err) {
+      ctx.log?.warn?.("[admin-command]", err);
     return `❌ 设置头衔失败：${fmtError(err)}（需 bot 为群主）`;
   }
 }
@@ -274,6 +282,7 @@ export async function handleBanAll(ctx: AdminCmdContext, _parts: string[]): Prom
     ctx.client.setGroupWholeBan(ctx.groupId!, true);
     return "✅ 已开启全员禁言。";
   } catch (err) {
+      ctx.log?.warn?.("[admin-command]", err);
     return `❌ 设置全员禁言失败：${fmtError(err)}`;
   }
 }
@@ -284,6 +293,7 @@ export async function handleUnbanAll(ctx: AdminCmdContext, _parts: string[]): Pr
     ctx.client.setGroupWholeBan(ctx.groupId!, false);
     return "✅ 已关闭全员禁言。";
   } catch (err) {
+      ctx.log?.warn?.("[admin-command]", err);
     return `❌ 关闭全员禁言失败：${fmtError(err)}`;
   }
 }
@@ -297,6 +307,7 @@ export async function handleSetName(ctx: AdminCmdContext, parts: string[]): Prom
     ctx.client.setGroupName(ctx.groupId!, newName);
     return `✅ 已修改群名为「${newName}」`;
   } catch (err) {
+      ctx.log?.warn?.("[admin-command]", err);
     return `❌ 修改群名失败：${fmtError(err)}`;
   }
 }
@@ -310,6 +321,7 @@ export async function handleSetRemark(ctx: AdminCmdContext, parts: string[]): Pr
     await ctx.client.setGroupRemark(ctx.groupId!, remark);
     return `✅ 已设置群备注为「${remark}」`;
   } catch (err) {
+      ctx.log?.warn?.("[admin-command]", err);
     return `❌ 设置群备注失败：${fmtError(err)}`;
   }
 }
@@ -323,6 +335,7 @@ export async function handleSetPortrait(ctx: AdminCmdContext, _parts: string[]):
     await ctx.client.setGroupPortrait(ctx.groupId!, file);
     return "✅ 已修改群头像。";
   } catch (err) {
+      ctx.log?.warn?.("[admin-command]", err);
     return `❌ 修改群头像失败：${fmtError(err)}`;
   }
 }
@@ -334,6 +347,7 @@ export async function handleLeave(ctx: AdminCmdContext, _parts: string[]): Promi
     ctx.client.setGroupLeave(ctx.groupId!, false);
     return "👋 bot 已退出本群。";
   } catch (err) {
+      ctx.log?.warn?.("[admin-command]", err);
     return `❌ 退群失败：${fmtError(err)}`;
   }
 }
@@ -345,6 +359,7 @@ export async function handleDismiss(ctx: AdminCmdContext, _parts: string[]): Pro
     ctx.client.setGroupLeave(ctx.groupId!, true);
     return "💥 群已解散。";
   } catch (err) {
+      ctx.log?.warn?.("[admin-command]", err);
     return `❌ 解散群失败：${fmtError(err)}（需 bot 为群主）`;
   }
 }
@@ -357,6 +372,7 @@ export async function handleEssence(ctx: AdminCmdContext, parts: string[]): Prom
     await ctx.client.setEssenceMsg(msgId);
     return "✅ 已设为精华消息。";
   } catch (err) {
+      ctx.log?.warn?.("[admin-command]", err);
     return `❌ 操作精华消息失败：${fmtError(err)}`;
   }
 }
@@ -369,6 +385,7 @@ export async function handleDeEssence(ctx: AdminCmdContext, parts: string[]): Pr
     await ctx.client.deleteEssenceMsg(msgId);
     return "✅ 已移出精华消息。";
   } catch (err) {
+      ctx.log?.warn?.("[admin-command]", err);
     return `❌ 操作精华消息失败：${fmtError(err)}`;
   }
 }
@@ -440,6 +457,7 @@ export async function handleGroupInfo(ctx: AdminCmdContext, _parts: string[]): P
       `  @全体 剩余：${atAllRemain}`,
     ].join("\n");
   } catch (err) {
+      ctx.log?.warn?.("[admin-command]", err);
     return `❌ 获取群信息失败：${fmtError(err)}`;
   }
 }
@@ -519,6 +537,7 @@ export async function handleDelFile(ctx: AdminCmdContext, parts: string[]): Prom
     await ctx.client.deleteGroupFile(ctx.groupId!, fileId);
     return `✅ 已删除文件 ${fileId}`;
   } catch (err) {
+      ctx.log?.warn?.("[admin-command]", err);
     return `❌ 删除文件失败：${fmtError(err)}`;
   }
 }
@@ -531,6 +550,7 @@ export async function handleMkdir(ctx: AdminCmdContext, parts: string[]): Promis
     await ctx.client.createGroupFileFolder(ctx.groupId!, name);
     return `✅ 已创建文件夹「${name}」`;
   } catch (err) {
+      ctx.log?.warn?.("[admin-command]", err);
     return `❌ 创建文件夹失败：${fmtError(err)}`;
   }
 }
@@ -543,6 +563,7 @@ export async function handleRmdir(ctx: AdminCmdContext, parts: string[]): Promis
     await ctx.client.deleteGroupFolder(ctx.groupId!, folderId);
     return `✅ 已删除文件夹 ${folderId}`;
   } catch (err) {
+      ctx.log?.warn?.("[admin-command]", err);
     return `❌ 删除文件夹失败：${fmtError(err)}`;
   }
 }
@@ -557,6 +578,7 @@ export async function handleMvFile(ctx: AdminCmdContext, parts: string[]): Promi
     await ctx.client.moveGroupFile(ctx.groupId!, fileId, curDir, targetDir);
     return `✅ 已移动文件 ${fileId} → ${targetDir}`;
   } catch (err) {
+      ctx.log?.warn?.("[admin-command]", err);
     return `❌ 移动文件失败：${fmtError(err)}`;
   }
 }
@@ -571,6 +593,7 @@ export async function handleRenameFile(ctx: AdminCmdContext, parts: string[]): P
     await ctx.client.renameGroupFile(ctx.groupId!, fileId, curDir, newName);
     return `✅ 已重命名为「${newName}」`;
   } catch (err) {
+      ctx.log?.warn?.("[admin-command]", err);
     return `❌ 重命名失败：${fmtError(err)}`;
   }
 }
@@ -592,6 +615,7 @@ export async function handlePoke(ctx: AdminCmdContext, parts: string[]): Promise
     ctx.client.sendGroupPoke(ctx.groupId!, targetId);
     return `👉 已戳一戳 ${targetId}`;
   } catch (err) {
+      ctx.log?.warn?.("[admin-command]", err);
     return `❌ 戳一戳失败：${fmtError(err)}`;
   }
 }
@@ -602,6 +626,7 @@ export async function handleSign(ctx: AdminCmdContext, _parts: string[]): Promis
     await ctx.client.setGroupSign(ctx.groupId!);
     return "✅ 已群签到。";
   } catch (err) {
+      ctx.log?.warn?.("[admin-command]", err);
     return `❌ 签到失败：${fmtError(err)}`;
   }
 }
@@ -614,6 +639,7 @@ export async function handleTodo(ctx: AdminCmdContext, parts: string[]): Promise
     await ctx.client.setGroupTodo(ctx.groupId!, msgId);
     return `✅ 已标记消息 ${msgId} 为待办`;
   } catch (err) {
+      ctx.log?.warn?.("[admin-command]", err);
     return `❌ 待办操作失败：${fmtError(err)}`;
   }
 }
@@ -626,6 +652,7 @@ export async function handleDoneTodo(ctx: AdminCmdContext, parts: string[]): Pro
     await ctx.client.completeGroupTodo(ctx.groupId!, msgId);
     return `✅ 已完成消息 ${msgId}`;
   } catch (err) {
+      ctx.log?.warn?.("[admin-command]", err);
     return `❌ 待办操作失败：${fmtError(err)}`;
   }
 }
@@ -638,6 +665,7 @@ export async function handleCancelTodo(ctx: AdminCmdContext, parts: string[]): P
     await ctx.client.cancelGroupTodo(ctx.groupId!, msgId);
     return `✅ 已取消消息 ${msgId} 的待办`;
   } catch (err) {
+      ctx.log?.warn?.("[admin-command]", err);
     return `❌ 待办操作失败：${fmtError(err)}`;
   }
 }
@@ -657,6 +685,7 @@ export async function handleSendTo(ctx: AdminCmdContext, parts: string[]): Promi
     if (result.success) return `✅ 已发送到 ${target}`;
     return `❌ 发送失败：${result.error}`;
   } catch (err) {
+      ctx.log?.warn?.("[admin-command]", err);
     return `❌ 发送失败：${fmtError(err)}`;
   }
 }
@@ -686,6 +715,7 @@ export async function handleGroups(ctx: AdminCmdContext, _parts: string[]): Prom
     const count = await ctx.refreshGroupRoutes();
     return `✅ 已刷新 ${count} 个群路由，cron 投递现在可用`;
   } catch (err) {
+      ctx.log?.warn?.("[admin-command]", err);
     return `❌ 刷新失败：${fmtError(err)}`;
   }
 }

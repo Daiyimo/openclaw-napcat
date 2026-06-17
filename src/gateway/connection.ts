@@ -30,7 +30,8 @@ export function installConnectHandler(
   const result: ConnectionResult = { groupRouteRefreshTimer: null };
 
   client.on("connect", async () => {
-    ctx.log.info(`[napcat-QQ] Connected account ${ctx.account.accountId}`);
+    const resolvedId = ctx.account.accountId || "default";
+    ctx.log.info(`[napcat-QQ] Connected account ${resolvedId}`);
     try {
       const info = await Promise.race([
         client.getLoginInfo(),
@@ -49,6 +50,8 @@ export function installConnectHandler(
         ctx.log.info(`[napcat-QQ] Logged in as: ${info.nickname} (${info.user_id})`);
         // 存入 account config，供自我认知和名字触发使用
         ctx.account.config._selfName = info.nickname;
+        // 存入模块级缓存，确保 outbound.sendText 在重连后仍能获取到 nickname
+        ctx.shared.setBotSelfName?.(ctx.account.accountId, info.nickname);
       }
       ctx.channelRuntime.activity.record({
         channel: "napcat",

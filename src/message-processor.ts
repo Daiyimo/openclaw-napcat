@@ -38,20 +38,26 @@ import type { QQConfig } from "./config.js";
 import { getCachedMemberName } from "./member-cache.js";
 import { cleanCQCodes } from "./message-parser.js";
 import { convertSilkToWav } from "./utils/audio-convert.js";
-import { transcribeAudioForNapcat } from "./message-parser.js";
+import { transcribeAudioForNapcat, isUrlPrivate } from "./message-parser.js";
 import type { Logger } from "./types/channel-types.js";
 
 /** 允许的 URL scheme：仅 http/https，防止 SSRF */
 const ALLOWED_URL_SCHEMES = ["http:", "https:"];
 
 /**
- * 校验 URL 是否在允许的 scheme 白名单内，防止 SSRF 攻击。
+ * 校验 URL 是否在允许的 scheme 白名单内，且不指向私有/回环 IP。
+ * SSRF 防护：双重检查 scheme + IP/主机名。
  */
 function validateFetchUrl(url: string, log?: Logger): boolean {
   try {
     const parsed = new URL(url);
     if (!ALLOWED_URL_SCHEMES.includes(parsed.protocol)) {
       (log ?? console).warn(`[message-processor] SSRF blocked: disallowed scheme "${parsed.protocol}" in URL: ${url.slice(0, 100)}`);
+      return false;
+    }
+    // IP 层 SSRF 检查
+    if (isUrlPrivate(url)) {
+      (log ?? console).warn(`[message-processor] SSRF blocked: private/loopback URL: ${url.slice(0, 100)}`);
       return false;
     }
     return true;

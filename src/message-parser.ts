@@ -406,6 +406,13 @@ export async function resolveMediaUrl(url: string, log?: Logger): Promise<string
       return url;
     }
   }
+  // SSRF 防护：http(s) URL 不允许指向私有网络
+  if (/^https?:\/\//i.test(url)) {
+    if (isUrlPrivate(url)) {
+      (log ?? console).warn(`[napcat-QQ] SSRF blocked: private network URL rejected: ${url.slice(0, 100)}`);
+      // 返回原始 URL 让调用方决定降级处理
+    }
+  }
   return url;
 }
 
@@ -453,9 +460,9 @@ export interface DownloadedImage {
 
 // ============ SSRF 防护 ============
 
-/** RFC 1918 + 链路本地 + 回环 + 元数据端点 */
+/** RFC 1918 + 链路本地 + 回环 + 云元数据 + IPv6 ULA */
 const BLOCKED_IP_RANGES: [number, number][] = [
-  // 回环: 127.0.0.0/8, ::1
+  // 回环: 127.0.0.0/8
   [0x7F000000, 0x7FFFFFFF],
   // 链路本地: 169.254.0.0/16, fe80::/10
   [0xA9FE0000, 0xA9FEFFFF],
@@ -467,13 +474,31 @@ const BLOCKED_IP_RANGES: [number, number][] = [
   [0xC0A80000, 0xC0A8FFFF],
   // AWS 元数据: 169.254.169.254/32（显式确保阻断）
   [0xA9FEA9FE, 0xA9FEA9FE],
+  // CGNAT / Carrier-Grade NAT: 100.64.0.0/10
+  [0x64400000, 0x647FFFFF],
+  // IETF 协议分析: 192.0.0.0/24
+  [0xC0000000, 0xC00000FF],
+  // 测试-net: 192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24
+  [0xC0000200, 0xC00002FF],
+  [0xC6336400, 0xC63364FF],
+  [0xCB007100, 0xCB0071FF],
+];
+
+/** 已知云元数据和内部服务主机名（DNS 重绑定保护） */
+const BLOCKED_HOSTNAME_SUBSTRINGS: string[] = [
+  "metadata.google.internal",
+  "metadata.internal",
+  "metadata.aliyun.com",
+  "169.254.169.254",
+  "100.100.100.200",
+  "openstack",
 ];
 
 /**
- * 检查 IP 字符串是否在私有/回环/链路本地范围内。
+ * 检查 IP 字符串是否在私有/回环/链路本地/ULA 范围内。
  * SSRF 防护：防止下载被重定向到内网或云元数据端点。
  */
-function isPrivateIp(ip: string): boolean {
+export function isPrivateIp(ip: string): boolean {
   if (net.isIPv4(ip)) {
     const num = ip.split(".").reduce((acc, octet) => (acc << 8) | parseInt(octet, 10), 0) >>> 0;
     for (const [lo, hi] of BLOCKED_IP_RANGES) {
@@ -488,19 +513,28 @@ function isPrivateIp(ip: string): boolean {
   if (ip.startsWith("::ffff:127.")) return true;
   // IPv6 全零 ::（等效于 0.0.0.0）
   if (ip === "::") return true;
-  // 默认保守策略：未知 IPv6 地址不阻断（实际可在此扩展）
+  // IPv6 唯一本地地址 fc00::/7（含 fd00::/8 实际部署段）
+  if (ip.startsWith("fc") || ip.startsWith("fd")) return true;
+  // 默认保守策略：未知 IPv6 地址不阻断
   return false;
 }
 
 /** 从 URL 提取主机，返回 isPrivateIp 的结果 */
-function isUrlPrivate(urlStr: string): boolean {
+export function isUrlPrivate(urlStr: string): boolean {
   try {
     const parsed = new URL(urlStr);
     // 优先检查 host 是否直接是 IP
     if (net.isIPv4(parsed.hostname) || net.isIPv6(parsed.hostname.replace(/^\[|\]$/g, ""))) {
       return isPrivateIp(parsed.hostname.replace(/^\[|\]$/g, ""));
     }
-    // 主机名：不在此做 DNS 解析（避免 DNS rebinding），
+    // 主机名：检查是否命中已知云元数据/内部服务
+    const hostLower = parsed.hostname.toLowerCase();
+    for (const blocked of BLOCKED_HOSTNAME_SUBSTRINGS) {
+      if (hostLower === blocked || hostLower.endsWith("." + blocked)) {
+        return true;
+      }
+    }
+    // 不在此做 DNS 解析（避免 DNS rebinding），
     // 重定向后的 URL 会重新经过此检查，fetch 返回的响应 IP 由运行时控制
     // 关键：后续需配合服务器级防火墙（如 NapCat 容器网络策略）
     return false;

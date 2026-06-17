@@ -6,8 +6,6 @@
  *  1. 读取 QQ_* 环境变量
  *  2. 写入 ~/.openclaw/openclaw.json（channels.napcat 节 + plugins.entries.napcat）
  *  3. 不覆盖已有配置（除非 QQ_FORCE_RECONFIGURE=true）
- *
- * 用法：由 entrypoint.sh 调用，不建议直接执行。
  */
 
 "use strict";
@@ -152,12 +150,6 @@ if (stopRatio !== undefined) qqEnv.botStopReplyRatio = stopRatio;
 const stopDelay = parseIntOpt(env.QQ_BOT_STOP_REPLY_DELAY_MAX_MS);
 if (stopDelay !== undefined) qqEnv.botStopReplyDelayMaxMs = stopDelay;
 
-// ── 无可配置的 env vars → 退出，让 openclaw 自主加载现有配置 ───────────────────
-
-if (Object.keys(qqEnv).length === 0) {
-  process.exit(0);
-}
-
 // ── 读取 / 创建配置文件 ──────────────────────────────────────────────────────
 
 fs.mkdirSync(CONFIG_DIR, { recursive: true });
@@ -169,6 +161,12 @@ if (fs.existsSync(CONFIG_PATH)) {
   } catch (e) {
     console.warn("[openclaw-napcat] 解析现有配置失败，将重新生成：", e.message);
   }
+}
+
+// ── 无可配置的 env vars → 退出，让 openclaw 自主加载现有配置 ───────────────────
+
+if (Object.keys(qqEnv).length === 0) {
+  process.exit(0);
 }
 
 // ── 补全 stepfun-plan/step-3.7-flash 模型定义（多模态支持） ──────────────────

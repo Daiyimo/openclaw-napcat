@@ -19,6 +19,7 @@ import {
   isVideoFile,
   extractMediaUrlsFromText,
   resolveMediaUrl,
+  isUrlPrivate,
 } from "./message-parser.js";
 import { parseMediaTagsToSendQueue } from "./media-send.js";
 import { appendBotSignature } from "./utils/bot-signature.js";
@@ -282,6 +283,13 @@ export class MessageSender {
     const extractedMedia = extractMediaUrlsFromText(chunk);
     for (const media of extractedMedia) {
       try {
+        // SSRF 防护：先校验 URL 不指向私有网络
+        if (media.url.startsWith("http:") || media.url.startsWith("https:")) {
+          if (isUrlPrivate(media.url)) {
+            (this.ctx.log ?? console).warn(`[message-sender] SSRF blocked: private URL from text, skipping media: ${media.url.slice(0, 100)}`);
+            continue;
+          }
+        }
         const resolvedUrl = await resolveMediaUrl(media.url);
         if (media.type === "image") {
           const imgSeg: OneBotMessage = [{ type: "image", data: { file: resolvedUrl } }];
@@ -309,6 +317,13 @@ export class MessageSender {
    */
   async sendMediaUrl(rawUrl: string, fileName?: string): Promise<void> {
     const { client, config, isGroup, isGuild, groupId, userId, guildId, channelId } = this.ctx;
+    // SSRF 防护：拒绝指向私有网络的 URL
+    if (rawUrl.startsWith("http:") || rawUrl.startsWith("https:")) {
+      if (isUrlPrivate(rawUrl)) {
+        (this.ctx.log ?? console).warn(`[message-sender] SSRF blocked: private URL in sendMediaUrl, dropping: ${rawUrl.slice(0, 100)}`);
+        return;
+      }
+    }
     const url = await resolveMediaUrl(rawUrl);
     const name = fileName || decodeURIComponent(url.split("?")[0].split("/").pop() || "file");
 

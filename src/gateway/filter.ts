@@ -149,8 +149,8 @@ export function filterStage(
 
   if (isGroup && groupId) {
     // 预热群成员缓存（失败不影响主流程）
-    void populateGroupMemberCache(client, groupId).catch(() => {
-      // 缓存预加载失败，后续 @mention 时按需查询
+    void populateGroupMemberCache(client, groupId).catch((err) => {
+      log.debug?.("[napcat-QQ] Group member cache preload failed:", err);
     });
   }
 

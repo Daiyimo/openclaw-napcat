@@ -120,6 +120,8 @@ export const QQConfigSchema = z.object({
     enabled: z.boolean().default(false).describe("Enable sleep mode. Default false."),
     startHour: z.number().int().min(0).max(23).default(23).describe("Sleep start hour (0-23). Default 23 (11 PM)."),
     endHour: z.number().int().min(0).max(23).default(7).describe("Sleep end hour (0-23). Default 7 (7 AM)."),
+    // 对象级 .default() 兜底：当整个 sleepMode 未配置时使用完整默认值
+    // 字段级 .default() 兜底：当 sleepMode: {} 显式空对象时各字段仍有默认值
   }).default({ enabled: false, startHour: 23, endHour: 7 }).describe("Sleep mode: during [startHour, endHour), only @mention and keyword triggers work. Passive mode and name triggers are suppressed. Uses server local time."),
 });
 

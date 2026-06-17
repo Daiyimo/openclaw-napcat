@@ -7,9 +7,18 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import path from "node:path";
 import fs from "node:fs";
+import type { Logger } from "../types/channel-types.js";
 
 /** 缓存：以起始目录为键，避免不同 metaUrl 互相毒化 */
 const _cache = new Map<string, string>();
+
+/** 模块级日志器（默认 console.debug，可由外部注入框架 logger） */
+let _log: Logger = console;
+
+/** 设置模块级日志（供外部注入框架 logger） */
+export function setPkgVersionLogger(log: Logger): void {
+  _log = log;
+}
 
 export function getPackageVersion(metaUrl?: string): string {
   const startFile = metaUrl ? fileURLToPath(metaUrl) : fileURLToPath(import.meta.url);
@@ -33,7 +42,7 @@ export function getPackageVersion(metaUrl?: string): string {
         }
       }
     } catch (err) {
-      console.debug("[pkg-version] failed to read", candidate, err);
+      _log.debug("[pkg-version] failed to read", candidate, err);
       // ignore and try parent
     }
     dir = path.dirname(dir);
@@ -50,11 +59,11 @@ export function getPackageVersion(metaUrl?: string): string {
           return pkg.version;
         }
       } catch (err) {
-        console.debug(`[pkg-version] require(${rel}) failed:`, err);
+        _log.debug(`[pkg-version] require(${rel}) failed:`, err);
       }
     }
   } catch (err) {
-    console.debug("[pkg-version] createRequire fallback failed:", err);
+    _log.debug("[pkg-version] createRequire fallback failed:", err);
   }
 
   _cache.set(startDir, "unknown");

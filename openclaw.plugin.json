@@ -202,7 +202,14 @@
       },
       "sensitiveFileGuard": {
         "type": "object",
-        "description": "Pre-dispatch guard: block non-admin users from instructing the agent to modify persona/memory files (SOUL.md, AGENTS.md, IDENTITY.md, USER.md, MEMORY.md by default). Enabled by default."
+        "description": "Pre-dispatch guard: block non-admin users from instructing the agent to modify persona/memory files (SOUL.md, AGENTS.md, IDENTITY.md, USER.md, MEMORY.md by default). Enabled by default.",
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "files": { "type": "array", "items": { "type": "string" } },
+          "verbs": { "type": "array", "items": { "type": "string" } },
+          "nouns": { "type": "array", "items": { "type": "string" } },
+          "rejectMessage": { "type": "string" }
+        }
       },
       "sleepMode": {
         "type": "object",
