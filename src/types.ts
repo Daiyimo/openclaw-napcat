@@ -25,6 +25,16 @@ export type OneBotMessageSegment =
 
 export type OneBotMessage = OneBotMessageSegment[];
 
+/** 合并转发消息节点 */
+export interface ForwardMessageNode {
+  /** 节点显示昵称 */
+  name: string;
+  /** 节点 QQ 号 */
+  uin: string;
+  /** 节点文本内容 */
+  content: string;
+}
+
 export type OneBotEvent = {
   time: number;
   self_id: number;

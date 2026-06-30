@@ -123,6 +123,13 @@ export const QQConfigSchema = z.object({
     // 对象级 .default() 兜底：当整个 sleepMode 未配置时使用完整默认值
     // 字段级 .default() 兜底：当 sleepMode: {} 显式空对象时各字段仍有默认值
   }).default({ enabled: false, startHour: 23, endHour: 7 }).describe("Sleep mode: during [startHour, endHour), only @mention and keyword triggers work. Passive mode and name triggers are suppressed. Uses server local time."),
+  // ── 合并转发（v1.11+） ─────────────────────────────────────
+  /** 群消息长回复自动转为合并转发的字符数阈值。默认 2000；设为 0 禁用 */
+  forwardThreshold: z.number().int().min(0).max(50000).optional().default(2000).describe("Group reply character threshold to trigger merged-forward delivery. Default 2000; set 0 to disable."),
+  /** 合并转发节点显示昵称。默认 "OpenClaw" */
+  forwardNodeName: z.string().min(1).max(64).optional().default("OpenClaw").describe("Display name for forwarded message nodes. Default 'OpenClaw'."),
+  /** 合并转发单节点最大字符数。默认 0 = 不拆分节点（整段合成一个节点） */
+  forwardNodeCharLimit: z.number().int().min(0).max(50000).optional().default(0).describe("Max chars per forward node. 0 = no split (entire text as one node). Default 0."),
 });
 
 export type QQConfig = z.infer<typeof QQConfigSchema>;

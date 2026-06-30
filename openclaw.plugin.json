@@ -219,6 +219,21 @@
           "startHour": { "type": "number", "minimum": 0, "maximum": 23 },
           "endHour":   { "type": "number", "minimum": 0, "maximum": 23 }
         }
+      },
+      "forwardThreshold": {
+        "type": "number",
+        "description": "Group reply character threshold to trigger merged-forward delivery. Default 2000; set 0 to disable.",
+        "default": 2000
+      },
+      "forwardNodeName": {
+        "type": "string",
+        "description": "Display name for forwarded message nodes. Default 'OpenClaw'.",
+        "default": "OpenClaw"
+      },
+      "forwardNodeCharLimit": {
+        "type": "number",
+        "description": "Max chars per forward node. 0 = no split (entire text as one node). Default 0.",
+        "default": 0
       }
     }
   },

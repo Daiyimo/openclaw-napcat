@@ -733,4 +733,43 @@ describe("OneBotClient", () => {
       expect(errArg.name).toBe("ClientApiError");
     });
   });
+
+  describe("sendGroupForwardMsg", () => {
+    const nodes = [
+      { name: "Bot", uin: "12345", content: "part1" },
+      { name: "Bot", uin: "12345", content: "part2" },
+    ];
+
+    it("calls send_group_forward_msg with correct structure", async () => {
+      const sendWithResponseSpy = vi.spyOn(client, "sendWithResponse").mockResolvedValue({ message_id: 1 });
+      await client.sendGroupForwardMsg(67890, nodes);
+      expect(sendWithResponseSpy).toHaveBeenCalledWith(
+        "send_group_forward_msg",
+        expect.objectContaining({
+          group_id: "67890",
+          messages: [
+            { type: "node", data: { name: "Bot", uin: "12345", content: "part1" } },
+            { type: "node", data: { name: "Bot", uin: "12345", content: "part2" } },
+          ],
+        }),
+      );
+    });
+
+    it("falls back to send_forward_msg when send_group_forward_msg fails", async () => {
+      const sendWithResponseSpy = vi.spyOn(client, "sendWithResponse")
+        .mockRejectedValueOnce(new Error("API not supported"))
+        .mockResolvedValueOnce({ message_id: 2 });
+      await client.sendGroupForwardMsg(67890, nodes);
+      expect(sendWithResponseSpy).toHaveBeenCalledTimes(2);
+      expect(sendWithResponseSpy).toHaveBeenNthCalledWith(1, "send_group_forward_msg", expect.any(Object));
+      expect(sendWithResponseSpy).toHaveBeenNthCalledWith(2, "send_forward_msg", expect.any(Object));
+    });
+
+    it("throws last error when both actions fail", async () => {
+      const sendWithResponseSpy = vi.spyOn(client, "sendWithResponse")
+        .mockRejectedValue(new Error("Both failed"));
+      await expect(client.sendGroupForwardMsg(67890, nodes)).rejects.toThrow("Both failed");
+      expect(sendWithResponseSpy).toHaveBeenCalledTimes(2);
+    });
+  });
 });

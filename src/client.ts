@@ -1,6 +1,6 @@
 import WebSocket, { WebSocketServer } from "ws";
 import EventEmitter from "events";
-import type { OneBotEvent, OneBotMessage } from "./types.js";
+import type { OneBotEvent, OneBotMessage, ForwardMessageNode } from "./types.js";
 import type { IncomingMessage } from "http";
 import {
   ConnectionError,
@@ -246,6 +246,50 @@ export class OneBotClient extends EventEmitter {
   /** 获取合并转发消息详情。 */
   async getForwardMsg(id: string): Promise<any> {
     return this.sendWithResponse("get_forward_msg", { id });
+  }
+
+  /**
+   * 发送合并转发消息（群）。
+   *
+   * 双 action 兜底：优先 send_group_forward_msg（NapCat 原生群转发），
+   * 失败回退 send_forward_msg（通用转发）。
+   *
+   * @param groupId - 目标群 ID
+   * @param messages - 转发节点列表
+   * @throws ClientApiError | ServerApiError | TimeoutError | ConnectionError
+   */
+  async sendGroupForwardMsg(
+    groupId: string | number,
+    messages: ForwardMessageNode[],
+  ): Promise<unknown> {
+    const forwardMessages = messages.map((node) => ({
+      type: "node" as const,
+      data: {
+        name: node.name,
+        uin: node.uin,
+        content: node.content,
+      },
+    }));
+
+    const actions = [
+      { action: "send_group_forward_msg" as const, params: { group_id: String(groupId), messages: forwardMessages } },
+      { action: "send_forward_msg" as const, params: { group_id: String(groupId), messages: forwardMessages } },
+    ];
+
+    let lastError: Error | null = null;
+    for (const { action, params } of actions) {
+      try {
+        this.log.log(`[napcat-QQ] attempting ${action} (nodes=${messages.length})`);
+        const result = await this.sendWithResponse(action, params);
+        this.log.log(`[napcat-QQ] ${action} success (nodes=${messages.length})`);
+        return result;
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+        this.log.warn(`[napcat-QQ] ${action} failed: ${lastError.message}`);
+      }
+    }
+
+    throw lastError ?? new Error("All forward actions failed");
   }
 
   /** 获取好友列表。 */

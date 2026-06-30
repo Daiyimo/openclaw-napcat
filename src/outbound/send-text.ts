@@ -22,6 +22,7 @@ import { maskIdsInText } from "../utils/log-sanitize.js";
 import { appendBotSignature } from "../utils/bot-signature.js";
 import { sleep } from "../utils/sleep.js";
 import { sendProactive } from "../proactive.js";
+import { sendMergedForward } from "./send-merged-forward.js";
 import { markStopped } from "../dialog-state.js";
 import { isSilentToken, getLog } from "../admin-commands/shared.js";
 
@@ -169,6 +170,30 @@ export async function sendText(
     );
 
     const target = parseTarget(effectiveTo);
+
+    // ── 合并转发前置检查 ─────────────────────────────────────
+    // 仅群消息 + 超阈值时先尝试合并转发，失败自动降级普通分片
+    const forwardThreshold = params.cfg?.forwardThreshold ?? 2000;
+    if (target.type === "group" && forwardThreshold > 0 && finalText.length >= forwardThreshold) {
+      getLog(log).log(
+        `[napcat-QQ][merged-forward] text length ${finalText.length} >= threshold ${forwardThreshold}, attempting merged forward`,
+      );
+      const sent = await sendMergedForward({
+        client,
+        groupId: target.groupId!,
+        texts: [finalText],
+        nodeName: params.cfg?.forwardNodeName ?? "OpenClaw",
+        nodeUin: String(client.getSelfId() ?? params.botSelfId ?? ""),
+        nodeCharLimit: params.cfg?.forwardNodeCharLimit ?? 0,
+      });
+      if (sent) {
+        getLog(log).log(`[napcat-QQ][merged-forward] delivered successfully (${finalText.length} chars)`);
+        return { channel: "napcat", sent: true };
+      }
+      getLog(log).warn("[napcat-QQ][merged-forward] failed, falling back to plain chunks");
+    }
+
+    // ── 普通分片发送 ─────────────────────────────────────────
     const chunks = splitMessage(finalText, params.cfg?.maxMessageLength ?? 4000);
     for (let i = 0; i < chunks.length; i++) {
       let message: OneBotMessage | string = chunks[i];
