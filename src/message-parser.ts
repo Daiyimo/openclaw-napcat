@@ -227,23 +227,25 @@ export function parseTarget(to: string): ParsedTarget {
   return { type: "group", groupId: id };
 }
 
-/** 根据解析后的目标分发消息到正确的 API */
+/** 根据解析后的目标分发消息到正确的 API，返回 message_id */
 export async function dispatchMessage(
   client: OneBotClient,
   target: ParsedTarget,
   message: OneBotMessage | string,
-): Promise<void> {
+): Promise<string | undefined> {
+  let result: { message_id: string } | void;
   switch (target.type) {
     case "group":
-      await client.sendGroupMsg(target.groupId!, message);
+      result = await client.sendGroupMsg(target.groupId!, message);
       break;
     case "guild":
-      await client.sendGuildChannelMsg(target.guildId!, target.channelId!, message);
+      result = await client.sendGuildChannelMsg(target.guildId!, target.channelId!, message);
       break;
     case "private":
-      await client.sendPrivateMsg(target.userId!, message);
+      result = await client.sendPrivateMsg(target.userId!, message);
       break;
   }
+  return result?.message_id;
 }
 
 // ============ 消息分割 ============

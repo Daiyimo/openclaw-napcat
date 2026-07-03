@@ -130,6 +130,7 @@ export interface ConnectionContext {
   startAccountCtx: {
     getStatus: () => AccountStatus;
     setStatus: (next: AccountStatus) => void;
+    runtime: unknown;
   };
   shared: SharedState;
 }
@@ -143,5 +144,5 @@ export interface StartAccountContext {
   getStatus: () => AccountStatus;
   setStatus: (next: AccountStatus) => void;
   channelRuntime?: PluginRuntimeChannel;
-  runtime?: unknown;
+  runtime: unknown;
 }

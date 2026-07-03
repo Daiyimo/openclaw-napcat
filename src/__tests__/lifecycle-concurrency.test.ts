@@ -44,6 +44,7 @@ function makeCtx(overrides: Partial<StartAccountContext> = {}): StartAccountCont
         dispatchReplyWithBufferedBlockDispatcher: vi.fn(),
       },
     } as any,
+    runtime: {},
     ...overrides,
   };
 }

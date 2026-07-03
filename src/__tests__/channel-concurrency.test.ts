@@ -128,6 +128,7 @@ describe("channel.ts — startingPromises 并发锁回归 (P1)", () => {
           dispatchReplyWithBufferedBlockDispatcher: vi.fn(),
         },
       } as any,
+      runtime: {},
       ...overrides,
     };
   }

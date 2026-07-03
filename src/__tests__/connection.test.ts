@@ -41,6 +41,7 @@ function makeCtx(overrides: Partial<ConnectionContext> = {}): ConnectionContext 
     startAccountCtx: {
       setStatus: vi.fn(),
       getStatus: vi.fn(() => ({})),
+      runtime: {},
     },
     knownGroupIds: new Set<string>(),
     shared: {

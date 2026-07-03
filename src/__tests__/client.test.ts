@@ -78,24 +78,26 @@ describe("OneBotClient", () => {
   });
 
   describe("sendPrivateMsg", () => {
-    it("calls sendAction with correct params", async () => {
-      const sendActionSpy = vi.spyOn(client, "sendAction").mockResolvedValue(undefined);
-      await client.sendPrivateMsg(12345, "hello");
-      expect(sendActionSpy).toHaveBeenCalledWith("send_private_msg", {
+    it("calls sendWithResponse with correct params", async () => {
+      const spy = vi.spyOn(client, "sendWithResponse").mockResolvedValue({ message_id: "msg-1" });
+      const result = await client.sendPrivateMsg(12345, "hello");
+      expect(spy).toHaveBeenCalledWith("send_private_msg", {
         user_id: "12345",
         message: "hello",
       });
+      expect(result).toEqual({ message_id: "msg-1" });
     });
   });
 
   describe("sendGroupMsg", () => {
-    it("calls sendAction with correct params", async () => {
-      const sendActionSpy = vi.spyOn(client, "sendAction").mockResolvedValue(undefined);
-      await client.sendGroupMsg(67890, "group msg");
-      expect(sendActionSpy).toHaveBeenCalledWith("send_group_msg", {
+    it("calls sendWithResponse with correct params", async () => {
+      const spy = vi.spyOn(client, "sendWithResponse").mockResolvedValue({ message_id: "msg-2" });
+      const result = await client.sendGroupMsg(67890, "group msg");
+      expect(spy).toHaveBeenCalledWith("send_group_msg", {
         group_id: "67890",
         message: "group msg",
       });
+      expect(result).toEqual({ message_id: "msg-2" });
     });
   });
 
@@ -385,14 +387,15 @@ describe("OneBotClient", () => {
   });
 
   describe("sendGuildChannelMsg", () => {
-    it("calls sendAction with correct params", async () => {
-      const sendActionSpy = vi.spyOn(client, "sendAction").mockResolvedValue(undefined);
-      await client.sendGuildChannelMsg("guild1", "channel1", "guild msg");
-      expect(sendActionSpy).toHaveBeenCalledWith("send_guild_channel_msg", {
+    it("calls sendWithResponse with correct params", async () => {
+      const spy = vi.spyOn(client, "sendWithResponse").mockResolvedValue({ message_id: "msg-3" });
+      const result = await client.sendGuildChannelMsg("guild1", "channel1", "guild msg");
+      expect(spy).toHaveBeenCalledWith("send_guild_channel_msg", {
         guild_id: "guild1",
         channel_id: "channel1",
         message: "guild msg",
       });
+      expect(result).toEqual({ message_id: "msg-3" });
     });
   });
 

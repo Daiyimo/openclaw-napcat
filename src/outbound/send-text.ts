@@ -88,7 +88,7 @@ export async function resolveBareGroupTarget(
 export async function sendText(
   params: SendTextParams,
   deps: SendTextDeps,
-): Promise<{ channel: "napcat"; sent: boolean; error?: string }> {
+): Promise<{ channel: "napcat"; sent: boolean; messageId?: string; error?: string }> {
   let to = params.to ?? "";
   const { text, replyToId } = params;
   const { getClient, knownGroupIds, passiveMode, log } = deps;
@@ -195,6 +195,7 @@ export async function sendText(
 
     // ── 普通分片发送 ─────────────────────────────────────────
     const chunks = splitMessage(finalText, params.cfg?.maxMessageLength ?? 4000);
+    let lastMessageId: string | undefined;
     for (let i = 0; i < chunks.length; i++) {
       let message: OneBotMessage | string = chunks[i];
       if (replyToId && i === 0)
@@ -202,10 +203,10 @@ export async function sendText(
           { type: "reply", data: { id: String(replyToId) } },
           { type: "text", data: { text: chunks[i] } },
         ];
-      await dispatchMessage(client, target, message);
+      lastMessageId = await dispatchMessage(client, target, message);
       if (chunks.length > 1 && i < chunks.length - 1) await sleep(OUTBOUND_MULTI_CHUNK_SLEEP_MS);
     }
-    return { channel: "napcat", sent: true };
+    return { channel: "napcat", sent: true, messageId: lastMessageId };
   } catch (err) {
     getLog(log).error("[napcat-QQ][outbound.sendText] FAILED:", err);
     return { channel: "napcat", sent: false, error: String(err) };

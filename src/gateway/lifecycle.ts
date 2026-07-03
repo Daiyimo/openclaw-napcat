@@ -153,6 +153,7 @@ export async function startAccount(
       startAccountCtx: {
         getStatus: ctx.getStatus,
         setStatus: ctx.setStatus,
+        runtime: ctx.runtime,
       },
       shared,
     });

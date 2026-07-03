@@ -7,6 +7,7 @@ import {
   normalizeAccountId,
   applyAccountNameToChannelSection,
   migrateBaseNameToDefaultAccount,
+  type ChannelSetupInput,
 } from "openclaw/plugin-sdk";
 import { OneBotClient } from "./client.js";
 import { QQConfigSchema, type QQConfig, getQQConfigDefaults, resolvePassiveModeTemperature } from "./config.js";
@@ -107,7 +108,7 @@ function setBotSelfName(accountId: string, name: string): void {
   botSelfNames.set(accountId, name);
 }
 
-export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
+export const qqChannel: ChannelPlugin<ResolvedQQAccount, unknown, unknown> = {
   id: "napcat",
   meta: {
     id: "napcat",
@@ -262,13 +263,13 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
         accountId: params.accountId,
         name: params.name ?? "",
       }),
-    validateInput: (_params: { cfg: OpenClawConfig; accountId: string; input: any }) => null,
-    applyAccountConfig: (params: { cfg: OpenClawConfig; accountId: string; input: any }) => {
+    validateInput: (_params: { cfg: OpenClawConfig; accountId: string; input: ChannelSetupInput }) => null,
+    applyAccountConfig: (params: { cfg: OpenClawConfig; accountId: string; input: ChannelSetupInput }) => {
       const namedConfig = applyAccountNameToChannelSection({
         cfg: params.cfg,
         channelKey: "napcat",
         accountId: params.accountId,
-        name: params.input.name,
+        name: params.input.name ?? "",
       });
 
       const next =
@@ -276,11 +277,14 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
           ? migrateBaseNameToDefaultAccount({ cfg: namedConfig, channelKey: "napcat" })
           : namedConfig;
 
+      // ChannelSetupInput 不含 wsUrl/httpUrl 等 napcat 专属字段，
+      // 通过 as QQConfig 窄化类型以访问这些字段
+      const napcatInput = params.input as unknown as QQConfig;
       const newConfig = {
-        wsUrl: params.input.wsUrl || undefined,
-        httpUrl: params.input.httpUrl,
-        reverseWsPort: params.input.reverseWsPort,
-        accessToken: params.input.accessToken,
+        wsUrl: napcatInput.wsUrl || undefined,
+        httpUrl: napcatInput.httpUrl,
+        reverseWsPort: napcatInput.reverseWsPort,
+        accessToken: napcatInput.accessToken,
         enabled: true,
       };
 
@@ -320,7 +324,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
       getStatus: () => any;
       setStatus: (next: any) => void;
       channelRuntime?: import("openclaw/plugin-sdk").PluginRuntimeChannel;
-      runtime?: any;
+      runtime: any;
     }) => {
       await startAccount(
         {
@@ -348,13 +352,13 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
         },
       );
     },
-    logoutAccount: async ({ accountId, cfg: _cfg }: { accountId: string; cfg: OpenClawConfig; account?: any; runtime?: any; log?: any }) => {
+    logoutAccount: async ({ accountId, cfg: _cfg }: { accountId: string; cfg: OpenClawConfig; account?: any; runtime: any; log?: any }) => {
       return { loggedOut: true, cleared: true };
     },
   },
   outbound: {
     deliveryMode: "direct" as const,
-    sendText: async (params: { to?: string; text: string; target?: string; channel?: string; accountId?: string | null; replyToId?: string | null; cfg?: any; log?: any }): Promise<{ channel: "napcat"; sent: boolean; error?: string }> => {
+    sendText: async (params: { to?: string; text: string; target?: string; channel?: string; accountId?: string | null; replyToId?: string | null; cfg?: any; log?: any }): Promise<{ channel: "napcat"; sent: boolean; messageId?: string; error?: string }> => {
       // 防御性归一化：cron agent 可能用 channel 代替 target，兼容处理
       const to = params.to ?? params.target ?? params.channel ?? "";
       const text = params.text;
@@ -370,11 +374,13 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
         { getClient: getClientForAccount, knownGroupIds: getKnownGroupIds(resolvedAid), passiveMode, log: params.log },
       );
     },
-    sendMedia: async ({ to, text, mediaUrl, accountId, replyToId }) => {
+    sendMedia: async (params: { to?: string; text?: string; mediaUrl: string; accountId?: string | null; replyToId?: string | null; log?: any }): Promise<{ channel: "napcat"; sent: boolean; messageId?: string; error?: string }> => {
+      const { to, text, mediaUrl, accountId, replyToId, log } = params;
+      const resolvedTo = to ?? "";
       const resolvedAid = accountId || DEFAULT_ACCOUNT_ID;
       return sendMedia(
-        { to, text, mediaUrl, accountId, replyToId },
-        { getClient: getClientForAccount, knownGroupIds: getKnownGroupIds(resolvedAid) },
+        { to: resolvedTo, text, mediaUrl, accountId: resolvedAid, replyToId },
+        { getClient: getClientForAccount, knownGroupIds: getKnownGroupIds(resolvedAid), log },
       );
     },
   },
@@ -383,6 +389,29 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount> = {
     targetResolver: {
       looksLikeId: (id) => /^\d{5,12}$/.test(id) || /^(group|guild|private):/.test(id),
       hint: "QQ号, private:QQ号, group:群号, 或 guild:频道ID:子频道ID",
+      resolveTarget: async (params: {
+        cfg: OpenClawConfig;
+        accountId?: string | null;
+        input: string;
+        normalized: string;
+        preferredKind?: string;
+      }): Promise<{ to: string; kind: "user" | "group" | "channel"; source: "normalized" | "directory" }> => {
+        const to = params.normalized;
+        // SDK DirectoryEntryKind: user=私聊, group=群聊, channel=频道
+        // napcat 归一化输出: private: / group: / guild:
+        const napcatToSdkKind: Record<string, "user" | "group" | "channel"> = {
+          private: "user",
+          group: "group",
+          guild: "channel",
+        };
+        const prefix = to.split(":")[0];
+        const mappedKind = napcatToSdkKind[prefix];
+        // 优先使用框架提供的 preferredKind（会话类型偏好），否则从前缀推导
+        const kind = params.preferredKind && napcatToSdkKind[params.preferredKind]
+          ? napcatToSdkKind[params.preferredKind]
+          : (mappedKind ?? "group");
+        return { to, kind, source: "normalized" as const };
+      },
     },
     resolveOutboundSessionRoute: (params: {
       cfg: any;

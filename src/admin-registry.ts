@@ -57,7 +57,7 @@ export class CommandRegistry {
     const command = this.commands.get(cmd);
     if (!command) return false;
 
-    const reply = (msg: string): Promise<void> => {
+    const reply = async (msg: string): Promise<unknown> => {
       if (ctx.isGroup && ctx.groupId) {
         return ctx.client.sendGroupMsg(ctx.groupId, msg);
       } else if (ctx.userId) {

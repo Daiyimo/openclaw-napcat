@@ -41,7 +41,7 @@ export interface SendMediaDeps {
 export async function sendMedia(
   params: SendMediaParams,
   deps: SendMediaDeps,
-): Promise<{ channel: "napcat"; sent: boolean; error?: string }> {
+): Promise<{ channel: "napcat"; sent: boolean; messageId?: string; error?: string }> {
   const { to, text, mediaUrl, accountId, replyToId } = params;
   const { getClient, knownGroupIds } = deps;
 
@@ -71,8 +71,8 @@ export async function sendMedia(
         data: { file: finalUrl, name: fileName },
       });
     }
-    await dispatchMessage(client, target, message);
-    return { channel: "napcat", sent: true };
+    const messageId = await dispatchMessage(client, target, message);
+    return { channel: "napcat", sent: true, messageId };
   } catch (err) {
     getLog(deps.log).error("[napcat-QQ] outbound.sendMedia failed:", err);
     return { channel: "napcat", sent: false, error: String(err) };
