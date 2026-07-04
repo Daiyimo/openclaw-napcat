@@ -102,7 +102,7 @@ export class DeliverDebouncer {
         payload.mediaUrl ||
         (payload.files && payload.files.length > 0),
     );
-    const text = (payload.text ?? "").trim();
+    const text = (typeof payload.text === "string" ? payload.text : String(payload.text ?? "")).trim();
 
     // 含媒体的 deliver：立即 flush 缓冲 + 直接执行
     if (hasMedia) {

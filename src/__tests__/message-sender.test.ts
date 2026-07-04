@@ -109,6 +109,13 @@ describe("MessageSender.deliver", () => {
     await sender.deliver({ text: "" });
     expect(client.sendGroupMsg).not.toHaveBeenCalled();
   });
+
+  it("numeric text 不会崩溃，正常发送（regression for TypeError on .trim）", async () => {
+    const client = makeClient();
+    const sender = makeSender({ client });
+    await sender.deliver({ text: 207.44 as any });
+    expect(client.sendGroupMsg).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ============ v1.9.4 真 silent 拦截 ============

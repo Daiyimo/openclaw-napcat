@@ -125,7 +125,8 @@ export class MessageSender {
     // 之前只在 outbound.sendText 路径拦截,但 AI 派发走 MessageSender.deliver,
     // 漏拦截导致"[SILENT]"或"@user [SILENT]"真的发出去了。
     // [END_DIALOG] 同步标记对话停止状态，避免 stale state。
-    const trimmed = payload.text?.trim() ?? "";
+    const normalizedText = typeof payload.text === "string" ? payload.text : String(payload.text ?? "");
+    const trimmed = normalizedText.trim();
     if (isSilentToken(trimmed)) {
       if (trimmed === "[END_DIALOG]" && this.ctx.isGroup && this.ctx.groupId !== undefined) {
         markStopped(this.ctx.accountId, `group:${this.ctx.groupId}`);
@@ -147,8 +148,8 @@ export class MessageSender {
       return;
     }
     try {
-      if (payload.text) {
-        await this.sendText(payload.text);
+      if (normalizedText) {
+        await this.sendText(normalizedText);
         this.ctx.metrics?.increment("outbound", "sent");
       }
 

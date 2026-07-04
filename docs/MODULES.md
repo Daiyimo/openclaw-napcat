@@ -74,3 +74,36 @@
 | `src/__tests__/retry.test.ts` | 指数退避重试 |
 | `src/__tests__/config-watcher.test.ts` | 热更新逻辑 |
 | `src/__tests__/inbound-pipeline.test.ts` | 入站流水线集成测试（12 场景） |
+
+## 铁律：投递层防御性类型转换
+
+> **来源**：2026-07-04 线上 bug 修复。cron agent / AI 上游将数字类型（如 `207.44`）作为 `text` 字段传递，导致 `TypeError: text?.trim is not a function`，消息发送崩溃。
+
+### 约定
+
+**所有出站入口的 `text` / `payload.text` 必须第一时间归一化为字符串，后续代码不再做类型假设。**
+
+### 固定模式
+
+```typescript
+// ❌ 禁止：直接调用 .trim()，假设 text 一定是字符串
+const trimmed = text?.trim() ?? "";
+
+// ✅ 正确：先归一化，再 trim
+const normalizedText = typeof text === "string" ? text : String(text ?? "");
+const trimmed = normalizedText.trim();
+```
+
+### 适用位置（三处入口，均已修复）
+
+| 文件 | 入口函数 | 状态 |
+|------|---------|------|
+| `src/outbound/send-text.ts` | `sendText(params, deps)` — `params.text` | ✅ 已修复 |
+| `src/message-sender.ts` | `MessageSender.deliver(payload)` — `payload.text` | ✅ 已修复 |
+| `src/deliver-debounce.ts` | `DeliverDebouncer.deliver(payload, info)` — `payload.text` | ✅ 已修复 |
+
+### 新代码检查清单
+
+- [ ] 新增出站入口时，第一行必须做 `typeof text === "string" ? text : String(text ?? "")` 归一化
+- [ ] 不得在入口之后任何位置直接调用 `text?.trim()` 或 `text.replace()` 等字符串方法（已归一化的 `normalizedText` 可安全调用）
+- [ ] 回归测试需覆盖数字类型 `text`（如 `207.44`）不崩溃的场景

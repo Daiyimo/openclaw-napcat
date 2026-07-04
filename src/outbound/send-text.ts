@@ -124,7 +124,8 @@ export async function sendText(
   // ── 旁观模式 [SILENT] / NO_REPLY / [END_DIALOG] 拦截 ─────────────────
   const resolvedAccountId = params.accountId || DEFAULT_ACCOUNT_ID;
   const cooldownKey = `${resolvedAccountId}:${to}`;
-  const trimmed = text?.trim() ?? "";
+  const normalizedText = typeof text === "string" ? text : String(text ?? "");
+  const trimmed = normalizedText.trim();
   if (isSilentToken(trimmed)) {
     if (trimmed === "[END_DIALOG]" && to) {
       markStopped(resolvedAccountId, to);
@@ -136,7 +137,7 @@ export async function sendText(
   passiveMode.markDone(cooldownKey);
 
   // ── 跨会话投递：[TO:目标] 前缀 ──────────────────────────
-  const crossMatch = /^\[TO:([^\]]+)\]([\s\S]*)$/is.exec(text?.trim() ?? "");
+  const crossMatch = /^\[TO:([^\]]+)\]([\s\S]*)$/is.exec(normalizedText.trim());
   if (crossMatch) {
     const crossTarget = crossMatch[1].trim();
     const crossMsg = crossMatch[2].trim();
@@ -148,15 +149,15 @@ export async function sendText(
   }
 
   getLog(log).log(
-    `[napcat-QQ][outbound.sendText] called: to=${to}, accountId=${params.accountId ?? "default"}, text=${maskIdsInText(text?.slice(0, 100) || "")}`,
+    `[napcat-QQ][outbound.sendText] called: to=${to}, accountId=${params.accountId ?? "default"}, text=${maskIdsInText(normalizedText.slice(0, 100))}`,
   );
 
   // ── 追加友军签名（仅群消息） ─────────────────────────────────
   const isGroup = /^\d+$/.test(to) || to.startsWith("group:");
   const style = params.cfg?.botSignatureStyle ?? DEFAULT_BOT_SIGNATURE_STYLE;
   const finalText = isGroup && (params.botSelfId || params.botSelfName)
-    ? appendBotSignature(text, params.botSelfName ?? null, params.botSelfId, style)
-    : text;
+    ? appendBotSignature(normalizedText, params.botSelfName ?? null, params.botSelfId, style)
+    : normalizedText;
   const client = getClient(resolvedAccountId);
   if (!client) return { channel: "napcat", sent: false, error: "Client not connected" };
 

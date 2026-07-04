@@ -2,6 +2,15 @@
 
 # 更新日志
 
+### [Unreleased] - 投递层防御性类型转换
+
+#### Fixed
+
+- **`TypeError: text?.trim is not a function` 导致投递失败**：cron agent / AI 上游将数字类型（如 `207.44`）作为 `text` 字段传递，Napcat 投递层三处 `.trim()` 调用均未做类型防御，导致消息发送崩溃、`delivered: false`。
+  - 修复：在 `send-text.ts`、`message-sender.ts`、`deliver-debounce.ts` 三个入口统一加 `typeof text === "string" ? text : String(text ?? "")` 防御性归一化。
+  - 新增回归测试覆盖两条发送路径（send-text / message-sender），数字类型 `text` 不再崩溃。
+  - 约定：**所有出站入口的 `text` / `payload.text` 必须第一时间归一化为字符串，后续代码不再做类型假设**。
+
 ### [Unreleased] - 远程一键升级
 
 #### Added

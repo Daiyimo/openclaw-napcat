@@ -216,4 +216,15 @@ describe("sendText — edge cases", () => {
     expect(result.sent).toBe(false);
     expect(result.error).toContain("not connected");
   });
+
+  it("handles numeric text without crashing (regression for TypeError on .trim)", async () => {
+    const client = makeClient();
+    const deps = makeDeps({ getClient: () => client });
+    const result = await sendText(
+      { to: "group:88888", text: 207.44 as any },
+      deps,
+    );
+    expect(result.sent).toBe(true);
+    expect(client.sendGroupMsg).toHaveBeenCalled();
+  });
 });
