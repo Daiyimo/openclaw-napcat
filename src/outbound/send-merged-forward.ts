@@ -6,6 +6,7 @@
  */
 
 import type { OneBotClient } from "../client.js";
+import type { Logger } from "../types/channel-types.js";
 import { splitMessage } from "../message-parser.js";
 
 export interface SendMergedForwardParams {
@@ -21,6 +22,8 @@ export interface SendMergedForwardParams {
   nodeUin: string;
   /** 单节点最大字符数，0 = 不拆分 */
   nodeCharLimit: number;
+  /** 日志器（OneBotClient.log 为 private，由调用方传入） */
+  log?: Logger;
 }
 
 /**
@@ -29,7 +32,7 @@ export interface SendMergedForwardParams {
  * @returns 成功返回 true，失败返回 false（不抛异常）
  */
 export async function sendMergedForward(params: SendMergedForwardParams): Promise<boolean> {
-  const { client, groupId, texts, nodeName, nodeUin, nodeCharLimit } = params;
+  const { client, groupId, texts, nodeName, nodeUin, nodeCharLimit, log } = params;
 
   // 过滤空文本
   const validTexts = texts.filter((t) => t.trim().length > 0);
@@ -45,7 +48,7 @@ export async function sendMergedForward(params: SendMergedForwardParams): Promis
     return true;
   } catch (err) {
     // 不抛异常，由调用方降级为分片发送；记录 warn 日志用于排查
-    client.log.warn(
+    log?.warn?.(
       `[napcat-QQ][merged-forward] sendGroupForwardMsg failed, will fallback to chunks:`,
       err instanceof Error ? err.message : String(err),
     );

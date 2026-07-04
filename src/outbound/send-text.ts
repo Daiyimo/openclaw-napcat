@@ -185,6 +185,7 @@ export async function sendText(
         nodeName: params.cfg?.forwardNodeName ?? "OpenClaw",
         nodeUin: String(client.getSelfId() ?? params.botSelfId ?? ""),
         nodeCharLimit: params.cfg?.forwardNodeCharLimit ?? 0,
+        log,
       });
       if (sent) {
         getLog(log).log(`[napcat-QQ][merged-forward] delivered successfully (${finalText.length} chars)`);

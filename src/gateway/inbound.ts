@@ -357,21 +357,24 @@ export function installMessageHandler(
         } : {}),
       };
 
-      await channelRuntime.session.recordInboundSession({
-        storePath: channelRuntime.session.resolveStorePath(
-          (cfg as OpenClawConfig).session?.store,
-          { agentId: "default" },
-        ),
-        sessionKey: ctxPayload.SessionKey as string,
-        ctx: ctxPayload,
-        updateLastRoute: {
+      // session 记录（SDK 可选能力，不存在时静默跳过）
+      if (channelRuntime.session?.recordInboundSession && channelRuntime.session?.resolveStorePath) {
+        await channelRuntime.session.recordInboundSession({
+          storePath: channelRuntime.session.resolveStorePath(
+            (cfg as OpenClawConfig).session?.store,
+            { agentId: "default" },
+          ),
           sessionKey: ctxPayload.SessionKey as string,
-          channel: "napcat",
-          to: fromId,
-          accountId: account.accountId,
-        },
-        onRecordError: (err) => log.error("QQ Session Error:", err),
-      });
+          ctx: ctxPayload,
+          updateLastRoute: {
+            sessionKey: ctxPayload.SessionKey as string,
+            channel: "napcat",
+            to: fromId,
+            accountId: account.accountId,
+          },
+          onRecordError: (err) => log.error("QQ Session Error:", err),
+        });
+      }
 
       // ── Typing 状态 ───────────────────────────────────
       typing = new TypingKeepAlive(client, isGroup || isGuild, groupId, userId, log);
