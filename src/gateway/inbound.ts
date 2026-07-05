@@ -342,6 +342,7 @@ export function installMessageHandler(
         OriginatingChannel: "napcat",
         OriginatingTo: fromId,
         CommandAuthorized: isAdmin || (!isGroup && !isGuild),
+        ...(event.message_id ? { MessageSid: String(event.message_id) } : {}),
         ...(downloaded.length > 0 ? {
           MediaPaths: downloaded.map(d => d.path),
           MediaPath: downloaded[0].path,
@@ -494,7 +495,10 @@ export function installMessageHandler(
         if (config.enableErrorNotify) {
           // 告警冷却：同一错误模板在冷却窗口内不重复通知
           const alertKey = `dispatch_error:${account.accountId}`;
-          if (ctx.alertCooldown?.shouldFire(alertKey)) {
+          // session 冲突是框架内部 bug，用户无法干预，不发送噪音通知
+          const isFrameworkSessionConflict = error instanceof Error &&
+            /session initialization conflicted/i.test(error.message);
+          if (!isFrameworkSessionConflict && ctx.alertCooldown?.shouldFire(alertKey)) {
             ctx.alertCooldown.record(alertKey, "dispatch error notified");
             await deliver({ text: "⚠️ 服务调用失败，请稍后重试。" });
           }
