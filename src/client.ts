@@ -201,14 +201,14 @@ export class OneBotClient extends EventEmitter {
     // Do not self-reconnect here to avoid racing with the host framework.
   }
 
-  /** 向指定 QQ 用户发送私聊消息。 */
-  async sendPrivateMsg(userId: number, message: OneBotMessage | string): Promise<{ message_id: string } | void> {
-    return this.sendWithResponse("send_private_msg", { user_id: String(userId), message });
+  /** 向指定 QQ 用户发送私聊消息（fire-and-forget）。 */
+  async sendPrivateMsg(userId: number, message: OneBotMessage | string): Promise<void> {
+    return this.sendWs("send_private_msg", { user_id: String(userId), message });
   }
 
-  /** 向指定群发送群消息。 */
-  async sendGroupMsg(groupId: number, message: OneBotMessage | string): Promise<{ message_id: string } | void> {
-    return this.sendWithResponse("send_group_msg", { group_id: String(groupId), message });
+  /** 向指定群发送群消息（fire-and-forget）。 */
+  async sendGroupMsg(groupId: number, message: OneBotMessage | string): Promise<void> {
+    return this.sendWs("send_group_msg", { group_id: String(groupId), message });
   }
 
   /** 撤回消息。 */
@@ -317,9 +317,9 @@ export class OneBotClient extends EventEmitter {
     }
   }
 
-  /** 发送频道消息。 */
-  async sendGuildChannelMsg(guildId: string, channelId: string, message: OneBotMessage | string): Promise<{ message_id: string } | void> {
-    return this.sendWithResponse("send_guild_channel_msg", { guild_id: guildId, channel_id: channelId, message });
+  /** 发送频道消息（fire-and-forget）。 */
+  async sendGuildChannelMsg(guildId: string, channelId: string, message: OneBotMessage | string): Promise<void> {
+    return this.sendWs("send_guild_channel_msg", { guild_id: guildId, channel_id: channelId, message });
   }
 
   /** 获取频道（Guild）列表。 */

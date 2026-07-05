@@ -78,26 +78,26 @@ describe("OneBotClient", () => {
   });
 
   describe("sendPrivateMsg", () => {
-    it("calls sendWithResponse with correct params", async () => {
-      const spy = vi.spyOn(client, "sendWithResponse").mockResolvedValue({ message_id: "msg-1" });
+    it("calls sendWs with correct params", async () => {
+      const spy = vi.spyOn(client, "sendWs").mockResolvedValue(undefined);
       const result = await client.sendPrivateMsg(12345, "hello");
       expect(spy).toHaveBeenCalledWith("send_private_msg", {
         user_id: "12345",
         message: "hello",
       });
-      expect(result).toEqual({ message_id: "msg-1" });
+      expect(result).toBeUndefined();
     });
   });
 
   describe("sendGroupMsg", () => {
-    it("calls sendWithResponse with correct params", async () => {
-      const spy = vi.spyOn(client, "sendWithResponse").mockResolvedValue({ message_id: "msg-2" });
+    it("calls sendWs with correct params", async () => {
+      const spy = vi.spyOn(client, "sendWs").mockResolvedValue(undefined);
       const result = await client.sendGroupMsg(67890, "group msg");
       expect(spy).toHaveBeenCalledWith("send_group_msg", {
         group_id: "67890",
         message: "group msg",
       });
-      expect(result).toEqual({ message_id: "msg-2" });
+      expect(result).toBeUndefined();
     });
   });
 
@@ -387,15 +387,15 @@ describe("OneBotClient", () => {
   });
 
   describe("sendGuildChannelMsg", () => {
-    it("calls sendWithResponse with correct params", async () => {
-      const spy = vi.spyOn(client, "sendWithResponse").mockResolvedValue({ message_id: "msg-3" });
+    it("calls sendWs with correct params", async () => {
+      const spy = vi.spyOn(client, "sendWs").mockResolvedValue(undefined);
       const result = await client.sendGuildChannelMsg("guild1", "channel1", "guild msg");
       expect(spy).toHaveBeenCalledWith("send_guild_channel_msg", {
         guild_id: "guild1",
         channel_id: "channel1",
         message: "guild msg",
       });
-      expect(result).toEqual({ message_id: "msg-3" });
+      expect(result).toBeUndefined();
     });
   });
 

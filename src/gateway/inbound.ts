@@ -414,18 +414,26 @@ export function installMessageHandler(
           dispatcherOptions: {
             deliver: async (payload: unknown) => {
               const dp = payload as Record<string, unknown>;
-              await deliver({
-                text: (dp.Body ?? dp.text ?? "") as string,
-                mediaUrls: (dp.MediaUrls ?? dp.mediaUrls) as string[] | undefined,
-                mediaUrl: (dp.MediaUrl ?? dp.mediaUrl) as string | undefined,
-                replyToId: (dp.ReplyToId ?? dp.replyToId) as string | undefined,
-                replyMsgId,
-                historyContext,
-                isPassiveMode: isPassiveModeFlag,
-                isBot,
-                isUserStopIntent,
-                event,
-              } as any);
+              const deliverText = String(dp.Body ?? dp.text ?? "");
+              log.log(`[napcat-QQ][deliver-debug] deliver called, text="${deliverText.slice(0, 100)}", hasMedia=${Boolean(dp.MediaUrls?.length || dp.MediaUrl)}`);
+              try {
+                await deliver({
+                  text: deliverText,
+                  mediaUrls: (dp.MediaUrls ?? dp.mediaUrls) as string[] | undefined,
+                  mediaUrl: (dp.MediaUrl ?? dp.mediaUrl) as string | undefined,
+                  replyToId: (dp.ReplyToId ?? dp.replyToId) as string | undefined,
+                  replyMsgId,
+                  historyContext,
+                  isPassiveMode: isPassiveModeFlag,
+                  isBot,
+                  isUserStopIntent,
+                  event,
+                } as any);
+                log.log(`[napcat-QQ][deliver-debug] deliver completed`);
+              } catch (deliverErr) {
+                log.error(`[napcat-QQ][deliver-debug] deliver FAILED:`, deliverErr);
+                throw deliverErr;
+              }
             },
             onError: (err: unknown) => log.error("[napcat-QQ] dispatch error:", err),
           },
