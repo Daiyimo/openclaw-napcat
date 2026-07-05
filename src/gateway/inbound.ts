@@ -410,7 +410,7 @@ export function installMessageHandler(
         }
         const sessionKey = ctxPayload.SessionKey as string | undefined;
         const chatId = ctxPayload.To ?? ctxPayload.From;
-        log.log(`[napcat-QQ][dispatch-debug] about to dispatch sessionKey=${sessionKey ?? "(none)"} chatId=${chatId}`);
+        log.info(`[napcat-QQ][dispatch-debug] about to dispatch sessionKey=${sessionKey ?? "(none)"} chatId=${chatId}`);
         await dispatch({
           ctx: ctxPayload,
           cfg,
@@ -420,7 +420,7 @@ export function installMessageHandler(
               const deliverText = String(dp.Body ?? dp.text ?? "");
               const mediaUrls = dp.MediaUrls ?? dp.mediaUrls;
               const hasMedia = Boolean(Array.isArray(mediaUrls) && mediaUrls.length > 0) || Boolean(dp.MediaUrl);
-              log.log(`[napcat-QQ][deliver-debug] deliver called, text="${deliverText.slice(0, 100)}", hasMedia=${hasMedia}`);
+              log.info(`[napcat-QQ][deliver-debug] deliver called, text="${deliverText.slice(0, 100)}", hasMedia=${hasMedia}`);
               try {
                 await deliver({
                   text: deliverText,
@@ -434,7 +434,7 @@ export function installMessageHandler(
                   isUserStopIntent,
                   event,
                 } as any);
-                log.log(`[napcat-QQ][deliver-debug] deliver completed`);
+                log.info(`[napcat-QQ][deliver-debug] deliver completed`);
               } catch (deliverErr) {
                 log.error(`[napcat-QQ][deliver-debug] deliver FAILED:`, deliverErr);
                 throw deliverErr;
@@ -451,7 +451,7 @@ export function installMessageHandler(
         if (passiveCooldownKey) passiveMode.markDone(passiveCooldownKey);
         ctx.metrics?.increment("dispatch", "succeeded");
 
-        log.log(`[napcat-QQ][dispatch-debug] dispatch succeeded sessionKey=${sessionKey ?? "(none)"}`);
+        log.info(`[napcat-QQ][dispatch-debug] dispatch succeeded sessionKey=${sessionKey ?? "(none)"}`);
 
         recordKnownUser({
           openid: String(userId),
