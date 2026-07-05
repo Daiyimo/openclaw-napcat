@@ -408,6 +408,9 @@ export function installMessageHandler(
         if (!dispatch) {
           throw new Error("[napcat-QQ] dispatchReplyWithBufferedBlockDispatcher not available");
         }
+        const sessionKey = ctxPayload.SessionKey as string | undefined;
+        const chatId = ctxPayload.To ?? ctxPayload.From;
+        log.log(`[napcat-QQ][dispatch-debug] about to dispatch sessionKey=${sessionKey ?? "(none)"} chatId=${chatId}`);
         await dispatch({
           ctx: ctxPayload,
           cfg,
@@ -448,6 +451,8 @@ export function installMessageHandler(
         if (passiveCooldownKey) passiveMode.markDone(passiveCooldownKey);
         ctx.metrics?.increment("dispatch", "succeeded");
 
+        log.log(`[napcat-QQ][dispatch-debug] dispatch succeeded sessionKey=${sessionKey ?? "(none)"}`);
+
         recordKnownUser({
           openid: String(userId),
           type: isGroup ? "group" : isGuild ? "guild" : "private",
@@ -468,7 +473,10 @@ export function installMessageHandler(
             await deliver({ text: "⚠️ 服务调用失败，请稍后重试。" });
           }
         }
-        log.error("[napcat-QQ] Reply dispatch error:", error);
+        const errorDetails = error instanceof Error
+          ? `${error.name}: ${error.message} | stack: ${error.stack?.split('\n').slice(0, 3).join(' | ')}`
+          : String(error ?? "(empty/null error)");
+        log.error(`[napcat-QQ] Reply dispatch error: ${errorDetails}`);
       } finally {
         if (debouncer) {
           try {
