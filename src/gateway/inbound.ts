@@ -411,41 +411,67 @@ export function installMessageHandler(
         const sessionKey = ctxPayload.SessionKey as string | undefined;
         const chatId = ctxPayload.To ?? ctxPayload.From;
         log.info(`[napcat-QQ][dispatch-debug] about to dispatch sessionKey=${sessionKey ?? "(none)"} chatId=${chatId}`);
-        await dispatch({
-          ctx: ctxPayload,
-          cfg,
-          dispatcherOptions: {
-            deliver: async (payload: unknown) => {
-              const dp = payload as Record<string, unknown>;
-              const deliverText = String(dp.Body ?? dp.text ?? "");
-              const mediaUrls = dp.MediaUrls ?? dp.mediaUrls;
-              const hasMedia = Boolean(Array.isArray(mediaUrls) && mediaUrls.length > 0) || Boolean(dp.MediaUrl);
-              log.info(`[napcat-QQ][deliver-debug] deliver called, text="${deliverText.slice(0, 100)}", hasMedia=${hasMedia}`);
-              try {
-                await deliver({
-                  text: deliverText,
-                  mediaUrls: mediaUrls as string[] | undefined,
-                  mediaUrl: (dp.MediaUrl ?? dp.mediaUrl) as string | undefined,
-                  replyToId: (dp.ReplyToId ?? dp.replyToId) as string | undefined,
-                  replyMsgId,
-                  historyContext,
-                  isPassiveMode: isPassiveModeFlag,
-                  isBot,
-                  isUserStopIntent,
-                  event,
-                } as any);
-                log.info(`[napcat-QQ][deliver-debug] deliver completed`);
-              } catch (deliverErr) {
-                log.error(`[napcat-QQ][deliver-debug] deliver FAILED:`, deliverErr);
-                throw deliverErr;
-              }
-            },
-            onError: (err: unknown) => log.error("[napcat-QQ] dispatch error:", err),
-          },
-          replyOptions: {
-            onReplyStart: undefined,
-          },
-        });
+
+        // 框架 session 初始化冲突重试（最多 2 次，间隔 500ms/1000ms）
+        const SESSION_CONFLICT_RETRIES = 2;
+        const SESSION_CONFLICT_BASE_DELAY_MS = 500;
+        let dispatchError: unknown;
+        for (let attempt = 0; attempt <= SESSION_CONFLICT_RETRIES; attempt++) {
+          try {
+            await dispatch({
+              ctx: ctxPayload,
+              cfg,
+              dispatcherOptions: {
+                deliver: async (payload: unknown) => {
+                  const dp = payload as Record<string, unknown>;
+                  const deliverText = String(dp.Body ?? dp.text ?? "");
+                  const mediaUrls = dp.MediaUrls ?? dp.mediaUrls;
+                  const hasMedia = Boolean(Array.isArray(mediaUrls) && mediaUrls.length > 0) || Boolean(dp.MediaUrl);
+                  log.info(`[napcat-QQ][deliver-debug] deliver called, text="${deliverText.slice(0, 100)}", hasMedia=${hasMedia}`);
+                  try {
+                    await deliver({
+                      text: deliverText,
+                      mediaUrls: mediaUrls as string[] | undefined,
+                      mediaUrl: (dp.MediaUrl ?? dp.mediaUrl) as string | undefined,
+                      replyToId: (dp.ReplyToId ?? dp.replyToId) as string | undefined,
+                      replyMsgId,
+                      historyContext,
+                      isPassiveMode: isPassiveModeFlag,
+                      isBot,
+                      isUserStopIntent,
+                      event,
+                    } as any);
+                    log.info(`[napcat-QQ][deliver-debug] deliver completed`);
+                  } catch (deliverErr) {
+                    log.error(`[napcat-QQ][deliver-debug] deliver FAILED:`, deliverErr);
+                    throw deliverErr;
+                  }
+                },
+                onError: (err: unknown) => log.error("[napcat-QQ] dispatch error:", err),
+              },
+              replyOptions: {
+                onReplyStart: undefined,
+              },
+            });
+            dispatchError = null;
+            break; // 成功，跳出重试循环
+          } catch (err) {
+            dispatchError = err;
+            const isSessionConflict = err instanceof Error &&
+              /session initialization conflicted/i.test(err.message);
+            if (isSessionConflict && attempt < SESSION_CONFLICT_RETRIES) {
+              const retryDelay = SESSION_CONFLICT_BASE_DELAY_MS * (attempt + 1);
+              log.warn(`[napcat-QQ][dispatch-debug] session conflict, retry ${attempt + 1}/${SESSION_CONFLICT_RETRIES} in ${retryDelay}ms: ${err.message}`);
+              await sleep(retryDelay);
+              continue;
+            }
+            break; // 非冲突错误或重试耗尽，跳出循环
+          }
+        }
+
+        if (dispatchError) {
+          throw dispatchError;
+        }
 
         // 派发成功：释放哨兵并写入冷却时间戳
         if (passiveCooldownKey) passiveMode.markDone(passiveCooldownKey);
