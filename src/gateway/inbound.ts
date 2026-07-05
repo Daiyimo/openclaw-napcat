@@ -415,11 +415,13 @@ export function installMessageHandler(
             deliver: async (payload: unknown) => {
               const dp = payload as Record<string, unknown>;
               const deliverText = String(dp.Body ?? dp.text ?? "");
-              log.log(`[napcat-QQ][deliver-debug] deliver called, text="${deliverText.slice(0, 100)}", hasMedia=${Boolean(dp.MediaUrls?.length || dp.MediaUrl)}`);
+              const mediaUrls = dp.MediaUrls ?? dp.mediaUrls;
+              const hasMedia = Boolean(Array.isArray(mediaUrls) && mediaUrls.length > 0) || Boolean(dp.MediaUrl);
+              log.log(`[napcat-QQ][deliver-debug] deliver called, text="${deliverText.slice(0, 100)}", hasMedia=${hasMedia}`);
               try {
                 await deliver({
                   text: deliverText,
-                  mediaUrls: (dp.MediaUrls ?? dp.mediaUrls) as string[] | undefined,
+                  mediaUrls: mediaUrls as string[] | undefined,
                   mediaUrl: (dp.MediaUrl ?? dp.mediaUrl) as string | undefined,
                   replyToId: (dp.ReplyToId ?? dp.replyToId) as string | undefined,
                   replyMsgId,
