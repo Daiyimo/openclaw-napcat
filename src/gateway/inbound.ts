@@ -413,10 +413,12 @@ export function installMessageHandler(
         const chatId = ctxPayload.To ?? ctxPayload.From;
         log.info(`[napcat-QQ][dispatch-debug] about to dispatch sessionKey=${sessionKey ?? "(none)"} chatId=${chatId}`);
 
-        // 框架 session 初始化冲突重试（最多 2 次，间隔 500ms/1000ms）
-        const SESSION_CONFLICT_RETRIES = 2;
-        const SESSION_CONFLICT_BASE_DELAY_MS = 500;
+        // 框架 session 初始化冲突重试（最多 3 次，指数退避 2000ms/4000ms/8000ms）
+        // 冲突持续时降级为直接发送，避免用户收不到回复
+        const SESSION_CONFLICT_RETRIES = 3;
+        const SESSION_CONFLICT_BASE_DELAY_MS = 2000;
         let dispatchError: unknown;
+        let lastDeliverPayload: { text?: string; mediaUrls?: string[]; mediaUrl?: string } | undefined;
         for (let attempt = 0; attempt <= SESSION_CONFLICT_RETRIES; attempt++) {
           try {
             await dispatch({
@@ -428,6 +430,11 @@ export function installMessageHandler(
                   const deliverText = String(dp.Body ?? dp.text ?? "");
                   const mediaUrls = dp.MediaUrls ?? dp.mediaUrls;
                   const hasMedia = Boolean(Array.isArray(mediaUrls) && mediaUrls.length > 0) || Boolean(dp.MediaUrl);
+                  lastDeliverPayload = {
+                    text: deliverText || undefined,
+                    mediaUrls: mediaUrls as string[] | undefined,
+                    mediaUrl: (dp.MediaUrl ?? dp.mediaUrl) as string | undefined,
+                  };
                   log.info(`[napcat-QQ][deliver-debug] deliver called, text="${deliverText.slice(0, 100)}", hasMedia=${hasMedia}`);
                   try {
                     await deliver({
@@ -471,14 +478,41 @@ export function installMessageHandler(
         }
 
         if (dispatchError) {
-          throw dispatchError;
-        }
+          const isSessionConflict = dispatchError instanceof Error &&
+            /session initialization conflicted/i.test(dispatchError.message);
+          if (isSessionConflict && lastDeliverPayload) {
+            log.warn(`[napcat-QQ][dispatch-debug] session conflict after ${SESSION_CONFLICT_RETRIES} retries, falling back to direct send`);
+            try {
+              const chatId = ctxPayload.To ?? ctxPayload.From;
+              const isGroup = String(chatId).startsWith("group:");
+              const payload = lastDeliverPayload;
+              if (isGroup) {
+                const groupId = Number(String(chatId).replace("group:", ""));
+                await client.sendGroupMsg(groupId, payload.text ?? (payload.mediaUrl ? "" : ""));
+                if (payload.mediaUrl) {
+                  await client.sendGroupMsg(groupId, [{ type: "image", data: { file: payload.mediaUrl } }]);
+                }
+              } else {
+                const userId = Number(String(chatId).replace("direct:", ""));
+                await client.sendPrivateMsg(userId, payload.text ?? (payload.mediaUrl ? "" : ""));
+                if (payload.mediaUrl) {
+                  await client.sendPrivateMsg(userId, [{ type: "image", data: { file: payload.mediaUrl } }]);
+                }
+              }
+              log.info(`[napcat-QQ][dispatch-debug] fallback direct send succeeded`);
+            } catch (fallbackErr) {
+              log.error(`[napcat-QQ][dispatch-debug] fallback direct send failed:`, fallbackErr);
+            }
+          } else {
+            throw dispatchError;
+          }
+        } else {
+          // 派发成功：释放哨兵并写入冷却时间戳
+          if (passiveCooldownKey) passiveMode.markDone(passiveCooldownKey);
+          ctx.metrics?.increment("dispatch", "succeeded");
 
-        // 派发成功：释放哨兵并写入冷却时间戳
-        if (passiveCooldownKey) passiveMode.markDone(passiveCooldownKey);
-        ctx.metrics?.increment("dispatch", "succeeded");
-
-        log.info(`[napcat-QQ][dispatch-debug] dispatch succeeded sessionKey=${sessionKey ?? "(none)"}`);
+          log.info(`[napcat-QQ][dispatch-debug] dispatch succeeded sessionKey=${sessionKey ?? "(none)"}`);
+          }
 
         recordKnownUser({
           openid: String(userId),
