@@ -228,6 +228,10 @@ AI 回复中使用 `[TO:group:群号]内容` 可发送到任意群/用户，绕�
 
 ## Docker 部署
 
+**环境要求**：openclaw >= 2026.7.1；Node.js `>=22.22.3 <23 || >=24.15.0 <25 || >=25.9.0`。
+
+> **排障提示**：openclaw 2026.7.1 起引入 crash-loop breaker——gateway 多次不干净启动后，频道不会自动启动（日志出现 `channel autostart suppressed by crash-loop breaker`），需手动执行 `channels.start` 恢复。
+
 <details>
 <summary><b>docker-compose.yml 完整示例（点击展开）</b></summary>
 

@@ -2,6 +2,20 @@
 
 # 更新日志
 
+### [Unreleased] - 适配 openclaw 2026.7.1
+
+#### Changed
+
+- **适配 openclaw 2026.7.1**：插件基线从 2026.6.11 升级到 2026.7.1（6.11 → 7.1 对 channel 插件零破坏性变更）。
+  - 导入统一迁移到 `openclaw/plugin-sdk/core`：修复 `DEFAULT_ACCOUNT_ID` / `applyAccountNameToChannelSection` / `migrateBaseNameToDefaultAccount` 三个符号在根路径不存在导致的隐患，并消除 compat deprecation 警告。
+  - registrationMode 分流对齐官方 `defineChannelPluginEntry`：`cli-metadata` / `tool-discovery` 模式不再注册 channel、不注入 runtime。
+  - outbound 返回值对齐 `OutboundDeliveryResult` 契约：`messageId` 改为必填（成功但无平台 id 时为 `""`），失败路径统一改为 throw（原 `{ sent: false, error }` 形状移除）。
+  - peer 要求 openclaw >= 2026.7.1，`package.json` 补充 `compat.pluginApi` / `build.openclawVersion` 元数据。
+
+#### Fixed
+
+- **`openclaw.plugin.json` 的 `channelConfigs.napcat` 被框架静默丢弃**：该条目缺少 `schema` 字段，`normalizeChannelConfigs` 会直接跳过。已补充与顶层 `configSchema` 一致的 JSON Schema。
+
 ### [Unreleased] - 投递层防御性类型转换
 
 #### Fixed

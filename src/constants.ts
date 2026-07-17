@@ -162,9 +162,6 @@ export const DEFAULT_RESPONSE_GUIDELINES = `【回复格式硬性约束 — 违�
 
 5. 旁听/被动模式:没想说的回复 [SILENT],不要硬凑回复。`;
 
-/** 友军抑制随机延迟上限（ms）。减少多 bot 间竞态 */
-export const BOT_SUPPRESSION_JITTER_MS = 2_000;
-
 // === 入站频控 ===
 
 /** 入站频控默认每窗口最大消息数 */

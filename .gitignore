@@ -12,3 +12,4 @@ docs/superpowers/
 .env.*.local
 .codegraph/
 code-review/
+.cache/

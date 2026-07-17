@@ -84,7 +84,7 @@ openclaw-napcat/
 
 **关键不变量**：
 - `tsconfig.json` 排除 `src/__tests__/`，所以测试代码**不会污染生产产物**
-- `package.json` 的 `files: ["dist/", "skills/"]` 决定了发布到 npm 时带什么
+- `package.json` 的 `files: ["dist/"]` 决定了发布到 npm 时带什么
 - 插件入口在 `dist/src/index.js`，不是 `dist/index.js`（注意 `src/` 多一层）
 
 ## 本地联调（开发模式）
