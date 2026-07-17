@@ -6,7 +6,7 @@
  * 从 channel.ts 中提取，行为不变。
  */
 
-import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk";
+import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk/core";
 import type { OneBotClient } from "../client.js";
 import type { OneBotMessage } from "../types.js";
 import type { PassiveModeManager } from "../passive-mode.js";
@@ -84,11 +84,12 @@ export async function resolveBareGroupTarget(
 /**
  * 发送纯文本消息到指定目标。
  * 处理旁观模式 [SILENT]、跨会话 [TO:] 前缀、裸数字群号探测。
+ * 返回 OutboundDeliveryResult 形状（messageId 必填，无平台 id 时为 ""）；失败时 throw。
  */
 export async function sendText(
   params: SendTextParams,
   deps: SendTextDeps,
-): Promise<{ channel: "napcat"; sent: boolean; messageId?: string; error?: string }> {
+): Promise<{ channel: "napcat"; messageId: string; meta?: Record<string, unknown> }> {
   let to = params.to ?? "";
   const { text, replyToId } = params;
   const { getClient, knownGroupIds, passiveMode, log } = deps;
@@ -99,7 +100,7 @@ export async function sendText(
         `[napcat-QQ][outbound.sendText] received empty target, params keys: ${Object.keys(params).join(",")}`,
       );
     }
-    return { channel: "napcat", sent: true };
+    return { channel: "napcat", messageId: "" };
   }
 
   // ── 防御性归一化：处理不完整的 to 值 ──────────────────────
@@ -117,7 +118,7 @@ export async function sendText(
         `[napcat-QQ][outbound.sendText] cannot resolve incomplete target "${to}" — ` +
         `no known groups. Message dropped.`,
       );
-      return { channel: "napcat", sent: false, error: `Cannot resolve "${to}": no group ID and no known groups` };
+      throw new Error(`Cannot resolve "${to}": no group ID and no known groups`);
     }
   }
 
@@ -132,7 +133,7 @@ export async function sendText(
     }
     getLog(log).log(`[napcat-QQ][passive] AI 选择静默 (to=${to})`);
     passiveMode.markSilent(cooldownKey);
-    return { channel: "napcat", sent: true };
+    return { channel: "napcat", messageId: "" };
   }
   passiveMode.markDone(cooldownKey);
 
@@ -144,7 +145,10 @@ export async function sendText(
     if (crossMsg) {
       const result = await sendProactive({ to: crossTarget, text: crossMsg, accountId: resolvedAccountId });
       getLog(log).log(`[napcat-QQ][cross-session] ${result.success ? "✅" : "❌"} to=${crossTarget}`);
-      return { channel: "napcat", sent: result.success, error: result.error };
+      if (!result.success) {
+        throw new Error(result.error ?? "cross-session send failed");
+      }
+      return { channel: "napcat", messageId: "" };
     }
   }
 
@@ -159,7 +163,7 @@ export async function sendText(
     ? appendBotSignature(normalizedText, params.botSelfName ?? null, params.botSelfId, style)
     : normalizedText;
   const client = getClient(resolvedAccountId);
-  if (!client) return { channel: "napcat", sent: false, error: "Client not connected" };
+  if (!client) throw new Error("Client not connected");
 
   try {
     // 裸数字 to 处理
@@ -190,7 +194,7 @@ export async function sendText(
       });
       if (sent) {
         getLog(log).log(`[napcat-QQ][merged-forward] delivered successfully (${finalText.length} chars)`);
-        return { channel: "napcat", sent: true };
+        return { channel: "napcat", messageId: "" };
       }
       getLog(log).warn("[napcat-QQ][merged-forward] failed, falling back to plain chunks");
     }
@@ -208,9 +212,9 @@ export async function sendText(
       lastMessageId = await dispatchMessage(client, target, message);
       if (chunks.length > 1 && i < chunks.length - 1) await sleep(OUTBOUND_MULTI_CHUNK_SLEEP_MS);
     }
-    return { channel: "napcat", sent: true, messageId: lastMessageId };
+    return { channel: "napcat", messageId: lastMessageId ?? "" };
   } catch (err) {
     getLog(log).error("[napcat-QQ][outbound.sendText] FAILED:", err);
-    return { channel: "napcat", sent: false, error: String(err) };
+    throw err instanceof Error ? err : new Error(String(err));
   }
 }

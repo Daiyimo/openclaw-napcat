@@ -82,8 +82,6 @@ export const QQConfigSchema = z.object({
   // ── 多 bot 对话控制（v1.8+） ─────────────────────────────────────
   /** 多 bot 对话轮数硬上限（含本 bot 自身回复）。超过后本 bot 不再响应其他 bot 消息，直到用户发新消息重置。默认 5 */
   botDialogMaxRounds: z.number().int().min(1).max(50).optional().default(5).describe("Hard cap on consecutive bot-to-bot exchanges before self-quiet (resets on user message). Default 5."),
-  /** 对话空闲超时（ms）：群内无新消息超过此值后，对话状态重置。默认 60s */
-  dialogTimeoutMs: z.number().int().min(1000).max(3600000).optional().default(60000).describe("Dialog state reset after this many ms of no new messages. Default 60s."),
   /** 用户停止意图关键词：消息含任一关键词时，bot 进入"停止对话"状态 */
   botStopKeywords: z.array(z.string().min(1)).optional().describe("User stop-intent keywords. When any keyword is in the user message, bots enter 'dialog stopped' state and may reply with a brief acknowledgement."),
   /** 用户停止指令时，本 bot 是否响应结束语（默认 true）。禁用后所有 bot 收到停止指令直接静默 */

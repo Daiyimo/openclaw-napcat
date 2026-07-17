@@ -121,7 +121,6 @@ export function makeMockConfig(overrides: Record<string, unknown> = {}): Record<
     antiRiskMode: false,
     passiveMode: { temperature: 50 },
     botDialogMaxRounds: 5,
-    dialogTimeoutMs: 60_000,
     botStopKeywords: ["别聊了", "stop"],
     botStopReply: true,
     ...overrides,

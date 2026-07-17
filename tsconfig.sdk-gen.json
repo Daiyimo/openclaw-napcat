@@ -4,12 +4,12 @@
     "noEmit": false,
     "declaration": true,
     "emitDeclarationOnly": true,
-    "outDir": "/tmp/openclaw-sdk-dts",
+    "outDir": "./.cache/sdk-dts",
     "skipLibCheck": true,
     "isolatedModules": false,
     "noEmitOnError": false,
     "paths": {
-      "openclaw/plugin-sdk": ["E:/project/openclaw/src/plugin-sdk/index.ts"]
+      "openclaw/plugin-sdk/core": ["E:/project/vibe-coding/openclaw/src/plugin-sdk/core.ts"]
     }
   },
   "include": ["src/**/*.ts"]

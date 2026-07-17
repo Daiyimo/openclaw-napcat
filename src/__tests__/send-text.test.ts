@@ -49,7 +49,7 @@ describe("sendText — passive mode silent interception", () => {
       { to: "group:88888", text: "[SILENT]" },
       deps,
     );
-    expect(result).toEqual({ channel: "napcat", sent: true });
+    expect(result).toEqual({ channel: "napcat", messageId: "" });
     expect(client.sendGroupMsg).not.toHaveBeenCalled();
     expect(deps.passiveMode.markSilent).toHaveBeenCalled();
   });
@@ -61,7 +61,7 @@ describe("sendText — passive mode silent interception", () => {
       { to: "group:88888", text: "NO_REPLY" },
       deps,
     );
-    expect(result).toEqual({ channel: "napcat", sent: true });
+    expect(result).toEqual({ channel: "napcat", messageId: "" });
     expect(client.sendGroupMsg).not.toHaveBeenCalled();
     expect(deps.passiveMode.markSilent).toHaveBeenCalled();
   });
@@ -73,18 +73,19 @@ describe("sendText — passive mode silent interception", () => {
       { to: "group:88888", text: "no_reply" },
       deps,
     );
-    expect(result).toEqual({ channel: "napcat", sent: true });
+    expect(result).toEqual({ channel: "napcat", messageId: "" });
     expect(client.sendGroupMsg).not.toHaveBeenCalled();
   });
 
   it("does NOT intercept text containing silent as substring", async () => {
     const client = makeClient();
+    client.sendGroupMsg.mockResolvedValue({ message_id: "12345" });
     const deps = makeDeps({ getClient: () => client });
     const result = await sendText(
       { to: "group:88888", text: "please stay silent" },
       deps,
     );
-    expect(result.sent).toBe(true);
+    expect(result.messageId).toBe("12345");
     expect(client.sendGroupMsg).toHaveBeenCalled();
     expect(deps.passiveMode.markSilent).not.toHaveBeenCalled();
   });
@@ -107,7 +108,7 @@ describe("sendText — passive mode silent interception", () => {
       { to: "group:88888", text: "NO_REPLY." },
       deps,
     );
-    expect(result).toEqual({ channel: "napcat", sent: true });
+    expect(result).toEqual({ channel: "napcat", messageId: "" });
     expect(client.sendGroupMsg).not.toHaveBeenCalled();
     expect(deps.passiveMode.markSilent).toHaveBeenCalled();
   });
@@ -119,7 +120,7 @@ describe("sendText — passive mode silent interception", () => {
       { to: "group:88888", text: "NO_REPLY!" },
       deps,
     );
-    expect(result).toEqual({ channel: "napcat", sent: true });
+    expect(result).toEqual({ channel: "napcat", messageId: "" });
     expect(client.sendGroupMsg).not.toHaveBeenCalled();
   });
 
@@ -130,7 +131,7 @@ describe("sendText — passive mode silent interception", () => {
       { to: "group:88888", text: "NO REPLY" },
       deps,
     );
-    expect(result).toEqual({ channel: "napcat", sent: true });
+    expect(result).toEqual({ channel: "napcat", messageId: "" });
     expect(client.sendGroupMsg).not.toHaveBeenCalled();
   });
 
@@ -141,7 +142,7 @@ describe("sendText — passive mode silent interception", () => {
       { to: "group:88888", text: "NO_REPLY" },
       deps,
     );
-    expect(result).toEqual({ channel: "napcat", sent: true });
+    expect(result).toEqual({ channel: "napcat", messageId: "" });
     expect(client.sendGroupMsg).not.toHaveBeenCalled();
   });
 
@@ -152,7 +153,7 @@ describe("sendText — passive mode silent interception", () => {
       { to: "group:88888", text: "say NO_REPLY please" },
       deps,
     );
-    expect(result.sent).toBe(true);
+    expect(typeof result.messageId).toBe("string");
     expect(client.sendGroupMsg).toHaveBeenCalled();
     expect(deps.passiveMode.markSilent).not.toHaveBeenCalled();
   });
@@ -164,7 +165,7 @@ describe("sendText — passive mode silent interception", () => {
       { to: "group:88888", text: "NO_REPLY。" },
       deps,
     );
-    expect(result).toEqual({ channel: "napcat", sent: true });
+    expect(result).toEqual({ channel: "napcat", messageId: "" });
     expect(client.sendGroupMsg).not.toHaveBeenCalled();
     expect(deps.passiveMode.markSilent).toHaveBeenCalled();
   });
@@ -176,7 +177,7 @@ describe("sendText — passive mode silent interception", () => {
       { to: "group:88888", text: "NO_REPLY，" },
       deps,
     );
-    expect(result).toEqual({ channel: "napcat", sent: true });
+    expect(result).toEqual({ channel: "napcat", messageId: "" });
     expect(client.sendGroupMsg).not.toHaveBeenCalled();
     expect(deps.passiveMode.markSilent).toHaveBeenCalled();
   });
@@ -188,7 +189,7 @@ describe("sendText — passive mode silent interception", () => {
       { to: "group:88888", text: "no_reply！" },
       deps,
     );
-    expect(result).toEqual({ channel: "napcat", sent: true });
+    expect(result).toEqual({ channel: "napcat", messageId: "" });
     expect(client.sendGroupMsg).not.toHaveBeenCalled();
     expect(deps.passiveMode.markSilent).toHaveBeenCalled();
   });
@@ -202,19 +203,17 @@ describe("sendText — edge cases", () => {
 
   it("returns sent:true for empty to", async () => {
     const result = await sendText({ to: "", text: "hello" }, makeDeps());
-    expect(result).toEqual({ channel: "napcat", sent: true });
+    expect(result).toEqual({ channel: "napcat", messageId: "" });
   });
 
   it("returns sent:true for heartbeat target", async () => {
     const result = await sendText({ to: "heartbeat", text: "hello" }, makeDeps());
-    expect(result).toEqual({ channel: "napcat", sent: true });
+    expect(result).toEqual({ channel: "napcat", messageId: "" });
   });
 
-  it("returns error when client not found", async () => {
+  it("throws when client not found", async () => {
     const deps = makeDeps({ getClient: () => undefined });
-    const result = await sendText({ to: "group:88888", text: "hello" }, deps);
-    expect(result.sent).toBe(false);
-    expect(result.error).toContain("not connected");
+    await expect(sendText({ to: "group:88888", text: "hello" }, deps)).rejects.toThrow("not connected");
   });
 
   it("handles numeric text without crashing (regression for TypeError on .trim)", async () => {
@@ -224,7 +223,7 @@ describe("sendText — edge cases", () => {
       { to: "group:88888", text: 207.44 as any },
       deps,
     );
-    expect(result.sent).toBe(true);
+    expect(typeof result.messageId).toBe("string");
     expect(client.sendGroupMsg).toHaveBeenCalled();
   });
 });

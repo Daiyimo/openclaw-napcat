@@ -3,7 +3,7 @@
  * Replaces inline `any` types with precise interfaces.
  */
 
-import type { OpenClawConfig, PluginRuntimeChannel } from "openclaw/plugin-sdk";
+import type { OpenClawConfig, PluginRuntimeChannel } from "openclaw/plugin-sdk/core";
 export type { PluginRuntimeChannel };
 import type { OneBotClient } from "../client.js";
 import type { QQConfig } from "../config.js";
@@ -27,17 +27,9 @@ export interface AccountStatus {
   lastError?: string | null;
 }
 
-export interface SendResult {
-  channel: "napcat";
-  sent: boolean;
-  error?: string;
-}
-
 import type { InboundRateLimiter } from "../rate-limiter.js";
 
 export interface InboundRateLimitStore {
-  /** @deprecated Replaced by rateLimiter for sliding window support */
-  lastTrigger: Map<string, number>;
   /** 消息去重集合 */
   processedMsgIds: Set<string>;
   /** 滑动窗口限流器 */
@@ -110,8 +102,6 @@ export interface InboundContext {
   channelRuntime: PluginRuntimeChannel;
   uploadCache: UploadCache;
   inboundStore: InboundRateLimitStore;
-  /** @deprecated 实际去重使用 inboundStore.processedMsgIds，此字段保留以兼容旧测试 */
-  processedMsgIds?: Set<string>;
   knownGroupIds: Set<string>;
   passiveMode: PassiveModeManager;
   log: Logger;

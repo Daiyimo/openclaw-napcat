@@ -6,7 +6,7 @@
  */
 
 import type { OneBotClient } from "../client.js";
-import type { OpenClawConfig } from "openclaw/plugin-sdk";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 
 export interface RegisterGroupRouteParams {
   client: OneBotClient;
@@ -35,6 +35,13 @@ export async function registerGroupRoute(params: RegisterGroupRouteParams): Prom
     knownGroupIds,
     log,
   } = params;
+
+  // channelRuntime.session 是 SDK 可选能力；成员缺失时按函数契约 return false
+  // （守卫写法对齐 inbound.ts 的可选链模式）
+  if (!channelRuntime?.session?.resolveStorePath || !channelRuntime?.session?.recordInboundSession) {
+    log?.warn?.(`[napcat-QQ] channelRuntime.session unavailable, skip route registration for group ${groupId}`);
+    return false;
+  }
 
   const storePath = channelRuntime.session.resolveStorePath(
     cfg.session?.store,

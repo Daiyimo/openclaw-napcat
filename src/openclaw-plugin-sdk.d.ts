@@ -1,8 +1,8 @@
 // OpenClaw Plugin SDK Type Declarations
-// 对齐 openclaw 2026.6.11 source
+// 对齐 openclaw 2026.7.1 source
 // 采用最小化声明：仅覆盖插件实际使用的接口
 
-declare module "openclaw/plugin-sdk" {
+declare module "openclaw/plugin-sdk/core" {
   // ── 基础类型 ─────────────────────────────────────────────────────────────
 
   /** 聊天类型：direct（私聊）/ group（群）/ channel（频道） */
@@ -147,6 +147,15 @@ declare module "openclaw/plugin-sdk" {
     from: string;
     to: string;
     threadId?: string | number;
+  };
+
+  /** 对齐 2026.7.1 OutboundDeliveryResult：messageId 必填；失败经 throw 或 meta.error 表达 */
+  export type OutboundDeliveryResult = {
+    channel: string;
+    messageId: string;
+    chatId?: string;
+    receipt?: unknown;
+    meta?: Record<string, unknown>;
   };
 
   // ── Message Tool / Actions ─────────────────────────────────────────────────
@@ -405,8 +414,8 @@ declare module "openclaw/plugin-sdk" {
       chunker?: ((text: string, limit: number, ctx?: any) => string[]) | null;
       textChunkLimit?: number;
       normalizePayload?: (params: { payload: any }) => any | null;
-      sendText?: (ctx: ChannelOutboundContext) => Promise<{ channel: string; sent: boolean; messageId?: string; error?: string }>;
-      sendMedia?: (ctx: ChannelOutboundContext & { mediaUrl: string }) => Promise<{ channel: string; sent: boolean; messageId?: string; error?: string }>;
+      sendText?: (ctx: ChannelOutboundContext) => Promise<OutboundDeliveryResult>;
+      sendMedia?: (ctx: ChannelOutboundContext & { mediaUrl: string }) => Promise<OutboundDeliveryResult>;
       sendPayload?: (ctx: any) => Promise<any>;
       sendFormattedText?: (ctx: any) => Promise<any[]>;
       sendFormattedMedia?: (ctx: any) => Promise<any>;

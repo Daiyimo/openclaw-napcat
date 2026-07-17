@@ -7,7 +7,7 @@
 
 import type { OneBotClient } from "./client.js";
 import type { OneBotMessage } from "./types.js";
-import type { OpenClawConfig } from "openclaw/plugin-sdk";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import type { ConfigRef } from "./config-watcher.js";
 import type { InboundRateLimiter } from "./rate-limiter.js";
 import type { MetricsCollector } from "./metrics.js";

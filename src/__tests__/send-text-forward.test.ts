@@ -44,7 +44,7 @@ describe("sendText merged-forward", () => {
       deps,
     );
 
-    expect(result.sent).toBe(true);
+    expect(typeof result.messageId).toBe("string");
     expect(client.sendGroupForwardMsg).toHaveBeenCalledWith(
       67890,
       expect.arrayContaining([expect.objectContaining({ name: "OpenClaw" })]),
@@ -61,7 +61,7 @@ describe("sendText merged-forward", () => {
       deps,
     );
 
-    expect(result.sent).toBe(true);
+    expect(typeof result.messageId).toBe("string");
     expect(client.sendGroupForwardMsg).not.toHaveBeenCalled();
   });
 
@@ -75,7 +75,7 @@ describe("sendText merged-forward", () => {
       deps,
     );
 
-    expect(result.sent).toBe(true);
+    expect(typeof result.messageId).toBe("string");
     expect(client.sendGroupForwardMsg).not.toHaveBeenCalled();
   });
 
@@ -91,7 +91,7 @@ describe("sendText merged-forward", () => {
       deps,
     );
 
-    expect(result.sent).toBe(true);
+    expect(typeof result.messageId).toBe("string");
     expect(client.sendGroupForwardMsg).toHaveBeenCalled();
     // 降级到 sendGroupMsg 分片
     expect(client.sendGroupMsg).toHaveBeenCalled();
@@ -106,7 +106,7 @@ describe("sendText merged-forward", () => {
       deps,
     );
 
-    expect(result.sent).toBe(true);
+    expect(typeof result.messageId).toBe("string");
     expect(client.sendGroupForwardMsg).not.toHaveBeenCalled();
   });
 });

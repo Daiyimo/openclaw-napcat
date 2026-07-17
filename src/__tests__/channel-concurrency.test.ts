@@ -26,7 +26,7 @@ function setupMocks() {
     };
   });
 
-  vi.doMock("openclaw/plugin-sdk", () => ({
+  vi.doMock("openclaw/plugin-sdk/core", () => ({
     buildChannelConfigSchema: vi.fn(() => ({})),
     DEFAULT_ACCOUNT_ID: "default",
     normalizeAccountId: (id: string) => id,
@@ -84,7 +84,7 @@ describe("channel.ts — startingPromises 并发锁回归 (P1)", () => {
 
   afterEach(async () => {
     vi.unmock("ws");
-    vi.unmock("openclaw/plugin-sdk");
+    vi.unmock("openclaw/plugin-sdk/core");
     vi.unmock("../client.js");
     vi.unmock("../log-buffer.js");
     vi.unmock("../update-checker.js");

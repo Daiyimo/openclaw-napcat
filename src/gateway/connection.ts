@@ -53,7 +53,7 @@ export function installConnectHandler(
         // 存入模块级缓存，确保 outbound.sendText 在重连后仍能获取到 nickname
         ctx.shared.setBotSelfName?.(ctx.account.accountId, info.nickname);
       }
-      ctx.channelRuntime.activity.record({
+      ctx.channelRuntime?.activity?.record?.({
         channel: "napcat",
         accountId: ctx.account.accountId,
         direction: "inbound",
@@ -67,7 +67,7 @@ export function installConnectHandler(
 
       try {
         const groups = await client.getGroupList();
-        await Promise.allSettled(
+        const results = await Promise.allSettled(
           groups.map((g) =>
             registerGroupRoute({
               client,
@@ -79,8 +79,9 @@ export function installConnectHandler(
             }),
           ),
         );
+        const successCount = results.filter((r) => r.status === "fulfilled" && r.value).length;
         ctx.log.info(
-          `[napcat-QQ] Pre-registered ${groups.length} group session routes for cron delivery`,
+          `[napcat-QQ] Pre-registered ${successCount}/${groups.length} group session routes for cron delivery`,
         );
         } catch (err) {
           ctx.log.warn(`[napcat-QQ] Group route pre-registration failed (non-fatal): ${err}`);

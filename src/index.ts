@@ -1,5 +1,5 @@
-import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
-import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
+import { emptyPluginConfigSchema } from "openclaw/plugin-sdk/core";
 import { qqChannel } from "./channel.js";
 import { setQQRuntime } from "./runtime.js";
 
@@ -13,7 +13,11 @@ const plugin = {
   description: "QQ channel plugin via OneBot v11 (NapCat)",
   configSchema: emptyPluginConfigSchema(),
   register(api: OpenClawPluginApi) {
-    if (api.registrationMode !== "setup-only" && api.registrationMode !== "cli-metadata") {
+    if (api.registrationMode === "cli-metadata" || api.registrationMode === "tool-discovery") {
+      // cli-metadata/tool-discovery 模式不注册 channel、不注入 runtime（对齐官方 defineChannelPluginEntry）
+      return;
+    }
+    if (api.registrationMode !== "setup-only") {
       setQQRuntime(api.runtime);
     }
     api.registerChannel({ plugin: qqChannel });

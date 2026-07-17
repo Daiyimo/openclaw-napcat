@@ -142,8 +142,6 @@ if (env.QQ_DEBUG !== undefined) qqEnv.debug = parseBool(env.QQ_DEBUG, false);
 // ── 多 bot 对话控制（v1.8+）──────────────────────────────────────────────
 const botDialogRounds = parseIntOpt(env.QQ_BOT_DIALOG_MAX_ROUNDS);
 if (botDialogRounds !== undefined) qqEnv.botDialogMaxRounds = botDialogRounds;
-const dialogTimeout = parseIntOpt(env.QQ_DIALOG_TIMEOUT_MS);
-if (dialogTimeout !== undefined) qqEnv.dialogTimeoutMs = dialogTimeout;
 const stopKeywords = parseStringList(env.QQ_BOT_STOP_KEYWORDS);
 if (stopKeywords) qqEnv.botStopKeywords = stopKeywords;
 if (env.QQ_BOT_STOP_REPLY_ENABLED !== undefined)

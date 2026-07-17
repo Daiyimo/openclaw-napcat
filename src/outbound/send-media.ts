@@ -5,7 +5,7 @@
  * 从 channel.ts 中提取，行为不变。
  */
 
-import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk";
+import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk/core";
 import type { OneBotClient } from "../client.js";
 import type { OneBotMessage } from "../types.js";
 import {
@@ -37,17 +37,18 @@ export interface SendMediaDeps {
 
 /**
  * 发送媒体消息（图片/文件）到指定目标。
+ * 返回 OutboundDeliveryResult 形状（messageId 必填，无平台 id 时为 ""）；失败时 throw。
  */
 export async function sendMedia(
   params: SendMediaParams,
   deps: SendMediaDeps,
-): Promise<{ channel: "napcat"; sent: boolean; messageId?: string; error?: string }> {
+): Promise<{ channel: "napcat"; messageId: string; meta?: Record<string, unknown> }> {
   const { to, text, mediaUrl, accountId, replyToId } = params;
   const { getClient, knownGroupIds } = deps;
 
-  if (!to || to === "heartbeat") return { channel: "napcat", sent: true };
+  if (!to || to === "heartbeat") return { channel: "napcat", messageId: "" };
   const client = getClient(accountId || DEFAULT_ACCOUNT_ID);
-  if (!client) return { channel: "napcat", sent: false, error: "Client not connected" };
+  if (!client) throw new Error("Client not connected");
 
   try {
     const effectiveTo = await resolveBareGroupTarget(
@@ -72,10 +73,10 @@ export async function sendMedia(
       });
     }
     const messageId = await dispatchMessage(client, target, message);
-    return { channel: "napcat", sent: true, messageId };
+    return { channel: "napcat", messageId: messageId ?? "" };
   } catch (err) {
     getLog(deps.log).error("[napcat-QQ] outbound.sendMedia failed:", err);
-    return { channel: "napcat", sent: false, error: String(err) };
+    throw err instanceof Error ? err : new Error(String(err));
   }
 }
 

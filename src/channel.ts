@@ -8,7 +8,7 @@ import {
   applyAccountNameToChannelSection,
   migrateBaseNameToDefaultAccount,
   type ChannelSetupInput,
-} from "openclaw/plugin-sdk";
+} from "openclaw/plugin-sdk/core";
 import { OneBotClient } from "./client.js";
 import { QQConfigSchema, type QQConfig, getQQConfigDefaults, resolvePassiveModeTemperature } from "./config.js";
 import { registerClientsMap } from "./proactive.js";
@@ -323,7 +323,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount, unknown, unknown> = {
       log?: any;
       getStatus: () => any;
       setStatus: (next: any) => void;
-      channelRuntime?: import("openclaw/plugin-sdk").PluginRuntimeChannel;
+      channelRuntime?: import("openclaw/plugin-sdk/core").PluginRuntimeChannel;
       runtime: any;
     }) => {
       await startAccount(
@@ -358,7 +358,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount, unknown, unknown> = {
   },
   outbound: {
     deliveryMode: "direct" as const,
-    sendText: async (params: { to?: string; text: string; target?: string; channel?: string; accountId?: string | null; replyToId?: string | null; cfg?: any; log?: any }): Promise<{ channel: "napcat"; sent: boolean; messageId?: string; error?: string }> => {
+    sendText: async (params: { to?: string; text: string; target?: string; channel?: string; accountId?: string | null; replyToId?: string | null; cfg?: any; log?: any }): Promise<{ channel: "napcat"; messageId: string; meta?: Record<string, unknown> }> => {
       // 防御性归一化：cron agent 可能用 channel 代替 target，兼容处理
       const to = params.to ?? params.target ?? params.channel ?? "";
       const text = params.text;
@@ -374,7 +374,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount, unknown, unknown> = {
         { getClient: getClientForAccount, knownGroupIds: getKnownGroupIds(resolvedAid), passiveMode, log: params.log },
       );
     },
-    sendMedia: async (params: { to?: string; text?: string; mediaUrl: string; accountId?: string | null; replyToId?: string | null; log?: any }): Promise<{ channel: "napcat"; sent: boolean; messageId?: string; error?: string }> => {
+    sendMedia: async (params: { to?: string; text?: string; mediaUrl: string; accountId?: string | null; replyToId?: string | null; log?: any }): Promise<{ channel: "napcat"; messageId: string; meta?: Record<string, unknown> }> => {
       const { to, text, mediaUrl, accountId, replyToId, log } = params;
       const resolvedTo = to ?? "";
       const resolvedAid = accountId || DEFAULT_ACCOUNT_ID;

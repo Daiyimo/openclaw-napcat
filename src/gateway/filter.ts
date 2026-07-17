@@ -32,7 +32,7 @@ export function filterStage(
 ): FilterResult | null {
   const { config, knownGroupIds, inboundStore, log, metrics } = ctx;
   if (config.debug) {
-    log.log(
+    log.info(
       `[napcat-QQ][debug-filter] start, post_type=${event.post_type} user_id=${maskId(String(event.user_id))} self_id=${maskId(String(event.self_id))}`,
     );
   }
@@ -106,7 +106,7 @@ export function filterStage(
 
   if (String(event.user_id) === String(selfId)) {
     if (config.debug) {
-      log.log(
+      log.info(
         `[napcat-QQ][debug-self-filter] dropping self message event.user_id=${maskId(String(event.user_id))} selfId=${selfId}`,
       );
     }

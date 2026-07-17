@@ -7,7 +7,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { filterStage } from "../gateway/filter.js";
 import type { OneBotClient } from "../client.js";
-import type { OneBotEvent, InboundContext } from "../types/channel-types.js";
+import type { OneBotEvent } from "../types.js";
+import type { InboundContext } from "../types/channel-types.js";
 
 // ── Mock 工厂 ──────────────────────────────────────────────
 

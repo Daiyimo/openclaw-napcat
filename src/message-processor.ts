@@ -33,7 +33,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { OneBotEvent } from "./types.js";
 import type { OneBotClient } from "./client.js";
-import type { OpenClawConfig } from "openclaw/plugin-sdk";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import type { QQConfig } from "./config.js";
 import { getCachedMemberName } from "./member-cache.js";
 import { cleanCQCodes } from "./message-parser.js";

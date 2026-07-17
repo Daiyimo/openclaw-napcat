@@ -4,7 +4,7 @@
  */
 
 import { OneBotClient } from "./client.js";
-import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk";
+import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk/core";
 import { listKnownUsers, getKnownUsersStats } from "./known-users.js";
 import type { KnownUser } from "./known-users.js";
 import { parseTarget, isImageFile, dispatchMessage } from "./message-parser.js";

@@ -6,7 +6,7 @@
  * 采用两阶段管道：filter → trigger，dispatch 保持 inline
  */
 
-import type { OpenClawConfig } from "openclaw/plugin-sdk";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import type { OneBotClient } from "../client.js";
 import type { OneBotEvent } from "../types.js";
 import type { InboundContext, Logger, NapcatInboundContext } from "../types/channel-types.js";
@@ -413,7 +413,7 @@ export function installMessageHandler(
         const chatId = ctxPayload.To ?? ctxPayload.From;
         log.info(`[napcat-QQ][dispatch-debug] about to dispatch sessionKey=${sessionKey ?? "(none)"} chatId=${chatId}`);
 
-        // 框架 session 初始化冲突重试（最多 3 次，指数退避 2000ms/4000ms/8000ms）
+        // 框架 session 初始化冲突重试（最多 3 次，线性退避 2000ms/4000ms/6000ms）
         // 冲突持续时降级为直接发送，避免用户收不到回复
         const SESSION_CONFLICT_RETRIES = 3;
         const SESSION_CONFLICT_BASE_DELAY_MS = 2000;

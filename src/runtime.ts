@@ -1,4 +1,4 @@
-import type { PluginRuntime } from "openclaw/plugin-sdk";
+import type { PluginRuntime } from "openclaw/plugin-sdk/core";
 
 /**
  * 类型守卫：验证值是否符合 PluginRuntime 结构。

@@ -179,10 +179,6 @@
         "type": "number",
         "description": "Hard cap on consecutive bot-to-bot exchanges before self-quiet (resets on user message). Default 5."
       },
-      "dialogTimeoutMs": {
-        "type": "number",
-        "description": "Dialog state reset after this many ms of no new messages. Default 60s."
-      },
       "botStopKeywords": {
         "type": "array",
         "items": { "type": "string" },
@@ -239,6 +235,236 @@
   },
   "channelConfigs": {
     "napcat": {
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "wsUrl": {
+            "type": "string",
+            "description": "OneBot v11 WebSocket URL"
+          },
+          "httpUrl": {
+            "type": "string",
+            "description": "OneBot v11 HTTP API URL"
+          },
+          "reverseWsPort": {
+            "type": "number",
+            "description": "Reverse WebSocket port"
+          },
+          "accessToken": {
+            "type": "string",
+            "description": "Access token"
+          },
+          "requireReverseWsToken": {
+            "type": "boolean",
+            "description": "Require accessToken for reverse WebSocket connections. Default false for backward compatibility. Set true to reject reverse WS connections when no accessToken is configured."
+          },
+          "admins": {
+            "type": "array",
+            "items": { "type": "number" },
+            "description": "Admin QQ numbers"
+          },
+          "sharedAdmins": {
+            "type": "array",
+            "items": { "type": "number" },
+            "description": "Admin QQ numbers shared across all bot accounts"
+          },
+          "requireMention": {
+            "type": "boolean",
+            "description": "Require @mention to trigger"
+          },
+          "systemPrompt": {
+            "type": "string",
+            "description": "Custom system prompt"
+          },
+          "enableDeduplication": {
+            "type": "boolean",
+            "description": "Enable message deduplication"
+          },
+          "enableErrorNotify": {
+            "type": "boolean",
+            "description": "Enable error notifications"
+          },
+          "autoApproveRequests": {
+            "type": "boolean",
+            "description": "Auto approve friend/group requests"
+          },
+          "maxMessageLength": {
+            "type": "number",
+            "description": "Max message length"
+          },
+          "formatMarkdown": {
+            "type": "boolean",
+            "description": "Format markdown to plain text"
+          },
+          "antiRiskMode": {
+            "type": "boolean",
+            "description": "Enable anti-risk processing"
+          },
+          "allowedGroups": {
+            "type": "array",
+            "items": { "type": "number" },
+            "description": "Allowed group IDs"
+          },
+          "blockedUsers": {
+            "type": "array",
+            "items": { "type": "number" },
+            "description": "Blocked user IDs"
+          },
+          "historyLimit": {
+            "type": "number",
+            "description": "History message limit"
+          },
+          "keywordTriggers": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Keyword triggers"
+          },
+          "enableTTS": {
+            "type": "boolean",
+            "description": "Enable TTS"
+          },
+          "rateLimitMs": {
+            "type": "number",
+            "description": "Rate limit in ms"
+          },
+          "reactionEmoji": {
+            "type": "string",
+            "description": "Reaction emoji ID"
+          },
+          "enableReactions": {
+            "type": "boolean",
+            "description": "Enable reactions feature"
+          },
+          "autoMarkRead": {
+            "type": "boolean",
+            "description": "Auto mark messages as read"
+          },
+          "aiVoiceId": {
+            "type": "string",
+            "description": "NapCat AI voice ID"
+          },
+          "enableSTT": {
+            "type": "boolean",
+            "description": "Enable speech-to-text for voice messages"
+          },
+          "markdownMode": {
+            "type": "string",
+            "description": "Markdown handling mode: passthrough / strip / native"
+          },
+          "deliverDebounce": {
+            "type": "object",
+            "description": "Outbound message debounce config"
+          },
+          "enableUpdateCheck": {
+            "type": "boolean",
+            "description": "Check npm registry for updates on startup"
+          },
+          "logBufferSize": {
+            "type": "number",
+            "description": "Number of log lines retained for /logs command"
+          },
+          "inboundRateLimitMs": {
+            "type": "number",
+            "description": "Per-user/group inbound rate limit in ms (0 = disabled)"
+          },
+          "silentKeywords": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Messages containing any of these keywords are silently dropped"
+          },
+          "responseGuidelines": {
+            "type": "string",
+            "description": "Response format constraints injected at the top of system prompt. Default = DEFAULT_RESPONSE_GUIDELINES (v1.9.1+). Empty string disables."
+          },
+          "ignoreSenderBot": {
+            "type": "boolean",
+            "description": "Ignore messages from other bot accounts (sender.bot=true) to prevent bot-to-bot loops. When true, bot messages are dropped and passiveMode.botSuppressionMs takes effect."
+          },
+          "knownBotIds": {
+            "type": "array",
+            "items": { "type": "number" },
+            "description": "Manual whitelist of known bot QQ numbers. Highest priority recognition, useful for bots that don't support auto-discovery via [BOT:xxx] signature."
+          },
+          "botSignatureStyle": {
+            "type": "string",
+            "enum": ["none", "visible", "zero-width"],
+            "description": "Bot identification strategy. 'visible' (default) appends [BOT:selfId] to message text - reliable, no startup spam. 'zero-width' uses invisible Unicode characters. 'none' disables text signatures entirely. Note: an earlier 'metadata' option (OneBot json-segment handshake) was removed in v1.9.2 because json segments render as visible card messages in QQ, causing startup broadcast spam."
+          },
+          "debug": {
+            "type": "boolean",
+            "description": "Enable verbose debug logging for message processing pipeline (self-filter, bot-filter, mention, reaction). Recommended only for troubleshooting."
+          },
+          "passiveMode": {
+            "type": "object",
+            "description": "Passive observation mode: AI watches all group messages and decides whether to chime in. AI replies [SILENT] to stay quiet.",
+            "properties": {
+              "enabled":          { "type": "boolean" },
+              "cooldownMs":       { "type": "number" },
+              "minIntervalMs":    { "type": "number" },
+              "botSuppressionMs": { "type": "number" },
+              "systemPrompt":     { "type": "string" },
+              "temperature":      { "type": "number", "minimum": 0, "maximum": 100 }
+            }
+          },
+          "botDialogMaxRounds": {
+            "type": "number",
+            "description": "Hard cap on consecutive bot-to-bot exchanges before self-quiet (resets on user message). Default 5."
+          },
+          "botStopKeywords": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "User stop-intent keywords. When any keyword is in the user message, bots enter 'dialog stopped' state and may reply with a brief acknowledgement."
+          },
+          "botStopReplyEnabled": {
+            "type": "boolean",
+            "description": "When user sends a stop-intent message, whether THIS bot may reply with a brief acknowledgement. Default true."
+          },
+          "botStopReplyRatio": {
+            "type": "number",
+            "description": "Fraction of bots that reply with a stop-acknowledgement (selfId hash distribution). Default 0.66 (~2/3)."
+          },
+          "botStopReplyDelayMaxMs": {
+            "type": "number",
+            "description": "Max stagger delay (ms) for stop-acknowledgement replies. Default 300ms."
+          },
+          "sensitiveFileGuard": {
+            "type": "object",
+            "description": "Pre-dispatch guard: block non-admin users from instructing the agent to modify persona/memory files (SOUL.md, AGENTS.md, IDENTITY.md, USER.md, MEMORY.md by default). Enabled by default.",
+            "properties": {
+              "enabled": { "type": "boolean" },
+              "files": { "type": "array", "items": { "type": "string" } },
+              "verbs": { "type": "array", "items": { "type": "string" } },
+              "nouns": { "type": "array", "items": { "type": "string" } },
+              "rejectMessage": { "type": "string" }
+            }
+          },
+          "sleepMode": {
+            "type": "object",
+            "description": "Sleep mode: during [startHour, endHour), only @mention and keyword triggers work. Passive mode and name triggers are suppressed. Uses server local time.",
+            "properties": {
+              "enabled":   { "type": "boolean" },
+              "startHour": { "type": "number", "minimum": 0, "maximum": 23 },
+              "endHour":   { "type": "number", "minimum": 0, "maximum": 23 }
+            }
+          },
+          "forwardThreshold": {
+            "type": "number",
+            "description": "Group reply character threshold to trigger merged-forward delivery. Default 2000; set 0 to disable.",
+            "default": 2000
+          },
+          "forwardNodeName": {
+            "type": "string",
+            "description": "Display name for forwarded message nodes. Default 'OpenClaw'.",
+            "default": "OpenClaw"
+          },
+          "forwardNodeCharLimit": {
+            "type": "number",
+            "description": "Max chars per forward node. 0 = no split (entire text as one node). Default 0.",
+            "default": 0
+          }
+        }
+      },
       "label": "NapCat (OneBot 11)",
       "description": "Connect to QQ via NapCat/OneBot v11"
     }

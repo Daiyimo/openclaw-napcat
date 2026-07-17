@@ -11,7 +11,7 @@ vi.mock("../message-parser.js", () => ({
   isImageFile: vi.fn((url: string) => /\.(jpg|jpeg|png|gif|webp)$/i.test(url)),
 }));
 
-vi.mock("openclaw/plugin-sdk", () => ({
+vi.mock("openclaw/plugin-sdk/core", () => ({
   DEFAULT_ACCOUNT_ID: "default",
 }));
 
@@ -38,7 +38,7 @@ describe("sendMedia", () => {
       { to: "heartbeat", mediaUrl: "https://a.com/img.jpg" },
       { getClient: () => makeMockClient() as any, knownGroupIds },
     );
-    expect(result.sent).toBe(true);
+    expect(typeof result.messageId).toBe("string");
   });
 
   it("returns sent:true for empty to", async () => {
@@ -46,35 +46,37 @@ describe("sendMedia", () => {
       { to: "", mediaUrl: "https://a.com/img.jpg" },
       { getClient: () => makeMockClient() as any, knownGroupIds },
     );
-    expect(result.sent).toBe(true);
+    expect(typeof result.messageId).toBe("string");
   });
 
-  it("returns error when client not found", async () => {
-    const result = await sendMedia(
-      { to: "12345", mediaUrl: "https://a.com/img.jpg" },
-      { getClient: () => undefined, knownGroupIds },
-    );
-    expect(result.sent).toBe(false);
-    expect(result.error).toContain("not connected");
+  it("throws when client not found", async () => {
+    await expect(
+      sendMedia(
+        { to: "12345", mediaUrl: "https://a.com/img.jpg" },
+        { getClient: () => undefined, knownGroupIds },
+      ),
+    ).rejects.toThrow("not connected");
   });
 
   it("sends image message", async () => {
     const client = makeMockClient();
+    vi.mocked(dispatchMessage).mockResolvedValueOnce("12345");
     const result = await sendMedia(
       { to: "user123", mediaUrl: "https://a.com/photo.jpg" },
       { getClient: () => client as any, knownGroupIds },
     );
-    expect(result.sent).toBe(true);
+    expect(result.messageId).toBe("12345");
     expect(dispatchMessage).toHaveBeenCalled();
   });
 
   it("sends file message for non-image URL", async () => {
     const client = makeMockClient();
+    vi.mocked(dispatchMessage).mockResolvedValueOnce("67890");
     const result = await sendMedia(
       { to: "user123", mediaUrl: "https://a.com/doc.pdf" },
       { getClient: () => client as any, knownGroupIds },
     );
-    expect(result.sent).toBe(true);
+    expect(result.messageId).toBe("67890");
     expect(dispatchMessage).toHaveBeenCalled();
   });
 
@@ -120,14 +122,14 @@ describe("sendMedia", () => {
     expect(knownGroupIds.has("99999")).toBe(true);
   });
 
-  it("handles send error gracefully", async () => {
+  it("rejects on send error", async () => {
     vi.mocked(dispatchMessage).mockRejectedValueOnce(new Error("send failed"));
-    const result = await sendMedia(
-      { to: "user123", mediaUrl: "https://a.com/img.jpg" },
-      { getClient: () => makeMockClient() as any, knownGroupIds },
-    );
-    expect(result.sent).toBe(false);
-    expect(result.error).toContain("send failed");
+    await expect(
+      sendMedia(
+        { to: "user123", mediaUrl: "https://a.com/img.jpg" },
+        { getClient: () => makeMockClient() as any, knownGroupIds },
+      ),
+    ).rejects.toThrow("send failed");
   });
 });
 

@@ -6,7 +6,7 @@
  * 从 channel.ts startAccount 中提取，行为不变。
  */
 
-import type { OpenClawConfig } from "openclaw/plugin-sdk";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import { OneBotClient } from "../client.js";
 import type { QQConfig } from "../config.js";
 import type { MetricsCollector, AlertCooldown } from "../metrics.js";
@@ -79,13 +79,11 @@ export async function startAccount(
       startTtlSweep();
 
       // ── 注册入站频控状态 ────────────────────────────────
-      const lastTrigger = new Map<string, number>();
       const rateLimiter = new InboundRateLimiter(
         { windowMs: config.inboundRateLimitMs ?? 0, maxMessages: INBOUND_RATE_LIMIT_DEFAULT_MAX },
         [...(config.admins ?? []), ...(config.sharedAdmins ?? [])],
       );
       const inboundStore: InboundRateLimitStore = {
-        lastTrigger,
         rateLimiter,
         config,
         processedMsgIds: new Set<string>(),

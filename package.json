@@ -1,6 +1,6 @@
 {
   "name": "@openclaw/qq",
-  "version": "1.9.2",
+  "version": "1.10.0",
   "type": "module",
   "description": "OpenClaw QQ channel plugin via OneBot v11",
   "main": "./dist/src/index.js",
@@ -8,8 +8,7 @@
     ".": "./dist/src/index.js"
   },
   "files": [
-    "dist/",
-    "skills/"
+    "dist/"
   ],
   "scripts": {
     "build": "tsc --project tsconfig.json",
@@ -24,7 +23,9 @@
   "openclaw": {
     "extensions": [
       "./dist/src/index.js"
-    ]
+    ],
+    "compat": { "pluginApi": ">=2026.7.1" },
+    "build": { "openclawVersion": "2026.7.1" }
   },
   "dependencies": {
     "@types/node": "^25.4.0",
@@ -35,7 +36,7 @@
     "zod": "^4.3.6"
   },
   "peerDependencies": {
-    "openclaw": "*"
+    "openclaw": ">=2026.7.1"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^3.2.4",

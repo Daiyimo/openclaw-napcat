@@ -13,7 +13,7 @@ vi.mock("../message-parser.js", () => ({
   dispatchMessage: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("openclaw/plugin-sdk", () => ({
+vi.mock("openclaw/plugin-sdk/core", () => ({
   DEFAULT_ACCOUNT_ID: "default",
 }));
 
