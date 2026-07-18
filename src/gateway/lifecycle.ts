@@ -60,7 +60,7 @@ export async function startAccount(
   // ⚠️ P0 修复：set 必须在 IIFE 创建之前（同步阶段），否则两个并发调用可在 IIFE yield 前都通过检查。
   const existingPromise = shared.startingPromises.get(account.accountId);
   if (existingPromise) {
-    log.log(
+    log.info(
       `[napcat-QQ] startAccount already in progress for ${account.accountId}, awaiting existing startup...`,
     );
     await existingPromise;
@@ -107,7 +107,7 @@ export async function startAccount(
     // ── 防止同账号重复启动 ──────────────────────────────
     const existingClient = shared.clients.get(account.accountId);
     if (existingClient) {
-      log.log(
+      log.info(
         `[napcat-QQ] Stopping existing client for account ${account.accountId} before restart`,
       );
       await existingClient.disconnect();
@@ -133,7 +133,7 @@ export async function startAccount(
     const cleanupInterval = setInterval(() => {
       // inboundStore.processedMsgIds 是 filter.ts 实际使用的去重集合，定期修剪
       if (inboundStore && trimDedupSet(inboundStore.processedMsgIds)) {
-        log.log(`[napcat-QQ] Inbound dedup set trimmed: kept ${inboundStore.processedMsgIds.size} recent IDs`);
+        log.info(`[napcat-QQ] Inbound dedup set trimmed: kept ${inboundStore.processedMsgIds.size} recent IDs`);
       }
       shared.passiveMode.cleanup(PASSIVE_COOLDOWN_MAX_AGE_MS);
       cleanupDialogState(DIALOG_STATE_CLEANUP_MS);

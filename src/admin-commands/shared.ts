@@ -194,9 +194,28 @@ export function formatUptime(seconds: number): string {
 /**
  * 统一日志获取：传入框架 logger 或降级到 console。
  * 替代全项目 40+ 处的 `(log ?? console)` 重复模式。
+ *
+ * 框架 SubsystemLogger 无 .log 方法，补兜底保证 Logger 接口完整：
+ * 当底层对象缺少 .log 时，用 Proxy 补一个委托到 .info（无 info 再退到 console.log）的
+ * log 属性，其余属性透传，避免调用 log.log(...) 时崩溃。
  */
 export function getLog(log?: Logger): Logger {
-  return log ?? console;
+  const base: Logger = (log ?? console) as Logger;
+  if (typeof (base as { log?: unknown }).log === "function") {
+    return base;
+  }
+  return new Proxy(base, {
+    get(target, prop, receiver) {
+      if (prop === "log") {
+        const info = (target as { info?: unknown }).info;
+        if (typeof info === "function") {
+          return (info as (...args: unknown[]) => void).bind(target);
+        }
+        return console.log.bind(console);
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  }) as Logger;
 }
 
 // ============ 管理命令错误处理 ============
