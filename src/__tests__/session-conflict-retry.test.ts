@@ -1,16 +1,16 @@
 /**
- * Regression tests for the session-conflict dispatch retry in gateway/inbound.ts.
+ * gateway/inbound.ts 中 session 冲突派发处理的回归测试。
  *
- * Covers commits c3c3cfe / 4db34be / d06da6b:
- *  - "session initialization conflicted" is retried up to 3 times
- *    (exponential backoff 2000/4000/8000ms base + jitter, see SESSION_CONFLICT_* constants)
- *  - persistent conflict takes the existing error path WITHOUT notifying the user
- *    (framework-internal conflict = noise, suppressed even when enableErrorNotify=true)
- *  - passive-mode sentinel is released (markSilent) when dispatch ultimately fails
- *  - non-conflict dispatch errors are NOT retried and follow the normal notify path
+ * 背景：框架 initSessionState 已在内部重试 session 初始化冲突（指数退避），且冲突
+ * 发生在 deliver 回调之前（pre-deliver）。因此插件不再自建重试循环，也不做降级重放
+ * （原降级块因 lastDeliverPayload 恒为 undefined 属死代码，且真跑会绕过框架 session
+ * 造成重复/错序回复）。当前行为（对齐 Discord 插件）：
+ *  - session 冲突时不重试、不重放，直接通知用户「会话繁忙，请稍后再试」；
+ *  - 释放哨兵为 markSilent（不写冷却，允许立即重试）+ 计 dispatch.failed；
+ *  - 不 rethrow，因此不进入外层「Reply dispatch error」错误路径；
+ *  - 非冲突错误照旧冒泡到外层 catch，走正常错误通知路径。
  *
- * Driving pattern mirrors inbound-pipeline.test.ts: EventEmitter client +
- * installMessageHandler. utils/sleep.js is mocked so the backoff is instant.
+ * 驱动方式沿用 inbound-pipeline.test.ts：EventEmitter client + installMessageHandler。
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -85,19 +85,9 @@ vi.mock("../config-watcher.js", () => ({
   initConfigRef: vi.fn(),
 }));
 
-// 退避等待置为瞬时：retry 循环的指数退避（2000/4000/8000ms base + jitter）不做真实等待
-vi.mock("../utils/sleep.js", () => ({
-  sleep: vi.fn().mockResolvedValue(undefined),
-}));
-
 import { installMessageHandler } from "../gateway/inbound.js";
 import { invalidateOtherBotNamesCache } from "../gateway/trigger-state.js";
 import { resetDialogState } from "../dialog-state.js";
-import { sleep } from "../utils/sleep.js";
-import {
-  SESSION_CONFLICT_BASE_DELAY_MS,
-  SESSION_CONFLICT_JITTER_MIN_RATIO,
-} from "../constants.js";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -107,26 +97,8 @@ const GROUP_ID = 88888;
 const ACCOUNT_ID = "acct1";
 /** 与框架报错文案一致，命中 inbound.ts 的 /session initialization conflicted/i 检测 */
 const CONFLICT_MESSAGE = "reply session initialization conflicted for agent:default:napcat:direct:55555";
-
-/**
- * 断言 session 冲突重试的退避等待符合指数退避 + 抖动模型。
- *
- * 第 n 次（0-based attempt）等待的 baseDelay = BASE * 2**n，实际值经抖动后落在
- * 闭区间 [baseDelay * RATIO, baseDelay]。逐个校验 sleep 调用次数与每次取值范围，
- * 替代加抖动后必然失败的精确相等断言。
- *
- * @param actualDelays  vi.mocked(sleep) 记录的实际等待值序列（ms）。
- * @param expectedCount 期望的重试等待次数。
- */
-function expectExponentialBackoffWithJitter(actualDelays: number[], expectedCount: number): void {
-  expect(actualDelays).toHaveLength(expectedCount);
-  for (let attempt = 0; attempt < actualDelays.length; attempt++) {
-    const baseDelay = SESSION_CONFLICT_BASE_DELAY_MS * 2 ** attempt;
-    const lowerBound = baseDelay * SESSION_CONFLICT_JITTER_MIN_RATIO;
-    expect(actualDelays[attempt]).toBeGreaterThanOrEqual(lowerBound);
-    expect(actualDelays[attempt]).toBeLessThanOrEqual(baseDelay);
-  }
-}
+/** session 冲突时发给用户的繁忙提示文案 */
+const BUSY_NOTICE = "⏳ 会话繁忙，请稍后再试。";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -245,7 +217,7 @@ function makeGroupEvent(overrides: Partial<OneBotEvent> = {}): OneBotEvent {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe("installMessageHandler — session conflict dispatch retry", () => {
+describe("installMessageHandler — session conflict dispatch handling", () => {
   beforeEach(() => {
     resetDialogState();
     invalidateOtherBotNamesCache();
@@ -254,37 +226,40 @@ describe("installMessageHandler — session conflict dispatch retry", () => {
     vi.clearAllMocks();
   });
 
-  it("test_session_conflict_retried_3_times_then_error_path_without_user_notify", async () => {
-    // enableErrorNotify=true 也不发通知：session 冲突是框架内部问题（4db34be 噪音抑制）
+  it("test_session_conflict_notifies_user_busy_without_retry_or_error_path", async () => {
+    // 框架已内部重试；插件收到冲突时不重试、不重放，直接发繁忙提示，且不冒泡到错误路径
     const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({ enableErrorNotify: true });
     dispatchReplyWithBufferedBlockDispatcher.mockRejectedValue(new Error(CONFLICT_MESSAGE));
     installMessageHandler(client, ctx);
 
     client.emit("message", makePrivateEvent());
 
-    // 终点：既有错误路径（catch 内 log.error）
+    // 终点：向用户发送「会话繁忙」提示
     await vi.waitFor(
-      () => expect(ctx.log.error).toHaveBeenCalledWith(expect.stringContaining("Reply dispatch error")),
+      () => expect(shared.deliverMock).toHaveBeenCalledWith(
+        expect.objectContaining({ text: BUSY_NOTICE }),
+      ),
       { timeout: 2000 },
     );
 
-    // 1 次原始调用 + 3 次重试
-    expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(4);
-    // 指数退避 2000/4000/8000ms base + 抖动：3 次等待各落在 [base*0.5, base] 闭区间
-    expectExponentialBackoffWithJitter(vi.mocked(sleep).mock.calls.map((c) => c[0] as number), 3);
-    // 噪音抑制：dispatch 从未调用 deliver，错误通知也不发给用户
-    expect(shared.deliverMock).not.toHaveBeenCalled();
+    // 不重试：dispatch 仅调用一次
+    expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1);
+    // 不 rethrow：不进入外层「Reply dispatch error」错误路径
+    expect(ctx.log.error).not.toHaveBeenCalledWith(expect.stringContaining("Reply dispatch error"));
   });
 
-  it("test_passive_sentinel_released_after_conflict_retries_exhausted", async () => {
-    // 旁观模式派发失败：释放哨兵（markSilent），不写冷却，允许用户立即重试
-    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({
-      requireMention: true,
-      _selfName: "爱弥斯",
-      knownBotIds: [99999],
-      passiveMode: { enabled: true, cooldownMs: 0, minIntervalMs: 0 },
-      enableErrorNotify: true,
-    });
+  it("test_session_conflict_releases_sentinel_markSilent_and_counts_failed", async () => {
+    // 旁观模式 session 冲突：释放哨兵为 markSilent（不写冷却）+ 计 dispatch.failed
+    const metrics = { increment: vi.fn() };
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx(
+      {
+        requireMention: true,
+        _selfName: "爱弥斯",
+        knownBotIds: [99999],
+        passiveMode: { enabled: true, cooldownMs: 0, minIntervalMs: 0 },
+      },
+      { metrics: metrics as unknown as InboundContext["metrics"] },
+    );
     dispatchReplyWithBufferedBlockDispatcher.mockRejectedValue(new Error(CONFLICT_MESSAGE));
     const markSilentSpy = vi.spyOn(ctx.passiveMode, "markSilent");
     installMessageHandler(client, ctx);
@@ -299,38 +274,41 @@ describe("installMessageHandler — session conflict dispatch retry", () => {
     );
 
     await vi.waitFor(
-      () => expect(ctx.log.error).toHaveBeenCalledWith(expect.stringContaining("Reply dispatch error")),
+      () => expect(shared.deliverMock).toHaveBeenCalledWith(
+        expect.objectContaining({ text: BUSY_NOTICE }),
+      ),
       { timeout: 2000 },
     );
 
-    expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(4);
-    // 哨兵释放：markSilent 以旁观冷却 key 被调用
+    // 哨兵释放为 markSilent（旁观冷却 key），计 dispatch.failed
     expect(markSilentSpy).toHaveBeenCalledWith(`${ACCOUNT_ID}:group:${GROUP_ID}`);
-    expect(shared.deliverMock).not.toHaveBeenCalled();
+    expect(metrics.increment).toHaveBeenCalledWith("dispatch", "failed");
+    expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1);
   });
 
-  it("test_dispatch_succeeds_on_second_attempt_after_session_conflict", async () => {
+  it("test_session_conflict_busy_notice_failure_does_not_rethrow", async () => {
+    // 繁忙提示自身发送失败：内部 catch 吞掉并 warn，不冒泡到外层错误路径
     const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx();
-    dispatchReplyWithBufferedBlockDispatcher
-      .mockRejectedValueOnce(new Error(CONFLICT_MESSAGE))
-      .mockResolvedValueOnce(undefined);
+    dispatchReplyWithBufferedBlockDispatcher.mockRejectedValue(new Error(CONFLICT_MESSAGE));
+    shared.deliverMock.mockRejectedValueOnce(new Error("send failed"));
     installMessageHandler(client, ctx);
 
     client.emit("message", makePrivateEvent());
 
     await vi.waitFor(
-      () => expect(ctx.log.info).toHaveBeenCalledWith(expect.stringContaining("dispatch succeeded")),
+      () => expect(ctx.log.warn).toHaveBeenCalledWith(
+        expect.stringContaining("会话繁忙提示发送失败"),
+        expect.anything(),
+      ),
       { timeout: 2000 },
     );
 
-    expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(2);
-    // 仅在首次失败后等待一次：attempt=0 的 baseDelay=2000，抖动后落在 [1000, 2000]
-    expectExponentialBackoffWithJitter(vi.mocked(sleep).mock.calls.map((c) => c[0] as number), 1);
-    // 成功路径：不进入错误路径
+    // 不 rethrow：不进入外层「Reply dispatch error」错误路径
     expect(ctx.log.error).not.toHaveBeenCalledWith(expect.stringContaining("Reply dispatch error"));
   });
 
-  it("test_non_conflict_dispatch_error_not_retried_and_notifies_user", async () => {
+  it("test_non_conflict_dispatch_error_notifies_user_via_error_path", async () => {
+    // 非冲突错误照旧冒泡到外层 catch，走正常错误通知路径
     const alertCooldown = {
       shouldFire: vi.fn().mockReturnValue(true),
       record: vi.fn(),
@@ -353,139 +331,32 @@ describe("installMessageHandler — session conflict dispatch retry", () => {
       { timeout: 2000 },
     );
 
-    // 非冲突错误不重试：恰好 1 次调用，且无退避等待
+    // 冒泡到外层：记录「Reply dispatch error」
+    expect(ctx.log.error).toHaveBeenCalledWith(expect.stringContaining("Reply dispatch error"));
     expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(sleep)).not.toHaveBeenCalled();
   });
 
-  // ── 降级路径回归测试（C1/C2 修复）─────────────────────────────
-  // 现有测试的 dispatch mock 在 reject 前从不调用 deliver 回调，lastDeliverPayload 恒为
-  // undefined，降级分支从未被覆盖。以下测试让 dispatch 先调用一次 deliver 回调（设置
-  // lastDeliverPayload），再持续抛 session conflict，从而驱动降级重放路径。
-
-  /**
-   * 构造一个 dispatch mock：仅在第 1 次尝试调用 deliver 回调（设置 lastDeliverPayload），
-   * 之后每次尝试都以 session conflict 拒绝。
-   * @param deliveredBody deliver 回调收到的 Body 文本
-   */
-  function makeDeliverThenConflictDispatch(deliveredBody: string): ReturnType<typeof vi.fn> {
-    let attempt = 0;
-    return vi.fn().mockImplementation(async (args: {
-      dispatcherOptions: { deliver: (payload: unknown) => Promise<void> };
-    }) => {
-      attempt++;
-      if (attempt === 1) {
-        // 首次尝试：调用框架 deliver 回调，令 inbound.ts 记录 lastDeliverPayload
-        await args.dispatcherOptions.deliver({ Body: deliveredBody });
-      }
-      throw new Error(CONFLICT_MESSAGE);
-    });
-  }
-
-  it("test_fallback_replays_via_message_sender_to_correct_target_when_conflict_persists", async () => {
-    // deliver 被调用一次后 dispatch 持续抛 session conflict，重试耗尽应通过
-    // MessageSender/actualDeliver 直发到正确目标，而非绕过 sender 发到 NaN。
-    const { client, ctx } = makeCtx();
-    const dispatch = makeDeliverThenConflictDispatch("回复内容");
-    (ctx.channelRuntime.reply as { dispatchReplyWithBufferedBlockDispatcher: unknown })
-      .dispatchReplyWithBufferedBlockDispatcher = dispatch;
+  it("test_dispatch_success_marks_done_and_counts_succeeded", async () => {
+    // 正常路径：派发成功走成功分支
+    const metrics = { increment: vi.fn() };
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx(
+      {},
+      { metrics: metrics as unknown as InboundContext["metrics"] },
+    );
+    dispatchReplyWithBufferedBlockDispatcher.mockResolvedValue(undefined);
     installMessageHandler(client, ctx);
 
     client.emit("message", makePrivateEvent());
 
     await vi.waitFor(
-      () => expect(ctx.log.info).toHaveBeenCalledWith(expect.stringContaining("fallback direct send succeeded")),
+      () => expect(ctx.log.info).toHaveBeenCalledWith(expect.stringContaining("dispatch succeeded")),
       { timeout: 2000 },
     );
 
-    // 1 次原始 + 3 次重试
-    expect(dispatch).toHaveBeenCalledTimes(4);
-    // 降级重放走 MessageSender.deliver（本文件把 MessageSender.deliver mock 成 shared.deliverMock）
-    expect(shared.deliverMock).toHaveBeenCalledWith(
-      expect.objectContaining({ text: "回复内容" }),
-    );
-    // C1 回归：不再绕过 sender 直调 client → 不会发到 NaN
-    expect(client.sendPrivateMsg).not.toHaveBeenCalled();
-    expect(client.sendGroupMsg).not.toHaveBeenCalled();
-  });
-
-  it("test_fallback_success_releases_sentinel_markDone_and_counts_dispatch_succeeded", async () => {
-    // 旁观模式降级发送成功：释放哨兵为 markDone，并计 dispatch.succeeded
-    const metrics = { increment: vi.fn() };
-    const { client, ctx } = makeCtx(
-      {
-        requireMention: true,
-        _selfName: "爱弥斯",
-        knownBotIds: [99999],
-        passiveMode: { enabled: true, cooldownMs: 0, minIntervalMs: 0 },
-      },
-      { metrics: metrics as unknown as InboundContext["metrics"] },
-    );
-    const dispatch = makeDeliverThenConflictDispatch("旁观回复");
-    (ctx.channelRuntime.reply as { dispatchReplyWithBufferedBlockDispatcher: unknown })
-      .dispatchReplyWithBufferedBlockDispatcher = dispatch;
-    const markDoneSpy = vi.spyOn(ctx.passiveMode, "markDone");
-    installMessageHandler(client, ctx);
-
-    // 中性群消息（无 @、无 bot 名）→ 顶层门控放行 → 进入旁观派发
-    client.emit(
-      "message",
-      makeGroupEvent({
-        message: [{ type: "text", data: { text: "大家好啊" } }],
-        raw_message: "大家好啊",
-      }),
-    );
-
-    await vi.waitFor(
-      () => expect(ctx.log.info).toHaveBeenCalledWith(expect.stringContaining("fallback direct send succeeded")),
-      { timeout: 2000 },
-    );
-
-    // 哨兵释放为 markDone（旁观冷却 key），并计 dispatch.succeeded
-    expect(markDoneSpy).toHaveBeenCalledWith(`${ACCOUNT_ID}:group:${GROUP_ID}`);
     expect(metrics.increment).toHaveBeenCalledWith("dispatch", "succeeded");
-  });
-
-  it("test_fallback_failure_releases_sentinel_markSilent_and_counts_dispatch_failed", async () => {
-    // 旁观模式降级发送失败：释放哨兵为 markSilent，并计 dispatch.failed
-    const metrics = { increment: vi.fn() };
-    const { client, ctx } = makeCtx(
-      {
-        requireMention: true,
-        _selfName: "爱弥斯",
-        knownBotIds: [99999],
-        passiveMode: { enabled: true, cooldownMs: 0, minIntervalMs: 0 },
-      },
-      { metrics: metrics as unknown as InboundContext["metrics"] },
-    );
-    const dispatch = makeDeliverThenConflictDispatch("旁观回复");
-    (ctx.channelRuntime.reply as { dispatchReplyWithBufferedBlockDispatcher: unknown })
-      .dispatchReplyWithBufferedBlockDispatcher = dispatch;
-    const markSilentSpy = vi.spyOn(ctx.passiveMode, "markSilent");
-    // deliver 第 1 次（dispatch 首尝试）成功，第 2 次（降级重放）失败
-    shared.deliverMock
-      .mockResolvedValueOnce(undefined)
-      .mockRejectedValueOnce(new Error("send failed"));
-    installMessageHandler(client, ctx);
-
-    client.emit(
-      "message",
-      makeGroupEvent({
-        message: [{ type: "text", data: { text: "大家好啊" } }],
-        raw_message: "大家好啊",
-      }),
-    );
-
-    await vi.waitFor(
-      () => expect(ctx.log.error).toHaveBeenCalledWith(
-        expect.stringContaining("fallback direct send failed"),
-        expect.anything(),
-      ),
-      { timeout: 2000 },
-    );
-
-    // 哨兵释放为 markSilent（旁观冷却 key），并计 dispatch.failed
-    expect(markSilentSpy).toHaveBeenCalledWith(`${ACCOUNT_ID}:group:${GROUP_ID}`);
-    expect(metrics.increment).toHaveBeenCalledWith("dispatch", "failed");
+    expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1);
+    // 不发繁忙提示、不进入错误路径
+    expect(shared.deliverMock).not.toHaveBeenCalledWith(expect.objectContaining({ text: BUSY_NOTICE }));
+    expect(ctx.log.error).not.toHaveBeenCalledWith(expect.stringContaining("Reply dispatch error"));
   });
 });

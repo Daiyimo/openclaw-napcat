@@ -41,9 +41,6 @@ import {
   ERROR_NOTIFY_SLEEP_MS,
   GROUP_HISTORY_CACHE_TTL_MS,
   SESSION_CONFLICT_PATTERN,
-  SESSION_CONFLICT_RETRIES,
-  SESSION_CONFLICT_BASE_DELAY_MS,
-  SESSION_CONFLICT_JITTER_MIN_RATIO,
 } from "../constants.js";
 import { sleep } from "../utils/sleep.js";
 import { evictOldest } from "../utils/cache-evict.js";
@@ -435,99 +432,63 @@ export function installMessageHandler(
         const chatId = ctxPayload.To ?? ctxPayload.From;
         log.info(`[napcat-QQ][dispatch-debug] about to dispatch sessionKey=${sessionKey ?? "(none)"} chatId=${chatId}`);
 
-        // 框架 session 初始化冲突重试（最多 3 次，指数退避 2000/4000/8000ms + 抖动）
-        // 冲突持续时降级为直接发送，避免用户收不到回复
-        let dispatchError: unknown;
-        let lastDeliverPayload: { text?: string; mediaUrls?: string[]; mediaUrl?: string } | undefined;
-        for (let attempt = 0; attempt <= SESSION_CONFLICT_RETRIES; attempt++) {
-          try {
-            await dispatch({
-              ctx: ctxPayload,
-              cfg,
-              dispatcherOptions: {
-                deliver: async (payload: unknown) => {
-                  const dp = payload as Record<string, unknown>;
-                  const deliverText = String(dp.Body ?? dp.text ?? "");
-                  const mediaUrls = dp.MediaUrls ?? dp.mediaUrls;
-                  const hasMedia = Boolean(Array.isArray(mediaUrls) && mediaUrls.length > 0) || Boolean(dp.MediaUrl);
-                  lastDeliverPayload = {
-                    text: deliverText || undefined,
+        // 单次派发：框架 initSessionState 已在内部重试 session 初始化冲突（指数退避），
+        // 且冲突发生在 deliver 回调之前（pre-deliver），插件无需自建重试或降级重放。
+        try {
+          await dispatch({
+            ctx: ctxPayload,
+            cfg,
+            dispatcherOptions: {
+              deliver: async (payload: unknown) => {
+                const dp = payload as Record<string, unknown>;
+                const deliverText = String(dp.Body ?? dp.text ?? "");
+                const mediaUrls = dp.MediaUrls ?? dp.mediaUrls;
+                const hasMedia = Boolean(Array.isArray(mediaUrls) && mediaUrls.length > 0) || Boolean(dp.MediaUrl);
+                log.info(`[napcat-QQ][deliver-debug] deliver called, text.length=${deliverText.length}, hasMedia=${hasMedia}`);
+                try {
+                  await deliver({
+                    text: deliverText,
                     mediaUrls: mediaUrls as string[] | undefined,
                     mediaUrl: (dp.MediaUrl ?? dp.mediaUrl) as string | undefined,
-                  };
-                  log.info(`[napcat-QQ][deliver-debug] deliver called, text.length=${deliverText.length}, hasMedia=${hasMedia}`);
-                  try {
-                    await deliver({
-                      text: deliverText,
-                      mediaUrls: mediaUrls as string[] | undefined,
-                      mediaUrl: (dp.MediaUrl ?? dp.mediaUrl) as string | undefined,
-                      replyToId: (dp.ReplyToId ?? dp.replyToId) as string | undefined,
-                      replyMsgId,
-                      historyContext,
-                      isPassiveMode: isPassiveModeFlag,
-                      isBot,
-                      isUserStopIntent,
-                      event,
-                    } as any);
-                    log.info(`[napcat-QQ][deliver-debug] deliver completed`);
-                  } catch (deliverErr) {
-                    log.error(`[napcat-QQ][deliver-debug] deliver FAILED:`, deliverErr);
-                    throw deliverErr;
-                  }
-                },
-                onError: (err: unknown) => log.error("[napcat-QQ] dispatch error:", err),
+                    replyToId: (dp.ReplyToId ?? dp.replyToId) as string | undefined,
+                    replyMsgId,
+                    historyContext,
+                    isPassiveMode: isPassiveModeFlag,
+                    isBot,
+                    isUserStopIntent,
+                    event,
+                  } as any);
+                  log.info(`[napcat-QQ][deliver-debug] deliver completed`);
+                } catch (deliverErr) {
+                  log.error(`[napcat-QQ][deliver-debug] deliver FAILED:`, deliverErr);
+                  throw deliverErr;
+                }
               },
-              replyOptions: {
-                onReplyStart: undefined,
-              },
-            });
-            dispatchError = null;
-            break; // 成功，跳出重试循环
-          } catch (err) {
-            dispatchError = err;
-            if (isSessionConflictError(err) && attempt < SESSION_CONFLICT_RETRIES) {
-              // 指数退避 baseDelay = BASE * 2**attempt（2000/4000/8000），叠加抖动避免惊群
-              const baseDelay = SESSION_CONFLICT_BASE_DELAY_MS * 2 ** attempt;
-              const retryDelay = Math.floor(
-                baseDelay * (SESSION_CONFLICT_JITTER_MIN_RATIO + Math.random() * (1 - SESSION_CONFLICT_JITTER_MIN_RATIO)),
-              );
-              log.warn(`[napcat-QQ][dispatch-debug] session conflict, retry ${attempt + 1}/${SESSION_CONFLICT_RETRIES} in ${retryDelay}ms: ${(err as Error).message}`);
-              await sleep(retryDelay);
-              continue;
-            }
-            break; // 非冲突错误或重试耗尽，跳出循环
-          }
-        }
-
-        if (dispatchError) {
-          const isSessionConflict = isSessionConflictError(dispatchError);
-          if (isSessionConflict && lastDeliverPayload) {
-            log.warn(`[napcat-QQ][dispatch-debug] session conflict after ${SESSION_CONFLICT_RETRIES} retries, falling back to direct send`);
-            try {
-              // 降级重放：复用 actualDeliver（绕过 debouncer，降级应立即发送）重放最后一次 deliver。
-              // sender 已持有正确的 isGroup/groupId/userId 上下文，天然发到正确目标，
-              // 并走完整 MessageSender 管线（markdown 格式化 / 分片 / 上传缓存 / 去重）。
-              await actualDeliver(lastDeliverPayload);
-              log.info(`[napcat-QQ][dispatch-debug] fallback direct send succeeded`);
-              // 降级送达也算成功：释放哨兵为 markDone，并计 dispatch.succeeded
-              if (passiveCooldownKey) passiveMode.markDone(passiveCooldownKey);
-              ctx.metrics?.increment("dispatch", "succeeded");
-            } catch (fallbackErr) {
-              log.error(`[napcat-QQ][dispatch-debug] fallback direct send failed:`, fallbackErr);
-              // 降级发送失败：释放哨兵为 markSilent（不写冷却，允许用户立即重试），并计 dispatch.failed
-              if (passiveCooldownKey) passiveMode.markSilent(passiveCooldownKey);
-              ctx.metrics?.increment("dispatch", "failed");
-            }
-          } else {
-            throw dispatchError;
-          }
-        } else {
+              onError: (err: unknown) => log.error("[napcat-QQ] dispatch error:", err),
+            },
+            replyOptions: {
+              onReplyStart: undefined,
+            },
+          });
           // 派发成功：释放哨兵并写入冷却时间戳
           if (passiveCooldownKey) passiveMode.markDone(passiveCooldownKey);
           ctx.metrics?.increment("dispatch", "succeeded");
-
           log.info(`[napcat-QQ][dispatch-debug] dispatch succeeded sessionKey=${sessionKey ?? "(none)"}`);
+        } catch (err) {
+          if (isSessionConflictError(err)) {
+            // 框架重试后仍冲突：不自行重试/重放，直接通知用户会话繁忙（对齐 Discord 插件做法）
+            log.warn(`[napcat-QQ][dispatch-debug] 框架重试后仍冲突，通知用户会话繁忙: ${(err as Error).message}`);
+            if (passiveCooldownKey) passiveMode.markSilent(passiveCooldownKey);
+            ctx.metrics?.increment("dispatch", "failed");
+            try {
+              await deliver({ text: "⏳ 会话繁忙，请稍后再试。" });
+            } catch (notifyErr) {
+              log.warn("[napcat-QQ] 会话繁忙提示发送失败:", notifyErr);
+            }
+          } else {
+            throw err;
           }
+        }
 
         recordKnownUser({
           openid: String(userId),
@@ -544,9 +505,7 @@ export function installMessageHandler(
         if (config.enableErrorNotify) {
           // 告警冷却：同一错误模板在冷却窗口内不重复通知
           const alertKey = `dispatch_error:${account.accountId}`;
-          // session 冲突是框架内部 bug，用户无法干预，不发送噪音通知
-          const isFrameworkSessionConflict = isSessionConflictError(error);
-          if (!isFrameworkSessionConflict && ctx.alertCooldown?.shouldFire(alertKey)) {
+          if (ctx.alertCooldown?.shouldFire(alertKey)) {
             ctx.alertCooldown.record(alertKey, "dispatch error notified");
             await deliver({ text: "⚠️ 服务调用失败，请稍后重试。" });
           }
