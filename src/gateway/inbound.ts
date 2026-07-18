@@ -483,25 +483,19 @@ export function installMessageHandler(
           if (isSessionConflict && lastDeliverPayload) {
             log.warn(`[napcat-QQ][dispatch-debug] session conflict after ${SESSION_CONFLICT_RETRIES} retries, falling back to direct send`);
             try {
-              const chatId = ctxPayload.To ?? ctxPayload.From;
-              const isGroup = String(chatId).startsWith("group:");
-              const payload = lastDeliverPayload;
-              if (isGroup) {
-                const groupId = Number(String(chatId).replace("group:", ""));
-                await client.sendGroupMsg(groupId, payload.text ?? (payload.mediaUrl ? "" : ""));
-                if (payload.mediaUrl) {
-                  await client.sendGroupMsg(groupId, [{ type: "image", data: { file: payload.mediaUrl } }]);
-                }
-              } else {
-                const userId = Number(String(chatId).replace("direct:", ""));
-                await client.sendPrivateMsg(userId, payload.text ?? (payload.mediaUrl ? "" : ""));
-                if (payload.mediaUrl) {
-                  await client.sendPrivateMsg(userId, [{ type: "image", data: { file: payload.mediaUrl } }]);
-                }
-              }
+              // 降级重放：复用 actualDeliver（绕过 debouncer，降级应立即发送）重放最后一次 deliver。
+              // sender 已持有正确的 isGroup/groupId/userId 上下文，天然发到正确目标，
+              // 并走完整 MessageSender 管线（markdown 格式化 / 分片 / 上传缓存 / 去重）。
+              await actualDeliver(lastDeliverPayload);
               log.info(`[napcat-QQ][dispatch-debug] fallback direct send succeeded`);
+              // 降级送达也算成功：释放哨兵为 markDone，并计 dispatch.succeeded
+              if (passiveCooldownKey) passiveMode.markDone(passiveCooldownKey);
+              ctx.metrics?.increment("dispatch", "succeeded");
             } catch (fallbackErr) {
               log.error(`[napcat-QQ][dispatch-debug] fallback direct send failed:`, fallbackErr);
+              // 降级发送失败：释放哨兵为 markSilent（不写冷却，允许用户立即重试），并计 dispatch.failed
+              if (passiveCooldownKey) passiveMode.markSilent(passiveCooldownKey);
+              ctx.metrics?.increment("dispatch", "failed");
             }
           } else {
             throw dispatchError;
