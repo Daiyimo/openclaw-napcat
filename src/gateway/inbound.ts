@@ -37,7 +37,14 @@ import {
 import { MessageSender } from "../message-sender.js";
 import { filterStage, type FilterResult } from "./filter.js";
 import { triggerStage } from "./trigger.js";
-import { ERROR_NOTIFY_SLEEP_MS, GROUP_HISTORY_CACHE_TTL_MS } from "../constants.js";
+import {
+  ERROR_NOTIFY_SLEEP_MS,
+  GROUP_HISTORY_CACHE_TTL_MS,
+  SESSION_CONFLICT_PATTERN,
+  SESSION_CONFLICT_RETRIES,
+  SESSION_CONFLICT_BASE_DELAY_MS,
+  SESSION_CONFLICT_JITTER_MIN_RATIO,
+} from "../constants.js";
 import { sleep } from "../utils/sleep.js";
 import { evictOldest } from "../utils/cache-evict.js";
 
@@ -81,6 +88,21 @@ async function getCachedGroupHistory(
     log.warn(`[napcat-QQ] Failed to fetch group history for ${groupId}:`, e);
     return null;
   }
+}
+
+// ============ session 冲突检测 ============
+
+/**
+ * 判断错误是否为框架 session 初始化冲突。
+ *
+ * 用于统一识别 openclaw 框架并发 session 初始化时抛出的特定错误，
+ * 触发重试 / 降级 / 噪音抑制路径。集中在此消除多处手抄正则。
+ *
+ * @param err  捕获到的未知错误对象。
+ * @returns    是 Error 且 message 命中冲突特征时返回 true，否则 false。
+ */
+export function isSessionConflictError(err: unknown): boolean {
+  return err instanceof Error && SESSION_CONFLICT_PATTERN.test(err.message);
 }
 
 export function installMessageHandler(
@@ -413,10 +435,8 @@ export function installMessageHandler(
         const chatId = ctxPayload.To ?? ctxPayload.From;
         log.info(`[napcat-QQ][dispatch-debug] about to dispatch sessionKey=${sessionKey ?? "(none)"} chatId=${chatId}`);
 
-        // 框架 session 初始化冲突重试（最多 3 次，线性退避 2000ms/4000ms/6000ms）
+        // 框架 session 初始化冲突重试（最多 3 次，指数退避 2000/4000/8000ms + 抖动）
         // 冲突持续时降级为直接发送，避免用户收不到回复
-        const SESSION_CONFLICT_RETRIES = 3;
-        const SESSION_CONFLICT_BASE_DELAY_MS = 2000;
         let dispatchError: unknown;
         let lastDeliverPayload: { text?: string; mediaUrls?: string[]; mediaUrl?: string } | undefined;
         for (let attempt = 0; attempt <= SESSION_CONFLICT_RETRIES; attempt++) {
@@ -435,7 +455,7 @@ export function installMessageHandler(
                     mediaUrls: mediaUrls as string[] | undefined,
                     mediaUrl: (dp.MediaUrl ?? dp.mediaUrl) as string | undefined,
                   };
-                  log.info(`[napcat-QQ][deliver-debug] deliver called, text="${deliverText.slice(0, 100)}", hasMedia=${hasMedia}`);
+                  log.info(`[napcat-QQ][deliver-debug] deliver called, text.length=${deliverText.length}, hasMedia=${hasMedia}`);
                   try {
                     await deliver({
                       text: deliverText,
@@ -465,11 +485,13 @@ export function installMessageHandler(
             break; // 成功，跳出重试循环
           } catch (err) {
             dispatchError = err;
-            const isSessionConflict = err instanceof Error &&
-              /session initialization conflicted/i.test(err.message);
-            if (isSessionConflict && attempt < SESSION_CONFLICT_RETRIES) {
-              const retryDelay = SESSION_CONFLICT_BASE_DELAY_MS * (attempt + 1);
-              log.warn(`[napcat-QQ][dispatch-debug] session conflict, retry ${attempt + 1}/${SESSION_CONFLICT_RETRIES} in ${retryDelay}ms: ${err.message}`);
+            if (isSessionConflictError(err) && attempt < SESSION_CONFLICT_RETRIES) {
+              // 指数退避 baseDelay = BASE * 2**attempt（2000/4000/8000），叠加抖动避免惊群
+              const baseDelay = SESSION_CONFLICT_BASE_DELAY_MS * 2 ** attempt;
+              const retryDelay = Math.floor(
+                baseDelay * (SESSION_CONFLICT_JITTER_MIN_RATIO + Math.random() * (1 - SESSION_CONFLICT_JITTER_MIN_RATIO)),
+              );
+              log.warn(`[napcat-QQ][dispatch-debug] session conflict, retry ${attempt + 1}/${SESSION_CONFLICT_RETRIES} in ${retryDelay}ms: ${(err as Error).message}`);
               await sleep(retryDelay);
               continue;
             }
@@ -478,8 +500,7 @@ export function installMessageHandler(
         }
 
         if (dispatchError) {
-          const isSessionConflict = dispatchError instanceof Error &&
-            /session initialization conflicted/i.test(dispatchError.message);
+          const isSessionConflict = isSessionConflictError(dispatchError);
           if (isSessionConflict && lastDeliverPayload) {
             log.warn(`[napcat-QQ][dispatch-debug] session conflict after ${SESSION_CONFLICT_RETRIES} retries, falling back to direct send`);
             try {
@@ -524,8 +545,7 @@ export function installMessageHandler(
           // 告警冷却：同一错误模板在冷却窗口内不重复通知
           const alertKey = `dispatch_error:${account.accountId}`;
           // session 冲突是框架内部 bug，用户无法干预，不发送噪音通知
-          const isFrameworkSessionConflict = error instanceof Error &&
-            /session initialization conflicted/i.test(error.message);
+          const isFrameworkSessionConflict = isSessionConflictError(error);
           if (!isFrameworkSessionConflict && ctx.alertCooldown?.shouldFire(alertKey)) {
             ctx.alertCooldown.record(alertKey, "dispatch error notified");
             await deliver({ text: "⚠️ 服务调用失败，请稍后重试。" });

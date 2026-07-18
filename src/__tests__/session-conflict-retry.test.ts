@@ -2,7 +2,8 @@
  * Regression tests for the session-conflict dispatch retry in gateway/inbound.ts.
  *
  * Covers commits c3c3cfe / 4db34be / d06da6b:
- *  - "session initialization conflicted" is retried up to 3 times (linear backoff 2000/4000/6000ms)
+ *  - "session initialization conflicted" is retried up to 3 times
+ *    (exponential backoff 2000/4000/8000ms base + jitter, see SESSION_CONFLICT_* constants)
  *  - persistent conflict takes the existing error path WITHOUT notifying the user
  *    (framework-internal conflict = noise, suppressed even when enableErrorNotify=true)
  *  - passive-mode sentinel is released (markSilent) when dispatch ultimately fails
@@ -84,7 +85,7 @@ vi.mock("../config-watcher.js", () => ({
   initConfigRef: vi.fn(),
 }));
 
-// 退避等待置为瞬时：retry 循环的 2000/4000/6000ms 不做真实等待
+// 退避等待置为瞬时：retry 循环的指数退避（2000/4000/8000ms base + jitter）不做真实等待
 vi.mock("../utils/sleep.js", () => ({
   sleep: vi.fn().mockResolvedValue(undefined),
 }));
@@ -93,6 +94,10 @@ import { installMessageHandler } from "../gateway/inbound.js";
 import { invalidateOtherBotNamesCache } from "../gateway/trigger-state.js";
 import { resetDialogState } from "../dialog-state.js";
 import { sleep } from "../utils/sleep.js";
+import {
+  SESSION_CONFLICT_BASE_DELAY_MS,
+  SESSION_CONFLICT_JITTER_MIN_RATIO,
+} from "../constants.js";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -102,6 +107,26 @@ const GROUP_ID = 88888;
 const ACCOUNT_ID = "acct1";
 /** 与框架报错文案一致，命中 inbound.ts 的 /session initialization conflicted/i 检测 */
 const CONFLICT_MESSAGE = "reply session initialization conflicted for agent:default:napcat:direct:55555";
+
+/**
+ * 断言 session 冲突重试的退避等待符合指数退避 + 抖动模型。
+ *
+ * 第 n 次（0-based attempt）等待的 baseDelay = BASE * 2**n，实际值经抖动后落在
+ * 闭区间 [baseDelay * RATIO, baseDelay]。逐个校验 sleep 调用次数与每次取值范围，
+ * 替代加抖动后必然失败的精确相等断言。
+ *
+ * @param actualDelays  vi.mocked(sleep) 记录的实际等待值序列（ms）。
+ * @param expectedCount 期望的重试等待次数。
+ */
+function expectExponentialBackoffWithJitter(actualDelays: number[], expectedCount: number): void {
+  expect(actualDelays).toHaveLength(expectedCount);
+  for (let attempt = 0; attempt < actualDelays.length; attempt++) {
+    const baseDelay = SESSION_CONFLICT_BASE_DELAY_MS * 2 ** attempt;
+    const lowerBound = baseDelay * SESSION_CONFLICT_JITTER_MIN_RATIO;
+    expect(actualDelays[attempt]).toBeGreaterThanOrEqual(lowerBound);
+    expect(actualDelays[attempt]).toBeLessThanOrEqual(baseDelay);
+  }
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -245,8 +270,8 @@ describe("installMessageHandler — session conflict dispatch retry", () => {
 
     // 1 次原始调用 + 3 次重试
     expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(4);
-    // 线性退避 2000/4000/6000（与 inbound.ts 实现一致）
-    expect(vi.mocked(sleep).mock.calls.map((c) => c[0])).toEqual([2000, 4000, 6000]);
+    // 指数退避 2000/4000/8000ms base + 抖动：3 次等待各落在 [base*0.5, base] 闭区间
+    expectExponentialBackoffWithJitter(vi.mocked(sleep).mock.calls.map((c) => c[0] as number), 3);
     // 噪音抑制：dispatch 从未调用 deliver，错误通知也不发给用户
     expect(shared.deliverMock).not.toHaveBeenCalled();
   });
@@ -299,8 +324,8 @@ describe("installMessageHandler — session conflict dispatch retry", () => {
     );
 
     expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(2);
-    // 仅在首次失败后等待 2000ms
-    expect(vi.mocked(sleep).mock.calls.map((c) => c[0])).toEqual([2000]);
+    // 仅在首次失败后等待一次：attempt=0 的 baseDelay=2000，抖动后落在 [1000, 2000]
+    expectExponentialBackoffWithJitter(vi.mocked(sleep).mock.calls.map((c) => c[0] as number), 1);
     // 成功路径：不进入错误路径
     expect(ctx.log.error).not.toHaveBeenCalledWith(expect.stringContaining("Reply dispatch error"));
   });

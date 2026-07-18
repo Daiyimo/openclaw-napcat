@@ -213,3 +213,22 @@ export const DEFAULT_SLEEP_START_HOUR = 23;
 
 /** 休眠模式默认结束小时（7 = 早上 7 点） */
 export const DEFAULT_SLEEP_END_HOUR = 7;
+
+// === session 冲突 ===
+
+/** 框架 session 初始化冲突错误的识别特征。
+ *  来源：openclaw 框架在并发 session 初始化时抛出的 Error.message 固定英文文案。
+ *  ⚠️ 强依赖框架原文；若框架改词或本地化，此处需同步更新。 */
+export const SESSION_CONFLICT_PATTERN = /session initialization conflicted/i;
+
+/** 框架 session 初始化冲突的最大重试次数（不含首次调用）。
+ *  从 per-message handler 内移出，避免每条消息重建常量。 */
+export const SESSION_CONFLICT_RETRIES = 3;
+
+/** 框架 session 冲突重试基础延迟（ms）。
+ *  真指数退避：实际 baseDelay = BASE * 2**attempt = 2000/4000/8000ms，再叠加抖动。 */
+export const SESSION_CONFLICT_BASE_DELAY_MS = 2000;
+
+/** 抖动下界比例，避免并发重试惊群。
+ *  实际等待 = baseDelay * (RATIO + random*(1-RATIO))，落在 [0.5×base, 1.0×base] 闭区间。 */
+export const SESSION_CONFLICT_JITTER_MIN_RATIO = 0.5;

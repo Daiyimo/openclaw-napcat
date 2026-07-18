@@ -246,7 +246,7 @@ function checkPassiveMode(
 
   if (botSuppressionMs > 0 && passiveMode.isBotSuppressed(`group:${input.groupId}`, botSuppressionMs)) {
     if (config.debug) {
-      ctx.log.log(`[napcat-QQ][debug-passive] bot suppression active, skipping`);
+      ctx.log.info(`[napcat-QQ][debug-passive] bot suppression active, skipping`);
     }
     return { isPassiveMode: false };
   }
@@ -329,7 +329,7 @@ export async function triggerStage(
       const result = rateLimiter.check(input.userId, isGroup ? input.groupId : undefined, isAdmin);
       if (!result.allowed) {
         if (config.debug) {
-          log.log(
+          log.info(
             `[napcat-QQ][rate_limit] rate limited: user=${maskId(input.userId)} group=${input.groupId} ` +
               `retryAfter=${result.retryAfterMs}ms count=${result.currentCount}`,
           );
@@ -351,7 +351,7 @@ export async function triggerStage(
     for (const re of regexes) {
       if (re.test(text)) {
         if (config.debug) {
-          log.log(`[napcat-QQ][silent_keyword] matched, dropping message`);
+          log.info(`[napcat-QQ][silent_keyword] matched, dropping message`);
         }
         metrics?.increment("inbound", "silentDropped");
         return null;
@@ -404,7 +404,7 @@ export async function triggerStage(
     }
     isBot = whitelistMatch || senderBot || cachedBotMatch || matchedBotId !== null || handshakeMatch !== null;
     if (config.debug) {
-      log.log(
+      log.info(
         `[napcat-QQ][debug-bot-filter] userId=${maskId(input.userId)} whitelist=${whitelistMatch} ` +
           `sender.bot=${senderBot} cachedBot=${cachedBotMatch} sigMatch=${matchedBotId} ` +
           `handshake=${handshakeMatch} isBot=${isBot} text="${text.slice(0, 80)}"`,
@@ -427,7 +427,7 @@ export async function triggerStage(
           },
         );
         if (config.debug) {
-          log.log(`[napcat-QQ][debug-handshake] recorded bot ${handshakeMatch} from handshake, skipping AI dispatch`);
+          log.info(`[napcat-QQ][debug-handshake] recorded bot ${handshakeMatch} from handshake, skipping AI dispatch`);
         }
         return null;
       }
@@ -439,21 +439,21 @@ export async function triggerStage(
 
         if (dialog.stoppedAt !== null && Date.now() - dialog.stoppedAt < BOT_STOPPED_SUPPRESS_MS) {
           if (config.debug) {
-            log.log(`[napcat-QQ][debug-dialog] bot msg dropped: dialog stopped at ${dialog.stoppedAt}`);
+            log.info(`[napcat-QQ][debug-dialog] bot msg dropped: dialog stopped at ${dialog.stoppedAt}`);
           }
           return null;
         }
 
         if (dialog.rounds >= maxRounds) {
           if (config.debug) {
-            log.log(`[napcat-QQ][debug-dialog] bot msg dropped: rounds=${dialog.rounds} >= ${maxRounds}`);
+            log.info(`[napcat-QQ][debug-dialog] bot msg dropped: rounds=${dialog.rounds} >= ${maxRounds}`);
           }
           return null;
         }
 
         recordBotTurn(account.accountId, dialogKey, String(input.userId));
         if (config.debug) {
-          log.log(`[napcat-QQ][debug-dialog] bot msg allowed: rounds=${dialog.rounds + 1}/${maxRounds}`);
+          log.info(`[napcat-QQ][debug-dialog] bot msg allowed: rounds=${dialog.rounds + 1}/${maxRounds}`);
         }
       }
     }
@@ -463,7 +463,7 @@ export async function triggerStage(
   if (!isBot) {
     if (!isMessageDirectedAtBot(event, selfId, text, config._selfName, otherBotNames)) {
       if (config.debug) {
-        log.log(
+        log.info(
           `[napcat-QQ][debug-directed] silent drop: msg not directed at this bot, user=${maskId(input.userId)}`,
         );
       }
@@ -474,7 +474,7 @@ export async function triggerStage(
   // ── 级联阻断标记 ────────────────────────────────────────────────────
   if (text.includes("[SYS:GUARD]")) {
     if (config.debug) {
-      log.log(`[napcat-QQ][debug-sensitive-guard] cascade blocked: msg contains [SYS:GUARD]`);
+      log.info(`[napcat-QQ][debug-sensitive-guard] cascade blocked: msg contains [SYS:GUARD]`);
     }
     return null;
   }
@@ -499,7 +499,7 @@ export async function triggerStage(
 
       if (!isDirectedAtMe) {
         if (config.debug) {
-          log.log(
+          log.info(
             `[napcat-QQ][debug-sensitive-guard] silent drop: matched but not directed at bot, user=${maskId(input.userId)}`,
           );
         }
@@ -513,7 +513,7 @@ export async function triggerStage(
         await client.sendPrivateMsg(input.userId, rejectMsg);
       }
       if (config.debug) {
-        log.log(
+        log.info(
           `[napcat-QQ][debug-sensitive-guard] blocked user=${maskId(input.userId)} reason=${check.reason} hit=${check.hit} directed=${isDirectedAtMe}`,
         );
       }
@@ -554,7 +554,7 @@ export async function triggerStage(
     if (selfId && !detectMention(event, selfId, text, null, config.debug, log)) {
       if (hasMentionOtherUser(event, selfId, otherBotNames)) {
         if (config.debug) {
-          log.log(`[napcat-QQ][debug-mention-other] skipping message that @mentions other user, not bot`);
+          log.info(`[napcat-QQ][debug-mention-other] skipping message that @mentions other user, not bot`);
         }
         return null;
       }
@@ -577,7 +577,7 @@ export async function triggerStage(
       isTriggered = true; // 关键词触发在休眠期仍有效
     } else {
       if (config.debug) {
-        log.log(`[napcat-QQ][debug-sleep] sleep mode active, dropping non-mention non-keyword message`);
+        log.info(`[napcat-QQ][debug-sleep] sleep mode active, dropping non-mention non-keyword message`);
       }
       metrics?.increment("inbound", "sleepSuppressed");
       return null;
@@ -589,7 +589,7 @@ export async function triggerStage(
     if (botName && detectNameTrigger(text, botName, config.debug, log)) {
       isTriggered = true;
       if (config.debug) {
-        log.log(`[napcat-QQ][debug-trigger] name trigger activated: botName="${botName}"`);
+        log.info(`[napcat-QQ][debug-trigger] name trigger activated: botName="${botName}"`);
       }
     }
   }
@@ -605,7 +605,7 @@ export async function triggerStage(
   if (checkMention && requireMention && !isTriggered && !isMentioned) {
     if (hasMentionOtherUser(event, selfId, otherBotNames)) {
       if (config.debug) {
-        log.log(`[napcat-QQ][debug-mention-other] passive mode skipped: msg @ other user, not bot`);
+        log.info(`[napcat-QQ][debug-mention-other] passive mode skipped: msg @ other user, not bot`);
       }
       return null;
     }
@@ -617,7 +617,7 @@ export async function triggerStage(
   if (stopResult.isUserStopIntent) {
     markStopped(account.accountId, `group:${input.groupId}`);
     if (config.debug) {
-      log.log(`[napcat-QQ][debug-dialog] user stop intent detected`);
+      log.info(`[napcat-QQ][debug-dialog] user stop intent detected`);
     }
   }
 
