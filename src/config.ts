@@ -1,6 +1,9 @@
 import { z } from "zod";
 
 export const QQConfigSchema = z.object({
+  // _selfId / _selfName 是运行时注入的内部缓存字段（连接建立后由 connection.ts 填充），
+  // 有意不纳入 openclaw.plugin.json 的 JSON schema（configSchema/channelConfigs 用了
+  // additionalProperties:false）：它们不是用户可配置项，也不作为配置持久化。
   /** @internal 运行时注入：机器人自身 QQ 号，不持久化到配置 */
   _selfId: z.number().int().optional(),
   /** @internal 运行时注入：机器人昵称（来自QQ昵称或群名片），不持久化到配置 */

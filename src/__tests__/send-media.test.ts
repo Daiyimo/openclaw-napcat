@@ -38,7 +38,7 @@ describe("sendMedia", () => {
       { to: "heartbeat", mediaUrl: "https://a.com/img.jpg" },
       { getClient: () => makeMockClient() as any, knownGroupIds },
     );
-    expect(typeof result.messageId).toBe("string");
+    expect(result.messageId).toBe("");
   });
 
   it("returns sent:true for empty to", async () => {
@@ -46,7 +46,7 @@ describe("sendMedia", () => {
       { to: "", mediaUrl: "https://a.com/img.jpg" },
       { getClient: () => makeMockClient() as any, knownGroupIds },
     );
-    expect(typeof result.messageId).toBe("string");
+    expect(result.messageId).toBe("");
   });
 
   it("throws when client not found", async () => {
