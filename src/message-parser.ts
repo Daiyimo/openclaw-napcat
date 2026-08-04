@@ -367,7 +367,11 @@ async function isPathAllowed(filePath: string, log?: Logger): Promise<boolean> {
   return true;
 }
 
-export async function resolveMediaUrl(url: string, log?: Logger): Promise<string> {
+export async function resolveMediaUrl(
+  url: string,
+  log?: Logger,
+  guard: MediaUrlGuardMode = DEFAULT_MEDIA_URL_GUARD,
+): Promise<string> {
   // file: 协议 → 解码为本地路径
   if (url.startsWith("file:")) {
     try {
@@ -409,16 +413,34 @@ export async function resolveMediaUrl(url: string, log?: Logger): Promise<string
       return url;
     }
   }
-  // SSRF 防护：验证初始 URL + 重定向链不指向私有网络
-  if (/^https?:\/\//i.test(url)) {
-    if (isUrlPrivate(url)) {
-      getLog(log).warn(`[napcat-QQ] SSRF blocked: private network URL rejected: ${url.slice(0, 100)}`);
-      return url;
+  // 出站媒体 URL 安全判定
+  //
+  // ⚠️ 关键语义：本函数**不 fetch** 该 URL —— 返回值会被塞进 OneBot 消息的 file
+  // 字段，由 NapCat 去下载。所以 `return url` 等于放行，真阻断必须 throw。
+  // 原实现三条路径全部 `return url` 却打日志说 "SSRF blocked"，属假阻断 + 谎报。
+  //
+  // 同理，此处**不做重定向链预检**：插件的 HEAD 探测无法约束 NapCat 是否跟随
+  // 重定向，是纯开销的无效防护（原实现最坏阻塞 5 跳 × 10s = 50s 却不改变结果）。
+  // 入站 downloadImages 由插件自己 fetch，那里的逐跳校验才真正生效。
+  if (guard !== "off" && /^https?:\/\//i.test(url)) {
+    if (isCloudMetadataUrl(url)) {
+      getLog(log).error(
+        `[napcat-QQ] 拒绝发送：媒体 URL 指向云元数据端点: ${url.slice(0, 100)}`,
+      );
+      throw new MediaUrlBlockedError(url, "云元数据端点");
     }
-    // 验证重定向链（最多 5 跳），防止 302 → 内网绕过
-    if (!(await validateRedirectChain(url))) {
-      getLog(log).warn(`[napcat-QQ] SSRF blocked: redirect chain leads to private network: ${url.slice(0, 100)}`);
-      return url;
+    if (isUrlPrivate(url)) {
+      if (guard === "strict") {
+        getLog(log).error(
+          `[napcat-QQ] 拒绝发送：媒体 URL 指向内网地址（mediaUrlGuard=strict）: ${url.slice(0, 100)}`,
+        );
+        throw new MediaUrlBlockedError(url, "内网地址");
+      }
+      // metadata-only（默认）：内网放行。NapCat 常与媒体源同处内网，
+      // 阻断会掐断正常发图；此处只告警，不谎称已拦截。
+      getLog(log).warn(
+        `[napcat-QQ] 媒体 URL 指向内网地址，按 mediaUrlGuard=metadata-only 放行: ${url.slice(0, 100)}`,
+      );
     }
   }
   return url;
@@ -503,6 +525,62 @@ const BLOCKED_HOSTNAME_SUBSTRINGS: string[] = [
 ];
 
 /**
+ * 云元数据端点 IP。
+ *
+ * 与 RFC1918 私网区别对待的原因：私网地址在本项目的典型部署下是**合法媒体源**
+ * （NapCat 常与 OpenClaw 同处内网，见 docker-compose.yml 的 QQ_HTTP_URL 默认值
+ * http://192.168.1.100:3000），而云元数据端点对"发一张图"这件事零合法用途，
+ * 一旦被读取即等同泄露云账号 IAM 凭证。因此它在任何非 off 档位下都必须拒绝。
+ */
+const CLOUD_METADATA_IPS: readonly string[] = [
+  "169.254.169.254", // AWS / Azure / GCP 链路本地元数据
+  "100.100.100.200", // 阿里云元数据
+];
+
+/** 出站媒体 URL 的防护档位 */
+export type MediaUrlGuardMode = "off" | "metadata-only" | "strict";
+
+/** 默认档位：只强制阻断云元数据，内网放行（避免掐断内网媒体源） */
+export const DEFAULT_MEDIA_URL_GUARD: MediaUrlGuardMode = "metadata-only";
+
+/** 媒体 URL 被安全策略拒绝时抛出，调用方应放弃该媒体的发送 */
+export class MediaUrlBlockedError extends Error {
+  public readonly url: string;
+  public readonly reason: string;
+
+  constructor(url: string, reason: string) {
+    super(`媒体 URL 被安全策略阻断（${reason}）: ${url.slice(0, 100)}`);
+    this.name = "MediaUrlBlockedError";
+    this.url = url;
+    this.reason = reason;
+  }
+}
+
+/**
+ * 判断 URL 是否指向云元数据端点。
+ *
+ * 只做字面量与主机名后缀比对，不做 DNS 解析（避免 DNS rebinding 把判定
+ * 变成一次可被操纵的网络请求）。
+ *
+ * @param urlStr 待判定的 URL。
+ * @returns 命中云元数据端点返回 true；URL 非法或为普通地址返回 false
+ *          （非法 URL 的拦截由调用侧的 scheme 校验与 isUrlPrivate 负责）。
+ */
+export function isCloudMetadataUrl(urlStr: string): boolean {
+  try {
+    const parsed = new URL(urlStr);
+    const hostLower = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    if (CLOUD_METADATA_IPS.includes(hostLower)) return true;
+    for (const blocked of BLOCKED_HOSTNAME_SUBSTRINGS) {
+      if (hostLower === blocked || hostLower.endsWith("." + blocked)) return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * 检查 IP 字符串是否在私有/回环/链路本地/ULA 范围内。
  * SSRF 防护：防止下载被重定向到内网或云元数据端点。
  */
@@ -552,42 +630,48 @@ export function isUrlPrivate(urlStr: string): boolean {
   }
 }
 
-/** 最大重定向跳数（防止无限重定向循环） */
-const MAX_REDIRECT_CHAIN = 5;
-/** 单跳超时（毫秒） */
-const REDIRECT_CHECK_TIMEOUT_MS = 10_000;
+/**
+ * 单张图片的下载体积上限（字节）。
+ *
+ * 入站图片 URL 来自 QQ 消息，属未认证外部输入；原实现直接
+ * `Buffer.from(await resp.arrayBuffer())` 无任何上限，一条构造的大文件
+ * URL 即可把进程 OOM 打死。QQ 图片实际远小于此值，取 20MB 留足余量。
+ */
+const MAX_DOWNLOAD_SIZE = 20 * 1024 * 1024;
 
 /**
- * 验证 URL 重定向链不指向私有网络。
- * 使用 fetch redirect:"manual" 逐跳检查，最多 MAX_REDIRECT_CHAIN 跳。
- * 网络错误时保守放行（调用方会处理实际下载失败）。
+ * 读取响应体，累计字节数超过 limit 时立即放弃。
+ *
+ * 不直接用 `resp.arrayBuffer()`：那会在能判断大小之前就把整个响应读进内存，
+ * 对未认证的外部 URL 等于没有上限。此处边读边累计，超限即断流。
+ *
+ * @param resp  已确认 ok 的响应。
+ * @param limit 允许的最大字节数。
+ * @returns 完整响应体；超过 limit 时返回 null。
  */
-export async function validateRedirectChain(url: string): Promise<boolean> {
-  let currentUrl = url;
-  for (let hop = 0; hop < MAX_REDIRECT_CHAIN; hop++) {
-    try {
-      const resp = await fetch(currentUrl, {
-        method: "HEAD",
-        redirect: "manual",
-        signal: AbortSignal.timeout(REDIRECT_CHECK_TIMEOUT_MS),
-      });
-      const location = resp.headers.get("location");
-      if (!location) return true; // 无重定向，直接到达目标
-      const nextUrl = new URL(location, currentUrl).toString();
-      if (isUrlPrivate(nextUrl)) {
-        _log.warn(
-          `[napcat-QQ] SSRF blocked: redirect hop ${hop + 1} → private network: ${nextUrl.slice(0, 100)}`,
-        );
-        return false;
-      }
-      currentUrl = nextUrl;
-    } catch {
-      // 网络错误（超时、DNS 失败等）：保守放行，调用方会处理下载失败
-      return true;
-    }
+async function readBodyWithLimit(resp: Response, limit: number): Promise<Buffer | null> {
+  if (!resp.body) {
+    // 少数运行时/mock 不提供 body 流，退回一次性读取后再判断
+    const whole = Buffer.from(await resp.arrayBuffer());
+    return whole.byteLength > limit ? null : whole;
   }
-  // 超过最大跳数：保守放行（通常是合法的 CDN 链）
-  return true;
+  const reader = resp.body.getReader();
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    total += value.byteLength;
+    if (total > limit) {
+      await reader.cancel().catch(() => {
+        /* 流已中断，取消失败不影响主流程 */
+      });
+      return null;
+    }
+    chunks.push(Buffer.from(value));
+  }
+  return Buffer.concat(chunks);
 }
 
 export async function downloadImages(urls: string[], log?: Logger): Promise<DownloadedImage[]> {
@@ -660,12 +744,27 @@ export async function downloadImages(urls: string[], log?: Logger): Promise<Down
           return { path: url, type: "image/jpeg" };
         }
         const contentType = resp.headers.get("content-type");
+        // 体积上限：先用 Content-Length 提前拒绝，省掉整次下载
+        const declaredSize = Number(resp.headers.get("content-length"));
+        if (Number.isFinite(declaredSize) && declaredSize > MAX_DOWNLOAD_SIZE) {
+          getLog(log ?? _log).warn(
+            `[napcat-QQ][downloadImages] 跳过超限图片（Content-Length ${declaredSize} 字节 > 上限 ${MAX_DOWNLOAD_SIZE}）: ${url.slice(0, 100)}`,
+          );
+          return { path: url, type: "image/jpeg" };
+        }
         const ext = guessImageExtension(url, contentType, log);
         const mime = contentType?.split(";")[0].trim() || `image/${ext}`;
         // 用 idx 保证并发下载时文件名唯一（避免 Date.now() 碰撞）
         const filename = `img-${idx}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
         const filePath = path.join(downloadDir, filename);
-        const buf = Buffer.from(await resp.arrayBuffer());
+        // Content-Length 可以缺失或造假，边读边累计才是真正的上限
+        const buf = await readBodyWithLimit(resp, MAX_DOWNLOAD_SIZE);
+        if (!buf) {
+          getLog(log ?? _log).warn(
+            `[napcat-QQ][downloadImages] 跳过超限图片（响应体超过上限 ${MAX_DOWNLOAD_SIZE} 字节）: ${url.slice(0, 100)}`,
+          );
+          return { path: url, type: "image/jpeg" };
+        }
         fsSync.writeFileSync(filePath, buf);
         getLog(log ?? _log).log(`[napcat-QQ][downloadImages] saved: ${filePath} (${buf.length} bytes)`);
         return { path: filePath, type: mime };

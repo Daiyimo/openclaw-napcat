@@ -88,6 +88,7 @@
 | `inboundRateLimitMs` | number | `0` | 入站频控（ms），同一来源两次触发的最小间隔。`0` = 禁用。 |
 | `silentKeywords` | string[] | `[]` | **静默关键词**。消息包含任一关键词时直接丢弃，不触发 AI、不回复（适合过滤其他 bot 指令）。 |
 | `sensitiveFileGuard` | object | 默认启用 | **系统文件预拦截**（v1.10+）。非 admin 用户试图修改 SOUL/AGENTS/IDENTITY/USER/MEMORY 等人设/记忆文件时直接拒绝并 reply 提示，不调用 OpenClaw。详见下方说明。 |
+| `mediaUrlGuard` | string | `metadata-only` | **出站媒体 URL 防护档位**。`metadata-only`（默认）阻断云元数据端点（`169.254.169.254` / `100.100.100.200` / `metadata.*`），私网与回环放行并告警——因为 NapCat 常与媒体源同处内网，一律阻断会掐断正常发图；`strict` 私网与回环一并阻断（适合 NapCat 在公网）；`off` 不做判定。被阻断时该条媒体不发送。 |
 | `passiveMode` | object | - | **旁观模式**配置，见下方详细说明。支持 `temperature`（0–100）快速调节主动程度。 |
 | `sleepMode` | object | - | **休眠模式**配置，见下方详细说明。支持通过 `/sleep` 命令运行时控制（v1.10+）。 |
 

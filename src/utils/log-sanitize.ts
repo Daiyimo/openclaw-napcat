@@ -50,3 +50,32 @@ export function maskBearerToken(text: string): string {
     .replace(/"Authorization"\s*:\s*"Bearer\s+[^"]*"/gi, '"Authorization": "Bearer [REDACTED]"')
     .replace(/Bearer\s+[A-Za-z0-9\-._~+/]+=*/gi, "Bearer [REDACTED]");
 }
+
+/**
+ * 脱敏文本中的常见凭据。
+ *
+ * 存在的原因：`/logs` 命令会把进程日志发到 QQ 会话，而日志缓冲区里混有
+ * openclaw 内核与其他插件的输出，仅脱敏 QQ 号（maskIdsInText）不足以
+ * 阻止 API key 外泄。这里覆盖 Bearer、常见密钥前缀，以及 key=value 形式。
+ *
+ * 宁可多掩盖一些排查信息，也不能把凭据发进群。
+ *
+ * @param text 待脱敏的文本。
+ * @returns 凭据被替换为 [REDACTED] 的文本。
+ */
+export function maskSecretsInText(text: string): string {
+  return (
+    maskBearerToken(text)
+      // OpenAI / Anthropic 风格密钥：sk-、sk-ant-
+      .replace(/\bsk-[A-Za-z0-9\-_]{8,}/g, "sk-[REDACTED]")
+      // GitHub token：ghp_ / gho_ / ghu_ / ghs_ / ghr_
+      .replace(/\bgh[pousr]_[A-Za-z0-9]{8,}/g, "gh_[REDACTED]")
+      .replace(/\bgithub_pat_[A-Za-z0-9_]{8,}/g, "github_pat_[REDACTED]")
+      // key=value / "key": "value" 形式的凭据字段
+      .replace(
+        /\b(access[_-]?token|api[_-]?key|apikey|secret|password|passwd|token)(\s*[=:]\s*"?)([^"\s,&}]{6,})("?)/gi,
+        (_match, key: string, sep: string, _value: string, tail: string) =>
+          `${key}${sep}[REDACTED]${tail}`,
+      )
+  );
+}

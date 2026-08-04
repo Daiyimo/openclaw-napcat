@@ -2,6 +2,42 @@
 
 # 更新日志
 
+### [Unreleased] - 适配 openclaw 2026.7.2
+
+#### Changed
+
+- **验证并适配 openclaw 2026.7.2**：7.1 → 7.2 期间官方删除了 **44 个 plugin-sdk 公开子路径**（含 `channel-ingress` / `channel-runtime` / `channel-envelope` / `direct-dm` / `outbound-runtime` / `webhook-path` 等，以及 `openclaw/plugin-sdk` 根 barrel 与 `openclaw/extension-api`），且 CHANGELOG 未标注任何 `BREAKING`。逐项核对结论：
+  - 本插件全部导入只走 `openclaw/plugin-sdk/core`，**零命中**上述删除清单；`emptyPluginConfigSchema` / `buildChannelConfigSchema` / `DEFAULT_ACCOUNT_ID` / `normalizeAccountId` / `applyAccountNameToChannelSection` / `migrateBaseNameToDefaultAccount` 六个运行时符号在 7.2 仍然存在。
+  - manifest 必填项（`id` / `configSchema` / `channels`）齐全；被移除的 `channelEnvVars` / `providerAuthEnvVars` 字段本插件从未使用。
+  - `channelRuntime.reply.dispatchReplyWithBufferedBlockDispatcher` 仍存在且用法与官方示范一致；`routing.resolveAgentRoute` 在 7.2 仍是同步函数，现有不 await 的调用正确。
+  - 8-15 / 8-30 / 9-01 三批即将到期的 compat 窗口（`channel-secret-runtime` / `inbound-reply-dispatch` / `channel-streaming` 等）本插件均未使用。
+  - **`compat.pluginApi` 与 `peerDependencies` 保持 `>=2026.7.1` 不变**：该字段是下限，2026.7.2 本就满足；抬到 `>=2026.7.2` 会让仍在 2026.7.1 上的宿主**静默跳过加载**（`manifest-registry.ts` 对不满足的 range 只 warn 后 continue，不抛错），属于有害收紧。仅将 `build.openclawVersion` 更新为 `2026.7.2` 以标记已验证版本。
+
+### [Unreleased] - 出站媒体 URL 防护与日志凭据脱敏
+
+#### Fixed
+
+- **出站 `resolveMediaUrl` 的 SSRF 检查完全空转，且日志谎报已拦截**：`message-parser.ts` 的 http(s) 分支三条路径（私网命中、重定向链命中、正常）全部 `return url`，检查结果不影响任何行为，却打日志声称 `SSRF blocked`。
+  - 根因是语义错位：该函数**不 fetch** 目标 URL —— 返回值被塞进 OneBot 消息的 `file` 字段，由 NapCat 下载。因此 `return url` 等于放行，真阻断必须 throw。
+  - 修复：命中即抛 `MediaUrlBlockedError`；放行路径的日志不再声称 blocked。
+  - 同时移除 `validateRedirectChain`（约 35 行）：插件的 HEAD 预探测无法约束 NapCat 是否跟随重定向，属无效防护，却带来最坏 5 跳 × 10s = **50 秒**的出站阻塞，并含三处把放行注释成"保守策略"的 fail-open。入站 `downloadImages` 由插件自己 fetch，其逐跳校验本就真实生效，不受影响。
+- **`/logs` 会把凭据发进 QQ 会话**：日志缓冲区通过全局 `console` 劫持收集，混有 openclaw 内核与其他插件的输出，而 `handleLogs` 只调用 `maskIdsInText`（仅掩盖 5–12 位数字），`sk-` / `Bearer` / GitHub token 等凭据原文外泄。已写好的 `maskBearerToken` 从未在生产被调用。
+  - 修复：新增 `maskSecretsInText`（覆盖 Bearer、`sk-`、`ghp_`/`github_pat_`、以及 `token=` / `api_key=` / `password=` 等 key=value 形式），`/logs` 输出经其与 `maskIdsInText` 双重脱敏。
+- **入站图片下载无体积上限，可被单条消息 OOM 打死**：`downloadImages` 直接 `Buffer.from(await resp.arrayBuffer())`，而 `MAX_LOCAL_FILE_SIZE` 只约束本地文件。图片 URL 来自 QQ 消息，属未认证外部输入。
+  - 修复：先用 `Content-Length` 提前拒绝，再流式累积校验（`Content-Length` 可缺失或造假），上限 20MB，超限跳过该图并告警。
+
+#### Added
+
+- **`mediaUrlGuard` 配置项**（默认 `metadata-only`）：出站媒体 URL 防护档位。
+  - `metadata-only`（默认）：阻断云元数据端点（`169.254.169.254` / `100.100.100.200` / `metadata.*`），私网与回环放行并告警。分档而非一刀切的原因是本项目典型部署中 NapCat 与媒体源同处内网（`docker-compose.yml` 的 `QQ_HTTP_URL` 默认 `http://192.168.1.100:3000`），一律阻断会掐断正常发图；而云元数据端点对发图零合法用途，被读取即等同泄露云账号凭证。
+  - `strict`：私网与回环一并阻断，适合 NapCat 部署在公网的场景。
+  - `off`：不做判定。
+  - 注意：`message-sender.ts` 中"从文本提取媒体"与 `sendMediaUrl` 两条路径原有的私网前置阻断**行为保持不变**（它们本就是真阻断），本次改动为纯增量收紧，未放松任何既有拦截，也未新增对私网的阻断。
+
+#### Notes
+
+- 已知遗留（本次未改，需要时再处理）：出站私网策略在 4 条路径上并不统一 —— `message-sender.ts` 的文本提取媒体与 `sendMediaUrl` 会阻断私网，而 image item 与 `outbound.sendMedia` 放行。统一任一方向都会改变现有行为，故未纳入本次范围。
+
 ### [Unreleased] - 适配 openclaw 2026.7.1
 
 #### Changed

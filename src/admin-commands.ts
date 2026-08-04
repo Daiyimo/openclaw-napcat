@@ -10,7 +10,7 @@
 import type { AdminCmdContext } from "./admin-registry.js";
 import { getUpdateInfo } from "./update-checker.js";
 import { getRecentLogs, formatLogEntry } from "./log-buffer.js";
-import { maskIdsInText } from "./utils/log-sanitize.js";
+import { maskIdsInText, maskSecretsInText } from "./utils/log-sanitize.js";
 import { getPackageVersion } from "./utils/pkg-version.js";
 import { updateConfigRef, getConfigRef } from "./config-watcher.js";
 import { resolvePassiveModeTemperature } from "./config.js";
@@ -103,7 +103,9 @@ export async function handleLogs(ctx: AdminCmdContext, parts: string[]): Promise
   const logs = getRecentLogs(count);
   if (logs.length === 0) return "[logs] 暂无日志";
   const raw = logs.map(formatLogEntry).join("\n");
-  return `[最近 ${logs.length} 条日志]\n${maskIdsInText(raw)}`;
+  // 日志缓冲区里混有 openclaw 内核与其他插件的输出，除 QQ 号外还必须脱敏凭据，
+  // 否则 API key 会被直接发进 QQ 会话。
+  return `[最近 ${logs.length} 条日志]\n${maskSecretsInText(maskIdsInText(raw))}`;
 }
 
 export async function handleStatus(ctx: AdminCmdContext, _parts: string[]): Promise<string | null> {

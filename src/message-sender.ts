@@ -216,7 +216,7 @@ export class MessageSender {
           }
         } else if (item.type === "image") {
           try {
-            const resolvedUrl = await resolveMediaUrl(item.content);
+            const resolvedUrl = await resolveMediaUrl(item.content, this.ctx.log, config.mediaUrlGuard);
             const imgSeg: OneBotMessage = [{ type: "image", data: { file: resolvedUrl } }];
             await sendByTarget(client, imgSeg, this.ctx);
           } catch (err) {
@@ -301,7 +301,7 @@ export class MessageSender {
             continue;
           }
         }
-        const resolvedUrl = await resolveMediaUrl(media.url);
+        const resolvedUrl = await resolveMediaUrl(media.url, this.ctx.log, config.mediaUrlGuard);
         if (media.type === "image") {
           const imgSeg: OneBotMessage = [{ type: "image", data: { file: resolvedUrl } }];
           await sendByTarget(client, imgSeg, this.ctx);
@@ -335,7 +335,7 @@ export class MessageSender {
         return;
       }
     }
-    const url = await resolveMediaUrl(rawUrl);
+    const url = await resolveMediaUrl(rawUrl, this.ctx.log, config.mediaUrlGuard);
     const name = fileName || decodeURIComponent(url.split("?")[0].split("/").pop() || "file");
 
     if (isImageFile(rawUrl) || isImageFile(url)) {
@@ -368,7 +368,7 @@ export class MessageSender {
         await sendByTarget(client, fileSegment, this.ctx);
       }
     } else {
-      const url = await resolveMediaUrl(rawUrl);
+      const url = await resolveMediaUrl(rawUrl, this.ctx.log, config.mediaUrlGuard);
       if (isImageFile(url) || isImageFile(rawUrl)) {
         const imgSegment: OneBotMessage = [{ type: "image", data: { file: url } }];
         await sendByTarget(client, imgSegment, this.ctx);

@@ -109,6 +109,22 @@ export const QQConfigSchema = z.object({
     nouns: z.array(z.string().min(1)).optional().describe("Intent nouns paired with verbs. Default contains 中文 人设/灵魂/记忆/身份/人格/性格 and 英文 soul/agents/memory/identity/persona."),
     rejectMessage: z.string().optional().describe("Custom rejection text sent to non-admin sender. Default contains a generic admin-only notice."),
   }).optional().describe("Pre-dispatch guard against non-admin persona/memory file modification."),
+  /**
+   * 出站媒体 URL 防护档位。
+   *
+   * 分档而非一刀切的原因：本项目的典型部署里 NapCat 与媒体源同处内网
+   * （docker-compose.yml 的 QQ_HTTP_URL 默认 http://192.168.1.100:3000），
+   * 一律阻断私网会掐断正常发图；而云元数据端点对发图零合法用途，
+   * 一旦被读取即等同泄露云账号凭证。
+   *
+   * - metadata-only（默认）：阻断云元数据端点，私网/回环放行并告警
+   * - strict：私网与回环一并阻断（适合 NapCat 在公网的部署）
+   * - off：不做判定
+   *
+   * 注意：插件本身不 fetch 出站 URL（由 NapCat 下载），所以"阻断"表现为
+   * 拒绝发送该媒体（抛 MediaUrlBlockedError），而不是静默改写 URL。
+   */
+  mediaUrlGuard: z.enum(["off", "metadata-only", "strict"]).optional().default("metadata-only").describe("Outbound media URL safety level. 'metadata-only' (default) rejects cloud metadata endpoints but allows private/LAN URLs since NapCat often shares the LAN with the media source. 'strict' also rejects private and loopback URLs. 'off' disables the check."),
   // ── 休眠模式 ─────────────────────────────────────────────────
   /**
    * 休眠模式：在指定时段内，bot 仅响应 @mention 和关键词触发，
