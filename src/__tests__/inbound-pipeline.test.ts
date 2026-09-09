@@ -140,6 +140,8 @@ function makeCtx(configOverrides: Partial<QQConfig> = {}): {
       finalizeInboundContext: vi.fn().mockImplementation((c) => c),
       dispatchReplyWithBufferedBlockDispatcher,
     },
+    // 缺省不解析出路由：现有用例走 legacy 降级 session key
+    routing: { resolveAgentRoute: vi.fn().mockReturnValue(undefined) },
   };
 
   const config = makeConfig(configOverrides);
@@ -1397,5 +1399,83 @@ describe("installMessageHandler — sharedAdmins cross-bot admin", () => {
       const [, updatedConfig] = lastCall;
       expect((updatedConfig as { passiveMode?: { temperature?: number } }).passiveMode?.temperature).toBe(0);
     }
+  });
+
+  // ── Session key 路由解析（openclaw ≥2026.8 prepared reply dispatch 要求真实 agent id）──
+
+  it("session key uses routed agentId for direct messages", async () => {
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx();
+    (ctx.channelRuntime as any).routing.resolveAgentRoute.mockReturnValue({
+      agentId: "main",
+      sessionKey: "agent:main:main",
+    });
+    installMessageHandler(client, ctx);
+
+    client.emit("message", makePrivateEvent());
+
+    await vi.waitFor(() => expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce(), {
+      timeout: 2000,
+    });
+    const dispatchedCtx = dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0].ctx;
+    expect(dispatchedCtx.SessionKey).toBe(`agent:main:napcat:direct:${USER_ID}`);
+    expect((ctx.channelRuntime as any).session.resolveStorePath).toHaveBeenCalledWith(
+      undefined,
+      { agentId: "main" },
+    );
+  });
+
+  it("session key uses routed agentId for guild channel messages", async () => {
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({ requireMention: false });
+    (ctx.channelRuntime as any).routing.resolveAgentRoute.mockReturnValue({
+      agentId: "main",
+      sessionKey: "agent:main:napcat:channel:700000:800000",
+    });
+    installMessageHandler(client, ctx);
+
+    client.emit(
+      "message",
+      makePrivateEvent({
+        message_type: "guild",
+        guild_id: "700000",
+        channel_id: "800000",
+      }),
+    );
+
+    await vi.waitFor(() => expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce(), {
+      timeout: 2000,
+    });
+    const dispatchedCtx = dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0].ctx;
+    expect(dispatchedCtx.SessionKey).toBe("agent:main:napcat:channel:700000:800000");
+  });
+
+  it("falls back to legacy unscoped session key when routing unavailable", async () => {
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx();
+    (ctx.channelRuntime as any).routing = undefined;
+    installMessageHandler(client, ctx);
+
+    client.emit("message", makePrivateEvent());
+
+    await vi.waitFor(() => expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce(), {
+      timeout: 2000,
+    });
+    const dispatchedCtx = dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0].ctx;
+    expect(dispatchedCtx.SessionKey).toBe(`napcat:direct:${USER_ID}`);
+  });
+
+  it("skips recordInboundSession when resolveStorePath throws without agentId", async () => {
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx();
+    (ctx.channelRuntime as any).routing = undefined;
+    const session = (ctx.channelRuntime as any).session;
+    session.resolveStorePath.mockImplementation(() => {
+      throw new Error("Session storage path requires an explicit agent id.");
+    });
+    installMessageHandler(client, ctx);
+
+    client.emit("message", makePrivateEvent());
+
+    await vi.waitFor(() => expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce(), {
+      timeout: 2000,
+    });
+    expect(session.recordInboundSession).not.toHaveBeenCalled();
   });
 });

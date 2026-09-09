@@ -39,16 +39,17 @@ describe("registerGroupRoute", () => {
   it("returns true when resolveAgentRoute succeeds", async () => {
     const rt = makeChannelRuntime({
       routing: {
-        resolveAgentRoute: vi.fn().mockReturnValue({ sessionKey: "agent:default:napcat:group:123456" }),
+        resolveAgentRoute: vi.fn().mockReturnValue({ sessionKey: "agent:main:napcat:group:123456", agentId: "main" }),
       },
     });
     const params = makeParams({ channelRuntime: rt });
     const result = await registerGroupRoute(params);
     expect(result).toBe(true);
     expect(rt.session.recordInboundSession).toHaveBeenCalled();
+    expect(rt.session.resolveStorePath).toHaveBeenCalledWith("sqlite", { agentId: "main" });
   });
 
-  it("falls back to default sessionKey when resolveAgentRoute returns undefined", async () => {
+  it("falls back to legacy sessionKey when resolveAgentRoute returns undefined", async () => {
     const rt = makeChannelRuntime({
       routing: {
         resolveAgentRoute: vi.fn().mockReturnValue(undefined),
@@ -60,7 +61,7 @@ describe("registerGroupRoute", () => {
     // Should have recorded session with the fallback key
     expect(rt.session.recordInboundSession).toHaveBeenCalled();
     const call = rt.session.recordInboundSession.mock.calls[0];
-    expect(call[0].sessionKey).toBe("agent:default:napcat:group:123456");
+    expect(call[0].sessionKey).toBe("napcat:group:123456");
   });
 
   it("falls back when resolveAgentRoute throws", async () => {
@@ -76,7 +77,23 @@ describe("registerGroupRoute", () => {
     expect(result).toBe(true);
     expect(rt.session.recordInboundSession).toHaveBeenCalled();
     const call = rt.session.recordInboundSession.mock.calls[0];
-    expect(call[0].sessionKey).toBe("agent:default:napcat:group:123456");
+    expect(call[0].sessionKey).toBe("napcat:group:123456");
+  });
+
+  it("returns false when resolveStorePath throws without agentId", async () => {
+    const rt = makeChannelRuntime({
+      routing: { resolveAgentRoute: vi.fn().mockReturnValue(undefined) },
+      session: {
+        resolveStorePath: vi.fn().mockImplementation(() => {
+          throw new Error("Session storage path requires an explicit agent id.");
+        }),
+        recordInboundSession: vi.fn().mockResolvedValue(undefined),
+      },
+    });
+    const params = makeParams({ channelRuntime: rt });
+    const result = await registerGroupRoute(params);
+    expect(result).toBe(false);
+    expect(rt.session.recordInboundSession).not.toHaveBeenCalled();
   });
 
   it("adds groupId to knownGroupIds on success", async () => {
@@ -97,6 +114,6 @@ describe("registerGroupRoute", () => {
     const result = await registerGroupRoute(params);
     expect(result).toBe(true);
     const call = rt.session.recordInboundSession.mock.calls[0];
-    expect(call[0].sessionKey).toBe("agent:default:napcat:group:88888888");
+    expect(call[0].sessionKey).toBe("napcat:group:88888888");
   });
 });

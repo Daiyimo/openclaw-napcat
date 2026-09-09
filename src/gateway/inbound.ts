@@ -314,24 +314,43 @@ export function installMessageHandler(
       });
 
       // ── 解析正确的 session key ─────────────────────
+      // 统一走框架 resolveAgentRoute 获取真实 agent id（openclaw ≥2026.8 的
+      // prepared reply dispatch 要求 session key 中的 agent 是已配置 agent），
+      // 路由不可用时降级为无 agent 前缀的 legacy key，由框架落到默认 agent。
       let resolvedSessionKey: string | undefined;
-      if (isGroup && groupId) {
-        try {
-          const route = (channelRuntime as any)?.routing?.resolveAgentRoute?.({
-            cfg: cfg as OpenClawConfig,
-            channel: "napcat",
-            accountId: account.accountId,
-            peer: { kind: "group", id: String(groupId) },
-          });
-          resolvedSessionKey = route?.sessionKey;
-        } catch (err) {
-          log.warn(`[napcat-QQ] resolveAgentRoute failed for group ${groupId}, using fallback session key:`, err);
-          resolvedSessionKey = `agent:default:napcat:group:${groupId}`;
+      let resolvedAgentId: string | undefined;
+      try {
+        const peer = isGroup && groupId
+          ? { kind: "group" as const, id: String(groupId) }
+          : isGuild && guildId && channelId
+            ? { kind: "channel" as const, id: String(channelId) }
+            : { kind: "direct" as const, id: String(fromId) };
+        const route = (channelRuntime as any)?.routing?.resolveAgentRoute?.({
+          cfg: cfg as OpenClawConfig,
+          channel: "napcat",
+          accountId: account.accountId,
+          peer,
+          ...(isGuild && guildId ? { guildId: String(guildId) } : {}),
+        });
+        resolvedAgentId = route?.agentId;
+        if (route?.sessionKey) {
+          // group 直接用框架 key（尊重 groupScope 配置）；
+          // direct/guild 保留插件 per-sender/per-channel 形状，只替换 agent id 段
+          resolvedSessionKey = isGroup
+            ? route.sessionKey
+            : resolvedAgentId
+              ? `agent:${resolvedAgentId}:napcat:${isGuild ? "channel" : "direct"}:${isGuild ? `${guildId}:${channelId}` : fromId}`
+              : undefined;
         }
-      } else if (isGuild && guildId && channelId) {
-        resolvedSessionKey = `agent:default:napcat:channel:${guildId}:${channelId}`;
-      } else {
-        resolvedSessionKey = `agent:default:napcat:direct:${fromId}`;
+      } catch (err) {
+        log.warn("[napcat-QQ] resolveAgentRoute failed, using legacy fallback session key:", err);
+      }
+      if (!resolvedSessionKey) {
+        resolvedSessionKey = isGroup && groupId
+          ? `napcat:group:${groupId}`
+          : isGuild && guildId && channelId
+            ? `napcat:channel:${guildId}:${channelId}`
+            : `napcat:direct:${fromId}`;
       }
 
       // ── 下载入站图片到本地 ──
@@ -378,22 +397,27 @@ export function installMessageHandler(
       };
 
       // session 记录（SDK 可选能力，不存在时静默跳过）
+      // openclaw ≥2026.8 的 resolveStorePath 在无 agentId 时会抛错，路由失败时跳过记录
       if (channelRuntime.session?.recordInboundSession && channelRuntime.session?.resolveStorePath) {
-        await channelRuntime.session.recordInboundSession({
-          storePath: channelRuntime.session.resolveStorePath(
-            (cfg as OpenClawConfig).session?.store,
-            { agentId: "default" },
-          ),
-          sessionKey: ctxPayload.SessionKey as string,
-          ctx: ctxPayload,
-          updateLastRoute: {
+        try {
+          await channelRuntime.session.recordInboundSession({
+            storePath: channelRuntime.session.resolveStorePath(
+              (cfg as OpenClawConfig).session?.store,
+              resolvedAgentId ? { agentId: resolvedAgentId } : undefined,
+            ),
             sessionKey: ctxPayload.SessionKey as string,
-            channel: "napcat",
-            to: fromId,
-            accountId: account.accountId,
-          },
-          onRecordError: (err) => log.error("QQ Session Error:", err),
-        });
+            ctx: ctxPayload,
+            updateLastRoute: {
+              sessionKey: ctxPayload.SessionKey as string,
+              channel: "napcat",
+              to: fromId,
+              accountId: account.accountId,
+            },
+            onRecordError: (err) => log.error("QQ Session Error:", err),
+          });
+        } catch (err) {
+          log.warn("[napcat-QQ] recordInboundSession skipped:", err);
+        }
       }
 
       // ── Typing 状态 ───────────────────────────────────
