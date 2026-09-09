@@ -43,10 +43,6 @@ export async function registerGroupRoute(params: RegisterGroupRouteParams): Prom
     return false;
   }
 
-  const storePath = channelRuntime.session.resolveStorePath(
-    cfg.session?.store,
-    { agentId: "default" },
-  );
   const groupFromId = `group:${groupId}`;
   const routeCtx = {
     Provider: "napcat",
@@ -66,6 +62,7 @@ export async function registerGroupRoute(params: RegisterGroupRouteParams): Prom
   };
 
   let sessionKey: string | undefined;
+  let agentId: string | undefined;
   try {
     const route = channelRuntime.routing?.resolveAgentRoute?.({
       cfg,
@@ -74,14 +71,27 @@ export async function registerGroupRoute(params: RegisterGroupRouteParams): Prom
       peer: { kind: "group", id: String(groupId) },
     });
     sessionKey = route?.sessionKey;
+    agentId = route?.agentId;
   } catch {
-    // routing unavailable, skip this group
+    // routing unavailable, fall through to legacy key
   }
 
   if (!sessionKey) {
     // resolveAgentRoute 失败时（框架路由未激活、无 session 记录），
-    // 使用与 inbound.ts 相同的 fallback key，确保 cron 投递能找到 session。
-    sessionKey = `agent:default:napcat:group:${groupId}`;
+    // 使用无 agent 前缀的 legacy key，由框架落到默认 agent（与 inbound.ts 一致）。
+    sessionKey = `napcat:group:${groupId}`;
+  }
+
+  // openclaw ≥2026.8 的 resolveStorePath 在无 agentId 时会抛错；抛错则跳过注册
+  let storePath: string;
+  try {
+    storePath = channelRuntime.session.resolveStorePath(
+      cfg.session?.store,
+      agentId ? { agentId } : undefined,
+    );
+  } catch (err) {
+    log?.warn?.(`[napcat-QQ] resolveStorePath failed for group ${groupId}, skip route registration: ${String(err)}`);
+    return false;
   }
 
   await channelRuntime.session.recordInboundSession({

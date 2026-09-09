@@ -2,6 +2,15 @@
 
 # 更新日志
 
+### [Unreleased] - 适配 openclaw ≥2026.8 的 prepared reply dispatch
+
+#### Fixed
+
+- **openclaw ≥2026.8.1 下每条消息报 `Reply dispatch error: prepared reply dispatch runtime owner was not published for default`，机器人完全无回复**：2026.8.1 起框架为 `dispatchReplyWithBufferedBlockDispatcher` 引入严格的 prepared reply dispatch 发布校验——session key 中的 agent id 必须是已配置（published）的 agent，否则在 `PreparedReplyDispatchPublicationOwner.load` 直接抛错，消息不进模型。本插件此前硬编码 `agent:default:napcat:...` 作为 session key（openclaw 的默认 agent id 是 `main`），在 2026.7.x 无校验时可用，升级宿主后全部失效。
+  - 修复：三种会话（群/私聊/频道）统一走 `channelRuntime.routing.resolveAgentRoute` 解析真实 agent id 与 session key；路由不可用时降级为无 agent 前缀的 legacy key（`napcat:direct/group/channel:...`），由框架落到默认 agent。
+  - `resolveStorePath` 改用路由解析出的 agentId（2026.8+ 缺 agentId 会抛错），解析失败时跳过 `recordInboundSession`（SDK 可选能力），不再猜测 agent id。
+- **行为变化**：私聊/频道消息现在参与路由 bindings 解析，配置了 napcat channel binding 的用户会按绑定路由到对应 agent（此前被忽略）。
+
 ### [Unreleased] - 适配 openclaw 2026.7.2
 
 #### Changed
