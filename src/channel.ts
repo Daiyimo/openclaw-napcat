@@ -16,7 +16,6 @@ import { normalizeTarget } from "./message-parser.js";
 import { PassiveModeManager } from "./passive-mode.js";
 import type { InboundRateLimitStore, Logger, ResolvedQQAccount } from "./types/channel-types.js";
 import { resolveOutboundSessionRoute } from "./utils/resolve-session-route.js";
-import { initConfigRef } from "./config-watcher.js";
 import { PROBE_DEFAULT_TIMEOUT_MS } from "./constants.js";
 import { getLog } from "./admin-commands/shared.js";
 
