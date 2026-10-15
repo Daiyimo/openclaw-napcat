@@ -55,12 +55,21 @@ docker logs openclaw --tail 20
 
 ## 更新 OpenClaw
 
-```bash
-docker compose pull           # 拉取最新官方镜像
-docker compose up -d          # 重启
-# 插件在数据卷中，不受镜像更新影响
-# QQ 渠道配置每次重启自动从 QQ_* 环境变量恢复，无需手动操作
-```
+基线镜像**已钉定版本**（`docker-compose.yml` 的 `image:`，当前 `2026.10.3`），
+`docker compose pull` 不会再拉到新版本——这是有意的：openclaw 发版会变 plugin-sdk
+（2026.7.2 曾一次删除 44 个公开子路径且未标 BREAKING），`:latest` 意味着这类变动直接
+在 NAS 上生效，channel 可能静默不加载。
+
+升级是主动动作，按顺序做：
+
+1. 宿主机 `npm update openclaw`（把测试 SDK 对齐到目标版本）
+2. `npm test` —— `sdk-surface` 冒烟测试会告诉你要不要看 release notes
+3. 改 `docker-compose.yml` 的 image tag → `docker compose pull && docker compose up -d`
+
+插件在数据卷中，不受镜像更新影响；QQ 渠道配置每次重启自动从 `QQ_*` 环境变量恢复。
+
+更强的钉定（tag 仍可能被重推，digest 不会）见 `docker-compose.yml` 头部注释，
+在 NAS 上执行 `docker inspect --format='{{index .RepoDigests 0}}' <image>` 解析。
 
 ## 更新 QQ 插件
 

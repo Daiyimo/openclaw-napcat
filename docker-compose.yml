@@ -14,10 +14,27 @@
 # 修改 QQ_* 配置后，需手动同步到 openclaw.json：
 #   docker exec openclaw node /home/node/.openclaw/extensions/napcat/docker/setup-config.cjs
 #   docker compose restart openclaw
+#
+# ── 基线镜像版本钉定（勿改回 :latest）──────────────────────────────────────
+# openclaw 发版会变 plugin-sdk（2026.7.2 曾一次删除 44 个公开子路径且未标
+# BREAKING）。:latest 意味着这类变动直接在你 NAS 上生效，channel 可能静默
+# 不加载，只能从"QQ 没人回话"开始排查。钉版本 = 升级是你主动、可计划的动作。
+#
+# 升级流程（按顺序）：
+#   1. 宿主机改 package.json 的 peerDependencies / 本地 npm update openclaw
+#      （把测试用的 SDK 版本对齐到目标版本）
+#   2. npm test —— sdk-surface 冒烟测试会告诉你要不要看 release notes
+#   3. 改下面 image 的 tag，docker compose pull && docker compose up -d
+#
+# 更强的钉定（tag 仍可能被重推，digest 不会）——在 NAS 上执行：
+#   docker pull ghcr.io/openclaw/openclaw:2026.10.3
+#   docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/openclaw/openclaw:2026.10.3
+# 把输出的 ghcr.io/openclaw/openclaw@sha256:... 填到下面 image（注意 digest 与
+# CPU 架构绑定，NAS 换架构需重新解析）。
 
 services:
   openclaw:
-    image: ghcr.io/openclaw/openclaw:latest
+    image: ghcr.io/openclaw/openclaw:2026.10.3
     container_name: openclaw
     # 默认 root：NAS（Synology 等）数据卷常为 root 属主，node 用户写不进去。
     # 数据卷属主匹配时可改为 "${OPENCLAW_CONTAINER_USER:-1000:1000}" 等值。

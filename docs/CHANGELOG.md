@@ -29,6 +29,13 @@
 
 - **`scripts/refresh-groups.cjs`**：全仓零引用，函数体拉完 `getGroupList()` 直接 `exit(0)` 不写任何 route（群路由实际在首条群消息到达时自动注册），留存只会误导维护者。
 
+#### Changed — 基线镜像钉定与 SDK 冒烟门禁
+
+针对"openclaw 每次发版都可能破坏插件、且坏在 NAS 运行时难以排查"的结构性风险：
+
+- **docker-compose 基线镜像从 `:latest` 钉定为版本 tag（`2026.10.3`）**：`:latest` 意味着上游 plugin-sdk 变动（2026.7.2 曾一次删除 44 个公开子路径且未标 BREAKING）直接在生产生效，channel 可能静默不加载。钉定后升级变为主动动作，流程写进 compose 头部注释与 `docs/DOCKER.md`（先 `npm update openclaw` + `npm test`，再改 tag）。附 NAS 上转 sha256 digest 钉定的命令（tag 可被重推，digest 不能）。
+- **新增 `src/__tests__/sdk-surface.test.ts`（4 用例）**：把上游依赖表面固化为测试门禁——① 插件 import 的 7 个 `plugin-sdk/core` 符号必须存在；② 插件在 `channelRuntime` 上调用的 5 个成员名必须存在于包内类型声明（宿主传入的 runtime 按 any 校验，上游改名编译期发现不了、运行时可选链静默不执行）；③ 测试实际加载的 openclaw 必须满足 peer 下限（防止对过旧 SDK 放行）。已做变异验证：注入不存在符号时按预期失败并输出定位指引。
+
 #### Tests
 
 - **新增 `src/__tests__/registration-contract.test.ts`（16 用例）**：覆盖此前无测试的三处——入口形态与 re-export、6 种 registrationMode 行为矩阵（cli-metadata/tool-discovery 不注册不注入，setup-only 只注册，full/discovery 注册+注入）、channel plugin 11 个必备 adapter 与 config adapter 行为、setup-entry 形态与"不引入重运行时模块"静态断言。
