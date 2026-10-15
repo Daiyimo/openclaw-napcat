@@ -47,7 +47,7 @@ services:
       HOME: /home/node
       TZ: ${TZ:-Asia/Shanghai}
       OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
-      # QQ 连接配置（对应 channels.qq.*）
+      # QQ 连接配置（对应 channels.napcat.*）
       QQ_HTTP_URL: http://napcat:3000
       QQ_WS_URL: ws://napcat:3001
       QQ_ACCESS_TOKEN: ${QQ_ACCESS_TOKEN:-}

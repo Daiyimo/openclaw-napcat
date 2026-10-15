@@ -250,7 +250,8 @@ services:
 
   # ── OpenClaw + QQ 插件 ─────────────────────────────────────
   openclaw:
-    image: ghcr.io/openclaw/openclaw:latest
+    # 基线镜像钉定版本（勿改回 :latest，原因与升级流程见 docs/DOCKER.md）
+    image: ghcr.io/openclaw/openclaw:2026.10.3
     container_name: openclaw
     user: "0:0"
     depends_on:

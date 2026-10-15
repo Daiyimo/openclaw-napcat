@@ -6,7 +6,7 @@
 #
 # 用法：
 #   docker build -t openclaw-qq .
-#   docker build --build-arg OPENCLAW_IMAGE=ghcr.io/openclaw/openclaw:3.31 -t openclaw-qq .
+#   docker build --build-arg OPENCLAW_IMAGE=ghcr.io/openclaw/openclaw:2026.10.3 -t openclaw-qq .
 #
 # 多平台构建：
 #   docker buildx build --platform linux/amd64,linux/arm64 -t openclaw-qq .
@@ -36,8 +36,8 @@ RUN npm ci --omit=dev --ignore-scripts \
     || npm ci --omit=dev --ignore-scripts
 
 # ── Stage 2: 集成到 OpenClaw 镜像 ─────────────────────────────────────────────
-# 默认使用官方 openclaw 镜像；可通过 --build-arg 覆盖
-ARG OPENCLAW_IMAGE=ghcr.io/openclaw/openclaw:latest
+# 默认使用官方 openclaw 镜像（钉定版本，与根 docker-compose.yml 一致）；可通过 --build-arg 覆盖
+ARG OPENCLAW_IMAGE=ghcr.io/openclaw/openclaw:2026.10.3
 
 FROM ${OPENCLAW_IMAGE}
 

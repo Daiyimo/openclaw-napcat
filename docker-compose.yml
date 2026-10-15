@@ -1,11 +1,11 @@
-# openclaw-napcat docker-compose (docker-adaptation 分支)
+# openclaw-napcat docker-compose (main 分支)
 #
 # 本分支仅管理 OpenClaw 容器，NapCat 由独立的 docker-compose 运行。
 #
 # 部署流程：
 #   1. 复制 config/.env.example 为 .env 并填写参数
 #   2. docker compose up -d
-#   3. docker exec -it openclaw sh -c "curl -fsSL https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/docker-adaptation/scripts/docker-install.sh | OPENCLAW_NAPCAT_BRANCH=docker-adaptation bash"
+#   3. docker exec -it openclaw sh -c "curl -fsSL https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/scripts/docker-install.sh | bash"
 #   4. docker exec -it openclaw openclaw onboard
 #   5. docker compose restart openclaw
 #
