@@ -8,7 +8,6 @@
 
 import { cleanCQCodes } from "./message-parser.js";
 import { DEFAULT_RESPONSE_GUIDELINES } from "./constants.js";
-import type { Logger } from "./types/channel-types.js";
 
 // ============ 常量 ==========
 

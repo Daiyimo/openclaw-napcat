@@ -11,7 +11,6 @@ import type { InboundContext } from "../types/channel-types.js";
 import { populateGroupMemberCache } from "../member-cache.js";
 import { trimDedupSet } from "../utils/cache-evict.js";
 import { maskId } from "../utils/log-sanitize.js";
-import { resolvePassiveModeTemperature } from "../config.js";
 import { DEDUP_TRIM_THRESHOLD } from "../constants.js";
 
 export interface FilterResult {

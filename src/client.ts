@@ -7,12 +7,11 @@ import {
   TimeoutError,
   ClientApiError,
   ServerApiError,
-  RateLimitError,
 } from "./errors/napcat-error.js";
 import { maskUrl } from "./utils/log-sanitize.js";
 import { getLog } from "./admin-commands/shared.js";
 import { withRetry, isRetryableError } from "./utils/retry.js";
-import { BAN_DEFAULT_MINUTES, MUTE_DEFAULT_MINUTES } from "./admin-commands.js";
+import { BAN_DEFAULT_MINUTES } from "./admin-commands.js";
 import { HONOR_TYPE_ALL, GROUP_FILE_DEFAULT_COUNT, SENT_FINGERPRINT_CLEANUP_THRESHOLD } from "./constants.js";
 import type { Logger } from "./types/channel-types.js";
 import {

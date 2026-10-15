@@ -15,10 +15,6 @@ import { isKnownBot, getBotInfo } from "../known-bots-store.js";
 import { shouldBotReplyToStop, getBotStopDelay } from "../utils/bot-decision.js";
 import { matchEmojiId } from "../utils/emoji-rules.js";
 import {
-  detectSensitiveFileRequest,
-  DEFAULT_REJECTION_MESSAGE,
-} from "../utils/sensitive-guard.js";
-import {
   extractImageUrls,
   downloadImages,
   cleanCQCodes,
@@ -27,15 +23,13 @@ import {
 import { createDeliverDebouncer, type DeliverPayload, type DeliverInfo } from "../deliver-debounce.js";
 import { TypingKeepAlive } from "../typing-keepalive.js";
 import { recordRef, lookupRef } from "../ref-index-store.js";
-import { handleAdminCommand } from "../admin-commands.js";
-import { registerGroupRoute } from "./group-route-registry.js";
 import { maskId } from "../utils/log-sanitize.js";
 import {
   buildFromId,
   buildBodyWithReply,
 } from "../message-processor.js";
 import { MessageSender } from "../message-sender.js";
-import { filterStage, type FilterResult } from "./filter.js";
+import { filterStage } from "./filter.js";
 import { triggerStage } from "./trigger.js";
 import {
   ERROR_NOTIFY_SLEEP_MS,

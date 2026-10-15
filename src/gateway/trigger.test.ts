@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import type { QQConfig } from "../config.js";
 import { isInSleepHours } from "./trigger.js";
 import { DEFAULT_SLEEP_START_HOUR, DEFAULT_SLEEP_END_HOUR } from "../constants.js";

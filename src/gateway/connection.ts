@@ -7,7 +7,7 @@
  */
 
 import type { OneBotClient } from "../client.js";
-import type { ConnectionContext, SharedState } from "../types/channel-types.js";
+import type { ConnectionContext } from "../types/channel-types.js";
 import {
   LOGIN_INFO_TIMEOUT_MS,
   GROUP_ROUTE_REFRESH_INTERVAL_MS,

@@ -15,7 +15,6 @@ import { getPackageVersion } from "./utils/pkg-version.js";
 import { updateConfigRef, getConfigRef } from "./config-watcher.js";
 import { resolvePassiveModeTemperature } from "./config.js";
 import { invalidateOtherBotNamesCache } from "./gateway/trigger-state.js";
-import { requireConfirm } from "./utils/confirm-pending.js";
 import {
   getCwd,
   pushCwd,
@@ -34,9 +33,7 @@ import { sendProactive } from "./proactive.js";
 import {
   extractAtTarget,
   extractAtTargets,
-  extractReplyMsgId,
   extractImageFile,
-  reply,
   needConfirm,
   fmtError,
   requireGroup,
@@ -58,7 +55,6 @@ import {
   LOGS_DEFAULT_COUNT,
   LOGS_MAX_COUNT,
   ESSENCE_MAX_DISPLAY,
-  CONFIRM_TIMEOUT_SECONDS,
 } from "./admin-commands/constants.js";
 
 import { DEFAULT_SLEEP_START_HOUR, DEFAULT_SLEEP_END_HOUR } from "./constants.js";

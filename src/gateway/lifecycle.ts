@@ -6,10 +6,7 @@
  * 从 channel.ts startAccount 中提取，行为不变。
  */
 
-import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import { OneBotClient } from "../client.js";
-import type { QQConfig } from "../config.js";
-import type { MetricsCollector, AlertCooldown } from "../metrics.js";
 import type {
   InboundRateLimitStore,
   PluginRuntimeChannel,
@@ -34,7 +31,7 @@ import { installMessageHandler } from "./inbound.js";
 import { initKnownBotsStore, flushKnownBotsStore } from "../known-bots-store.js";
 import { cleanupDialogState } from "../dialog-state.js";
 import { InboundRateLimiter } from "../rate-limiter.js";
-import { trimSet, trimDedupSet } from "../utils/cache-evict.js";
+import { trimDedupSet } from "../utils/cache-evict.js";
 import { startTtlSweep, stopTtlSweep } from "../member-cache.js";
 import { getLog } from "../admin-commands/shared.js";
 
