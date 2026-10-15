@@ -118,7 +118,11 @@ BRANCH="${BRANCH:-main}"
 # ── 前置检查 ──────────────────────────────────────────────────────────────────
 check_prerequisites() {
     log "检查 Docker 环境..."
-    command -v docker &>/dev/null || fail "未找到 docker 命令"
+    command -v docker &>/dev/null || fail "未找到 docker 命令
+  remote-upgrade.sh 必须在 Docker 宿主机上运行(需 docker cp / restart 操作容器)
+  若你正在 openclaw 容器内升级, 改用 docker-install.sh:
+    curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/scripts/docker-install.sh | bash
+    (随后在宿主机执行 docker restart openclaw)"
     detect_container
     detect_data_dir "$CONTAINER_NAME"
 

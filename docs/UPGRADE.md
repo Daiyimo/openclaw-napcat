@@ -23,6 +23,10 @@ curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/opencl
 gh-proxy.com 失效时换 `https://ghproxy.net/` 前缀。两者于 2026-10-15 在本机网络实测可用
 （各 5 轮全部返回真实脚本内容，耗时 0.6–2.8s）。
 
+> **在宿主机执行，不要在 openclaw 容器内执行**——脚本需要调用宿主机的 docker
+> （cp 文件进出容器、重启容器），容器里没有 docker 命令，会报"未找到 docker 命令"退出。
+> 容器内升级请改用 `docker-install.sh`，见 [DOCKER.md](DOCKER.md)。
+
 以下代理实测**不可用**，请勿使用：
 
 | 代理 | 实测结果（2026-10-15） |
