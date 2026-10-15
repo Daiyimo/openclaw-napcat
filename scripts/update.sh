@@ -11,7 +11,7 @@ if [ -z "$EXT_DIR" ]; then
     fi
 fi
 
-PLUGIN_DIR="$EXT_DIR/qq"
+PLUGIN_DIR="$EXT_DIR/napcat"
 
 if [ ! -d "$PLUGIN_DIR" ]; then
     echo "错误: 未找到插件目录 $PLUGIN_DIR，请先运行 install.sh 安装插件"

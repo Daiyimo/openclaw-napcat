@@ -2,9 +2,42 @@
 
 # 更新日志
 
-### [Unreleased] - 适配 openclaw 2026.7.2
+### v1.11.0 - 上游契约对齐与部署缺陷修复 (2026-10-15)
 
-#### Changed
+#### Fixed — Docker 部署链路
+
+- **`update.sh` 更新脚本 100% 失败**：`PLUGIN_DIR` 指向 `$EXT_DIR/qq`，而 `install.sh` 一直安装为 `napcat` 目录，执行更新必然报"未找到插件目录"退出。已对齐为 `napcat`。
+- **`QQ_BOT_STOP_REPLY_RATIO` 环境变量完全无效**：`setup-config.cjs` 用 `parseIntOpt` 解析该浮点参数，`"0.66"` 被静默丢弃（docker-compose.yml 声明的默认值形同虚设）。新增 `parseFloatOpt`（整串正则校验，防 `"0.66abc"` 部分匹配）并加 0–1 范围校验，越界 warn 后忽略。
+- **`QQ_PASSIVE_MODE_BOT_SUPPRESSION_MS` 无法通过 env 设置**：`setup-config.cjs` 已解析但 docker-compose.yml 未声明（env parity 检查 exit 2）。已在 compose 补声明，默认值与 `config.ts` 一致（120000）。
+- **`docs/DOCKER.md` 配置路径写错**：验证日志示例与目录结构图写 `channels.qq`，实际为 `channels.napcat`。
+
+#### Changed — 上游清单契约补齐
+
+对照 openclaw 2026.7.2 源码（`packages/plugin-package-contract`、`docs/plugins/`、`extensions/discord|telegram` 范本）：
+
+- **`package.json#openclaw` 补齐**：新增 `setupEntry`（轻量 setup 入口，onboarding / 只读状态 / SecretRef 扫描不再加载完整入口）、`channel` catalog 元数据（label/selectionLabel/detailLabel/docsPath/blurb/markdownCapable/commands）、`install`（npmSpec/defaultChoice/minHostVersion）、`compat.minGatewayVersion`。必填项 `compat.pluginApi` / `build.openclawVersion` 原本已满足。
+- **`openclaw.plugin.json` 补齐**：新增 `name` / `description` / `categories:["channels"]` / `activation.onStartup:false`。未声明 `doctorContract`：本插件无 doctor / configRepair / stateMigrations 实现，声明会导致 doctor 尝试加载不存在的模块。
+- **新增 `src/setup-entry.ts`**：默认导出 `defineSetupPluginEntry(...)`，模块图仅含 `plugin-sdk/core` + `config.ts`（纯 zod）+ `config-adapter.ts`，不触碰 client/gateway/outbound。`defineSetupPluginEntry` 已在本机 `node_modules/openclaw` 实测导出存在。
+- **抽取 `src/config-adapter.ts`**：config adapter 从 `channel.ts` 移至独立模块，`channel.ts` 与 `setup-entry.ts` 共用；`ResolvedQQAccount` 类型移至 `types/channel-types.ts`。纯移动，`resolveAccount` 逻辑逐行不变。
+
+#### Changed — 部署安全默认值可控化
+
+- **`gateway.controlUi.allowInsecureAuth` 不再无条件写 true**：改为读 `QQ_CONTROL_UI_INSECURE_AUTH`（默认 true，保持历史行为零回归），有反代理或重视安全的部署可显式关闭。同步在 compose 与 `config/.env.example` 声明。
+- **compose 容器用户参数化**：`user: "0:0"` → `user: "${OPENCLAW_CONTAINER_USER:-0:0}"` 并注释原因（NAS 数据卷常为 root 属主）。默认不变。
+
+#### Removed
+
+- **`scripts/refresh-groups.cjs`**：全仓零引用，函数体拉完 `getGroupList()` 直接 `exit(0)` 不写任何 route（群路由实际在首条群消息到达时自动注册），留存只会误导维护者。
+
+#### Tests
+
+- **新增 `src/__tests__/registration-contract.test.ts`（16 用例）**：覆盖此前无测试的三处——入口形态与 re-export、6 种 registrationMode 行为矩阵（cli-metadata/tool-discovery 不注册不注入，setup-only 只注册，full/discovery 注册+注入）、channel plugin 11 个必备 adapter 与 config adapter 行为、setup-entry 形态与"不引入重运行时模块"静态断言。
+
+---
+
+#### 适配 openclaw 2026.7.2
+
+##### Changed
 
 - **验证并适配 openclaw 2026.7.2**：7.1 → 7.2 期间官方删除了 **44 个 plugin-sdk 公开子路径**（含 `channel-ingress` / `channel-runtime` / `channel-envelope` / `direct-dm` / `outbound-runtime` / `webhook-path` 等，以及 `openclaw/plugin-sdk` 根 barrel 与 `openclaw/extension-api`），且 CHANGELOG 未标注任何 `BREAKING`。逐项核对结论：
   - 本插件全部导入只走 `openclaw/plugin-sdk/core`，**零命中**上述删除清单；`emptyPluginConfigSchema` / `buildChannelConfigSchema` / `DEFAULT_ACCOUNT_ID` / `normalizeAccountId` / `applyAccountNameToChannelSection` / `migrateBaseNameToDefaultAccount` 六个运行时符号在 7.2 仍然存在。
@@ -13,9 +46,9 @@
   - 8-15 / 8-30 / 9-01 三批即将到期的 compat 窗口（`channel-secret-runtime` / `inbound-reply-dispatch` / `channel-streaming` 等）本插件均未使用。
   - **`compat.pluginApi` 与 `peerDependencies` 保持 `>=2026.7.1` 不变**：该字段是下限，2026.7.2 本就满足；抬到 `>=2026.7.2` 会让仍在 2026.7.1 上的宿主**静默跳过加载**（`manifest-registry.ts` 对不满足的 range 只 warn 后 continue，不抛错），属于有害收紧。仅将 `build.openclawVersion` 更新为 `2026.7.2` 以标记已验证版本。
 
-### [Unreleased] - 出站媒体 URL 防护与日志凭据脱敏
+#### 出站媒体 URL 防护与日志凭据脱敏
 
-#### Fixed
+##### Fixed
 
 - **出站 `resolveMediaUrl` 的 SSRF 检查完全空转，且日志谎报已拦截**：`message-parser.ts` 的 http(s) 分支三条路径（私网命中、重定向链命中、正常）全部 `return url`，检查结果不影响任何行为，却打日志声称 `SSRF blocked`。
   - 根因是语义错位：该函数**不 fetch** 目标 URL —— 返回值被塞进 OneBot 消息的 `file` 字段，由 NapCat 下载。因此 `return url` 等于放行，真阻断必须 throw。
@@ -26,7 +59,7 @@
 - **入站图片下载无体积上限，可被单条消息 OOM 打死**：`downloadImages` 直接 `Buffer.from(await resp.arrayBuffer())`，而 `MAX_LOCAL_FILE_SIZE` 只约束本地文件。图片 URL 来自 QQ 消息，属未认证外部输入。
   - 修复：先用 `Content-Length` 提前拒绝，再流式累积校验（`Content-Length` 可缺失或造假），上限 20MB，超限跳过该图并告警。
 
-#### Added
+##### Added
 
 - **`mediaUrlGuard` 配置项**（默认 `metadata-only`）：出站媒体 URL 防护档位。
   - `metadata-only`（默认）：阻断云元数据端点（`169.254.169.254` / `100.100.100.200` / `metadata.*`），私网与回环放行并告警。分档而非一刀切的原因是本项目典型部署中 NapCat 与媒体源同处内网（`docker-compose.yml` 的 `QQ_HTTP_URL` 默认 `http://192.168.1.100:3000`），一律阻断会掐断正常发图；而云元数据端点对发图零合法用途，被读取即等同泄露云账号凭证。
@@ -34,13 +67,13 @@
   - `off`：不做判定。
   - 注意：`message-sender.ts` 中"从文本提取媒体"与 `sendMediaUrl` 两条路径原有的私网前置阻断**行为保持不变**（它们本就是真阻断），本次改动为纯增量收紧，未放松任何既有拦截，也未新增对私网的阻断。
 
-#### Notes
+##### Notes
 
 - 已知遗留（本次未改，需要时再处理）：出站私网策略在 4 条路径上并不统一 —— `message-sender.ts` 的文本提取媒体与 `sendMediaUrl` 会阻断私网，而 image item 与 `outbound.sendMedia` 放行。统一任一方向都会改变现有行为，故未纳入本次范围。
 
-### [Unreleased] - 适配 openclaw 2026.7.1
+#### 适配 openclaw 2026.7.1
 
-#### Changed
+##### Changed
 
 - **适配 openclaw 2026.7.1**：插件基线从 2026.6.11 升级到 2026.7.1（6.11 → 7.1 对 channel 插件零破坏性变更）。
   - 导入统一迁移到 `openclaw/plugin-sdk/core`：修复 `DEFAULT_ACCOUNT_ID` / `applyAccountNameToChannelSection` / `migrateBaseNameToDefaultAccount` 三个符号在根路径不存在导致的隐患，并消除 compat deprecation 警告。
@@ -48,22 +81,22 @@
   - outbound 返回值对齐 `OutboundDeliveryResult` 契约：`messageId` 改为必填（成功但无平台 id 时为 `""`），失败路径统一改为 throw（原 `{ sent: false, error }` 形状移除）。
   - peer 要求 openclaw >= 2026.7.1，`package.json` 补充 `compat.pluginApi` / `build.openclawVersion` 元数据。
 
-#### Fixed
+##### Fixed
 
 - **`openclaw.plugin.json` 的 `channelConfigs.napcat` 被框架静默丢弃**：该条目缺少 `schema` 字段，`normalizeChannelConfigs` 会直接跳过。已补充与顶层 `configSchema` 一致的 JSON Schema。
 
-### [Unreleased] - 投递层防御性类型转换
+#### 投递层防御性类型转换
 
-#### Fixed
+##### Fixed
 
 - **`TypeError: text?.trim is not a function` 导致投递失败**：cron agent / AI 上游将数字类型（如 `207.44`）作为 `text` 字段传递，Napcat 投递层三处 `.trim()` 调用均未做类型防御，导致消息发送崩溃、`delivered: false`。
   - 修复：在 `send-text.ts`、`message-sender.ts`、`deliver-debounce.ts` 三个入口统一加 `typeof text === "string" ? text : String(text ?? "")` 防御性归一化。
   - 新增回归测试覆盖两条发送路径（send-text / message-sender），数字类型 `text` 不再崩溃。
   - 约定：**所有出站入口的 `text` / `payload.text` 必须第一时间归一化为字符串，后续代码不再做类型假设**。
 
-### [Unreleased] - 远程一键升级
+#### 远程一键升级
 
-#### Added
+##### Added
 
 - **`scripts/remote-upgrade.sh`**：一行 curl 命令跨服务器升级 Docker 部署的 OpenClaw NapCat。
   - 适用场景：你在任意设备（笔记本、朋友的服务器）上执行升级，无需手动 docker exec。
@@ -71,25 +104,25 @@
   - 特性：多镜像兜底下载、容器内编译、自动备份/回滚、支持自定义 CONTAINER_NAME / DATA_DIR / BRANCH。
   - 国内加速：`curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/... | bash`
 
-### [Unreleased] - /temperature 显示优化
+#### /temperature 显示优化
 
-#### Fixed
+##### Fixed
 
 - **`/temperature` 无参数时显示"未设 temperature，使用子参数模式"**：即使用户通过 `cooldownMs` / `minIntervalMs` / `botSuppressionMs` 子参数配置了被动模式，也会显示此提示，令人困惑。
   - 修复：无参数时始终显示当前生效的子参数值，header 区分"显式设了 temperature"和"使用子参数"两种模式。
 
-### [Unreleased] - docker-install.sh set -e 陷阱修复
+#### docker-install.sh set -e 陷阱修复
 
-#### Fixed
+##### Fixed
 
 - **`scripts/docker-install.sh` 第一个镜像失败时 silent 退出**：用户在容器里跑 `curl -fsSL .../docker-install.sh | bash`，输出 "尝试: https://ghfast.top/..." 后脚本直接退回 shell prompt，没有任何错误诊断。
   - 根因：line 134 用 `curl_err=$(curl ... 2>&1)` 形式。按 bash 规范，命令替换内命令的非零退出不应触发 set -e；**但 bash 4.4 之前的版本（以及部分容器 minimal shell）行为不一致**，会因 inner curl 失败立刻退出，跳过下面的 case 诊断和 fallback 镜像循环。
   - 修复：改用 `set +e` / `set -e` 显式包裹 curl 调用，并加 `< /dev/null` 显式关闭 stdin 防 `curl | bash` 模式下子 curl 偷读外层 pipe 字节。
   - 影响范围：所有用 docker-install.sh 一键安装的用户，特别是 ghfast.top 在当前网络环境不可达时。`install.sh` / `update.sh` 已经用 `if curl ...; then` 模式，无此问题。
 
-### [Unreleased] - 群管理全套补齐
+#### 群管理全套补齐
 
-#### Added — 群管命令从 3 个扩展到 30+
+##### Added — 群管命令从 3 个扩展到 30+
 
 参考 NapCat 4.18.1 OpenAPI 补齐群管命令，按分组展示。详见 [`docs/COMMANDS.md`](COMMANDS.md)。
 
@@ -122,29 +155,29 @@
 
 **底层 `src/client.ts` 同步补齐 27 个 OneBot/NapCat API**（`setGroupAdmin / setGroupCard / setEssenceMsg / getGroupRootFiles / setGroupPortrait` 等）。
 
-#### Added — 二次确认机制
+##### Added — 二次确认机制
 
 新增 `src/utils/confirm-pending.ts`（纯函数 + 模块 Map，30s TTL）。高代价命令（带 ⚠️）首次触发返回 "pending" 提示，30 秒内同 admin 同 action 再发一次才真正执行。防止手滑误操作。
 
-#### Added — 群文件 cwd 状态
+##### Added — 群文件 cwd 状态
 
 新增 `src/utils/group-file-cwd.ts`（纯函数 + 模块 Map）。每个 admin 在每个群里独立维护当前目录栈，`/cd /cdup /files` 等命令像 shell 一样工作。
 
-#### Added — 测试 +54
+##### Added — 测试 +54
 
 - `confirm-pending.test.ts` 11 it（纯函数零 mock）
 - `group-file-cwd.test.ts` 10 it（纯函数零 mock）
 - `admin-commands.test.ts` +33 it：覆盖新命令 happy path + 二次确认 + cwd 流转 + 边界
 
-#### Why
+##### Why
 
 - 现状：napcat 群管命令只有 3 个（`/mute /ban /kick`），75% 群管 API 在 client.ts 也空白
 - 痛点：群主每次想做群管要切 NapCat WebUI 手动点
 - 决策：参考 NapCat 4.18.1 OpenAPI 全套补齐；高代价操作走二次确认防误按；全部仅 admin 与现有 gate 一致
 
-### [Unreleased] - 系统文件预拦截
+#### 系统文件预拦截
 
-#### Added
+##### Added
 
 - **`sensitiveFileGuard` 配置项**（默认启用）：在 inbound pipeline 中拦截非 admin 用户对系统文件（SOUL/AGENTS/IDENTITY/USER/MEMORY.md）的修改请求。命中时直接 reply 一句拒绝消息并 return，不调用 OpenClaw。Admin 完全不受影响。
   - 两路匹配：文件名直命（如 "改一下你的 SOUL.md"）或动词+名词意图组合（如 "帮我修改一下人设"）
@@ -154,7 +187,7 @@
   - 完整配置示例与字段说明见 [`docs/CONFIG.md`](CONFIG.md#sensitivefileguard-详细说明)
 - 新增纯函数模块 `src/utils/sensitive-guard.ts` + 21 个单元测试 + 6 个集成测试
 
-#### Why
+##### Why
 
 - **问题**：非管理员在 QQ 群 @bot 后能让 bot 修改 SOUL.md（人设文件）
 - **根因**（已在主项目 openclaw 验证）：napcat 网关已正确传 `CommandAuthorized: isAdmin` 给 OpenClaw，但 OpenClaw 主项目的 `src/agents/` 树整体不读这个字段，LLM tool dispatch 层（write/edit/apply_patch 工具）缺权限闸门

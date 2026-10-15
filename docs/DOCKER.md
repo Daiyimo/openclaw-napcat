@@ -49,7 +49,7 @@ docker restart openclaw
 
 ```bash
 docker logs openclaw --tail 20
-# 应看到 [openclaw-napcat] channels.qq 已从环境变量写入
+# 应看到 [openclaw-napcat] channels.napcat 已从环境变量写入
 # 以及 openclaw 正常启动日志
 ```
 
@@ -100,7 +100,7 @@ OpenClaw 原生支持任意 OpenAI-compatible 模型（包括 StepFun）。
 
 ```
 /volume1/docker/openclaw/          ← 持久化数据卷
-├── openclaw.json                  # OpenClaw 配置（含 channels.qq）
+├── openclaw.json                  # OpenClaw 配置（含 channels.napcat）
 ├── extensions/
 │   └── napcat/                     # NapCat 插件（curl 安装，镜像更新不丢失）
 │       ├── dist/                  # 编译产物

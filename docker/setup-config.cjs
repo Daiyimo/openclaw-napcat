@@ -43,6 +43,14 @@ function parseIntOpt(raw) {
   return parseInt(trimmed, 10);
 }
 
+function parseFloatOpt(raw) {
+  if (!raw) return undefined;
+  const trimmed = raw.trim();
+  // 同 parseIntOpt 的防御：正则校验整串都是数字（允许小数），拒绝 "0.66abc" 部分匹配
+  if (!/^-?\d+(\.\d+)?$/.test(trimmed)) return undefined;
+  return parseFloat(trimmed);
+}
+
 const env = process.env;
 const qqEnv = {};
 
@@ -146,8 +154,14 @@ const stopKeywords = parseStringList(env.QQ_BOT_STOP_KEYWORDS);
 if (stopKeywords) qqEnv.botStopKeywords = stopKeywords;
 if (env.QQ_BOT_STOP_REPLY_ENABLED !== undefined)
   qqEnv.botStopReplyEnabled = parseBool(env.QQ_BOT_STOP_REPLY_ENABLED, true);
-const stopRatio = parseIntOpt(env.QQ_BOT_STOP_REPLY_RATIO);
-if (stopRatio !== undefined) qqEnv.botStopReplyRatio = stopRatio;
+const stopRatio = parseFloatOpt(env.QQ_BOT_STOP_REPLY_RATIO);
+if (stopRatio !== undefined) {
+  if (stopRatio < 0 || stopRatio > 1) {
+    console.warn(`[setup-config] QQ_BOT_STOP_REPLY_RATIO=${stopRatio} out of range [0,1], ignoring`);
+  } else {
+    qqEnv.botStopReplyRatio = stopRatio;
+  }
+}
 const stopDelay = parseIntOpt(env.QQ_BOT_STOP_REPLY_DELAY_MAX_MS);
 if (stopDelay !== undefined) qqEnv.botStopReplyDelayMaxMs = stopDelay;
 
@@ -229,8 +243,10 @@ config.plugins.entries.napcat = { enabled: true };
 
 config.gateway             = config.gateway ?? {};
 if (!config.gateway.mode)  config.gateway.mode = "local";
-// Docker 部署通常通过反向代理或直接暴露端口，allowInsecureAuth 简化本地 WebUI 鉴权
-config.gateway.controlUi = { ...(config.gateway.controlUi ?? {}), allowInsecureAuth: true };
+// Docker 部署通常通过反向代理或直接暴露端口，allowInsecureAuth 简化本地 WebUI 鉴权。
+// 默认 true 保持历史行为；有反代理或重视安全时设 QQ_CONTROL_UI_INSECURE_AUTH=false 关闭。
+const allowInsecureAuth = parseBool(env.QQ_CONTROL_UI_INSECURE_AUTH, true);
+config.gateway.controlUi = { ...(config.gateway.controlUi ?? {}), allowInsecureAuth };
 
 const tmpPath = CONFIG_PATH + ".tmp";
 fs.writeFileSync(tmpPath, JSON.stringify(config, null, 2) + "\n", "utf8");

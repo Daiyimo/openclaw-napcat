@@ -1,6 +1,5 @@
 import {
   type ChannelPlugin,
-  type ChannelAccountSnapshot,
   type OpenClawConfig,
   buildChannelConfigSchema,
   DEFAULT_ACCOUNT_ID,
@@ -10,11 +9,12 @@ import {
   type ChannelSetupInput,
 } from "openclaw/plugin-sdk/core";
 import { OneBotClient } from "./client.js";
-import { QQConfigSchema, type QQConfig, getQQConfigDefaults, resolvePassiveModeTemperature } from "./config.js";
+import { QQConfigSchema, type QQConfig } from "./config.js";
+import { createQQConfigAdapter } from "./config-adapter.js";
 import { registerClientsMap } from "./proactive.js";
 import { normalizeTarget } from "./message-parser.js";
 import { PassiveModeManager } from "./passive-mode.js";
-import type { InboundRateLimitStore, Logger } from "./types/channel-types.js";
+import type { InboundRateLimitStore, Logger, ResolvedQQAccount } from "./types/channel-types.js";
 import { resolveOutboundSessionRoute } from "./utils/resolve-session-route.js";
 import { initConfigRef } from "./config-watcher.js";
 import { PROBE_DEFAULT_TIMEOUT_MS } from "./constants.js";
@@ -26,12 +26,6 @@ import { sendText } from "./outbound/send-text.js";
 import { sendMedia } from "./outbound/send-media.js";
 import { createMetricsCollector } from "./metrics.js";
 import { AlertCooldown } from "./metrics.js";
-
-export type ResolvedQQAccount = ChannelAccountSnapshot & {
-  config: QQConfig;
-  client?: OneBotClient;
-  configured: boolean;
-};
 
 // 模块级日志引用（默认 console，可由外部注入框架 logger）
 let _log: Logger = console;
@@ -126,49 +120,7 @@ export const qqChannel: ChannelPlugin<ResolvedQQAccount, unknown, unknown> = {
     nativeCommands: true,
   },
   configSchema: buildChannelConfigSchema(QQConfigSchema),
-  config: {
-    listAccountIds: (cfg: OpenClawConfig) => {
-      const qq = cfg.channels?.napcat;
-      if (!qq) return [];
-      if (qq.accounts) return Object.keys(qq.accounts);
-      return [DEFAULT_ACCOUNT_ID];
-    },
-    resolveAccount: (cfg: OpenClawConfig, accountId?: string | null) => {
-      const id = accountId ?? DEFAULT_ACCOUNT_ID;
-      const qq = cfg.channels?.napcat;
-      const accountConfig = id === DEFAULT_ACCOUNT_ID ? qq : qq?.accounts?.[id];
-      const cleanConfig = accountConfig ? { ...accountConfig } : {};
-      delete (cleanConfig as Record<string, unknown>)._selfId;
-      delete (cleanConfig as Record<string, unknown>)._selfName;
-      const parsed = QQConfigSchema.safeParse(cleanConfig ?? {});
-      const rawConfig = parsed.success ? parsed.data : (accountConfig || {});
-      // safeParse 不填充 .default()，手动合并默认值（用户显式设置的优先）
-      const config: QQConfig = { ...getQQConfigDefaults(), ...rawConfig };
-      // passiveMode.temperature 优先映射到三个子参数
-      const pm = config.passiveMode;
-      if (pm?.temperature !== undefined && pm.temperature !== null) {
-        const mapped = resolvePassiveModeTemperature(pm.temperature);
-        if (mapped) {
-          config.passiveMode = { ...pm, ...mapped };
-        }
-      }
-      return {
-        accountId: id,
-        name: accountConfig?.name ?? "QQ Default",
-        enabled: true,
-        configured: Boolean(accountConfig?.wsUrl || accountConfig?.reverseWsPort),
-        tokenSource: accountConfig?.accessToken ? "config" : "none",
-        config,
-      };
-    },
-    defaultAccountId: (_cfg: OpenClawConfig) => DEFAULT_ACCOUNT_ID,
-    describeAccount: (acc: ResolvedQQAccount, _cfg: OpenClawConfig) => ({
-      accountId: acc.accountId,
-      name: acc.name,
-      enabled: acc.enabled ?? true,
-      configured: acc.configured,
-    }),
-  },
+  config: createQQConfigAdapter(),
   directory: {
     listPeers: async (params: { cfg: OpenClawConfig; accountId?: string | null; query?: string | null; limit?: number | null; runtime: any }) => {
       const client = getClientForAccount(params.accountId || DEFAULT_ACCOUNT_ID);

@@ -19,7 +19,9 @@ services:
   openclaw:
     image: ghcr.io/openclaw/openclaw:latest
     container_name: openclaw
-    user: "0:0"
+    # 默认 root：NAS（Synology 等）数据卷常为 root 属主，node 用户写不进去。
+    # 数据卷属主匹配时可改为 "${OPENCLAW_CONTAINER_USER:-1000:1000}" 等值。
+    user: "${OPENCLAW_CONTAINER_USER:-0:0}"
     restart: always
     ports:
       - "${OPENCLAW_GATEWAY_PORT:-18789}:18789"
@@ -33,6 +35,8 @@ services:
       OPENCLAW_DISABLE_BONJOUR: 1
       OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
       OPENCLAW_EXTRA_EXTENSIONS_DIR: /home/node/.openclaw/extensions
+      # 控制台免鉴权（HTTP 直暴露端口时方便访问；有反代理或重视安全时设 false）
+      QQ_CONTROL_UI_INSECURE_AUTH: ${QQ_CONTROL_UI_INSECURE_AUTH:-true}
       # ── NapCat 连接配置 ────────────────────────────────────────────────────
       # QQ_HTTP_URL: NapCat HTTP API 地址，必须是宿主机 IP，不能用 127.0.0.1
       QQ_HTTP_URL: ${QQ_HTTP_URL:-http://192.168.1.100:3000}
@@ -79,6 +83,7 @@ services:
       QQ_PASSIVE_MODE_MIN_INTERVAL_MS: ${QQ_PASSIVE_MODE_MIN_INTERVAL_MS:-30000}
       QQ_PASSIVE_MODE_SYSTEM_PROMPT: ${QQ_PASSIVE_MODE_SYSTEM_PROMPT:-}
       QQ_PASSIVE_MODE_TEMPERATURE: ${QQ_PASSIVE_MODE_TEMPERATURE:-}
+      QQ_PASSIVE_MODE_BOT_SUPPRESSION_MS: ${QQ_PASSIVE_MODE_BOT_SUPPRESSION_MS:-120000}
       # ── 其他 ────────────────────────────────────────────────────────────────
       QQ_FORCE_RECONFIGURE: ${QQ_FORCE_RECONFIGURE:-false}
     command: ["openclaw", "gateway", "--port", "18789", "--allow-unconfigured"]

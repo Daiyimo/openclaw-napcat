@@ -582,6 +582,8 @@ declare module "openclaw/plugin-sdk/core" {
 
   export function buildChannelConfigSchema(schema: any): ChannelConfigSchema;
   export function emptyPluginConfigSchema(): any;
+  /** 轻量 setup-only 入口包装：返回 { plugin }，无 runtime / CLI 接线（上游 core.ts:567） */
+  export function defineSetupPluginEntry<TPlugin>(plugin: TPlugin): { plugin: TPlugin };
 
   /** Shared setup input bag used by CLI, onboarding, and setup adapters. */
   export type ChannelSetupInput = {

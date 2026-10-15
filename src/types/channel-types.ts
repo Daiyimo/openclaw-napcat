@@ -3,13 +3,20 @@
  * Replaces inline `any` types with precise interfaces.
  */
 
-import type { OpenClawConfig, PluginRuntimeChannel } from "openclaw/plugin-sdk/core";
+import type { ChannelAccountSnapshot, OpenClawConfig, PluginRuntimeChannel } from "openclaw/plugin-sdk/core";
 export type { PluginRuntimeChannel };
 import type { OneBotClient } from "../client.js";
 import type { QQConfig } from "../config.js";
 import type { PassiveModeManager } from "../passive-mode.js";
 import type { UploadCache } from "../upload-cache.js";
 import type { MetricsCollector, AlertCooldown } from "../metrics.js";
+
+/** 解析后的 QQ 账户：框架账户快照 + 插件配置 + 运行时客户端 */
+export type ResolvedQQAccount = ChannelAccountSnapshot & {
+  config: QQConfig;
+  client?: OneBotClient;
+  configured: boolean;
+};
 
 export interface Logger {
   log: (...args: unknown[]) => void;
