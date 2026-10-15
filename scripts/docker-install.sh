@@ -1,10 +1,14 @@
 #!/bin/bash
 # Self-heal CRLF line endings (Windows compatibility)
-_byte_count=$(wc -c < "$0")
-_line_count=$(wc -l < "$0")
-if [ "$_byte_count" -gt "$_line_count" ]; then
-    tmpf=$(mktemp) && cat "$0" | tr -d '\r' > "$tmpf" && mv "$tmpf" "$0"
-    exec bash "$0" "$@"
+# 仅当从文件运行时才可自愈: curl | bash 管道模式 $0 是 "bash" 而非文件,
+# 此时 wc < "$0" 必然报 "No such file or directory", 直接跳过。
+if [ -f "$0" ] && [ "$0" != "bash" ]; then
+    _byte_count=$(wc -c < "$0")
+    _line_count=$(wc -l < "$0")
+    if [ "$_byte_count" -gt "$_line_count" ]; then
+        tmpf=$(mktemp) && cat "$0" | tr -d '\r' > "$tmpf" && mv "$tmpf" "$0"
+        exec bash "$0" "$@"
+    fi
 fi
 
 # openclaw-napcat QQ 插件安装脚本
