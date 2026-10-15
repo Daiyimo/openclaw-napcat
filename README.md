@@ -347,13 +347,21 @@ docker exec -it openclaw openclaw onboard   # 配置 AI 模型
 docker compose restart openclaw
 ```
 
-### 远程一键升级（跨服务器）
+> `docker-install.sh` 在**容器内**执行（下载 → 编译 → 安装 → 写配置一条龙），
+> 后续在容器内更新插件也重跑这条。注意它会重写 NapCat 配置；只想更新代码、
+> 保留配置的升级见下面的 remote-upgrade.sh（那条在宿主机执行）。
+
+### 远程一键升级（跨服务器，宿主机执行）
 
 已有实例的升级，在**宿主机**上执行一行命令即可：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/scripts/remote-upgrade.sh | bash
 ```
+
+> ⚠️ **此命令必须在宿主机执行，不要在 openclaw 容器内执行**：脚本要调用宿主机的
+> docker（cp 文件进出容器、重启容器），容器里没有 docker 命令，会报
+> "未找到 docker 命令"退出。在容器内升级请改用上面的 `docker-install.sh`。
 
 **国内加速（raw.githubusercontent.com 被墙时）：**
 

@@ -330,7 +330,9 @@ if [ -f scripts/fix-cron.cjs ]; then
     # Show key summary lines (suppress verbose per-job detail)
     echo "$FIX_RESULT" | grep -E "^(===|Config:|HA token:|NapCat:|CLI:|\s+Fixed:|\s+Skipped:|\s+Failed:|\s+\[)" || true
     if [ $FIX_EXIT -ne 0 ]; then
-        echo "  ⚠ fix-cron exited with code $FIX_EXIT — check output above"
+        echo "  ⚠ fix-cron exited with code $FIX_EXIT, 错误详情:"
+        echo "$FIX_RESULT" | grep -E "ERROR|Error:|✗" | head -5 | sed 's/^/      /' \
+            || echo "      (未捕获到错误行, 请手动运行: node scripts/fix-cron.cjs)"
     else
         echo "  ✓ cron fix complete"
     fi
