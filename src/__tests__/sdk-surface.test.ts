@@ -82,13 +82,13 @@ describe("openclaw SDK 表面冒烟", () => {
       `openclaw 已删除插件依赖的导出：${missing.join(", ")}。` +
         "对照上游 release notes 评估影响，并同步 src/openclaw-plugin-sdk.d.ts 与源码导入。",
     ).toEqual([]);
-  });
+  }, { timeout: 30_000 });
 
   it("A2. DEFAULT_ACCOUNT_ID 为字符串常量", async () => {
     const sdk = (await import("openclaw/plugin-sdk/core")) as Record<string, unknown>;
     expect(typeof sdk.DEFAULT_ACCOUNT_ID).toBe("string");
     expect((sdk.DEFAULT_ACCOUNT_ID as string).length).toBeGreaterThan(0);
-  });
+  }, { timeout: 30_000 });
 
   it("B. channelRuntime 调用的成员存在于包内类型声明", () => {
     const distDir = path.join(root, "dist");
@@ -105,7 +105,7 @@ describe("openclaw SDK 表面冒烟", () => {
       `openclaw 类型表面已无这些成员：${missing.join(", ")}。` +
         "插件经 channelRuntime 调用它们，可选链会静默不执行——检查上游 runtime 面改名记录并适配。",
     ).toEqual([]);
-  });
+  }, { timeout: 30_000 });
 
   it("C. 已安装 openclaw 版本满足 peer 下限", () => {
     const installed = readInstalledVersion(root);
@@ -115,5 +115,5 @@ describe("openclaw SDK 表面冒烟", () => {
       `测试加载的 openclaw 是 ${installed}，低于 peer 下限 ${peerRange}。` +
         "先 npm update openclaw 再跑测试，否则本冒烟测试形同虚设。",
     ).toBe(true);
-  });
+  }, { timeout: 30_000 });
 });

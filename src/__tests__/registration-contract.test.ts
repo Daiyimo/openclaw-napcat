@@ -4,13 +4,25 @@
  * 覆盖此前无直接测试的三处：
  *   1. index.ts 入口形态与 registrationMode 行为矩阵
  *   2. channel.ts 的 qqChannel plugin 对象必备面与 config adapter 行为
- *   3. setup-entry.ts 轻量 setup 入口形态与 import 面
+ *   3. setup-entry.ts 轻量 setup 入口形态
  *
- * runtime 单例是模块级状态，每个用例前 vi.resetModules() 拿全新注册表，
- * 避免用例间状态泄漏（对齐 lifecycle-concurrency.test.ts 的动态导入做法）。
+ * 结构说明（勿改为 per-test vi.resetModules + 动态 import）：
+ *   - 入口模块在文件顶部静态 import 一次，与套件其余 51 个测试文件一致；
+ *     每个用例 resetModules + 重新 import 13k 行模块图，在 53 文件并行负载下
+ *     会周期性误失败（实测约 20% 全量运行命中本文件）。
+ *   - runtime 单例是模块级状态且无 clear 导出，"未注入"断言依赖调用顺序：
+ *     矩阵用例必须按声明顺序执行（vitest 默认顺序执行），先跑三个不注入的
+ *     模式（cli-metadata / tool-discovery / setup-only），再跑注入的
+ *     （full / discovery）。调整顺序会使"未注入"断言失去意义。
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
+import plugin from "../index.js";
+import { qqChannel } from "../channel.js";
+import { getQQRuntime } from "../runtime.js";
+import setupEntry from "../setup-entry.js";
 
 /** 构造满足 isPluginRuntime 校验的假 runtime（需含 channel 属性） */
 function makeFakeRuntime() {
@@ -29,19 +41,14 @@ function makeFakeApi(mode: string) {
 }
 
 describe("插件注册契约", () => {
-  beforeEach(() => {
-    vi.resetModules();
-  });
-
   describe("入口形态", () => {
-    it("default export 含 id/name/description/configSchema/register", async () => {
-      const mod = await import("../index.js");
-      expect(mod.default.id).toBe("napcat");
-      expect(typeof mod.default.name).toBe("string");
-      expect(mod.default.name.length).toBeGreaterThan(0);
-      expect(typeof mod.default.description).toBe("string");
-      expect(mod.default.configSchema).toBeDefined();
-      expect(typeof mod.default.register).toBe("function");
+    it("default export 含 id/name/description/configSchema/register", () => {
+      expect(plugin.id).toBe("napcat");
+      expect(typeof plugin.name).toBe("string");
+      expect(plugin.name.length).toBeGreaterThan(0);
+      expect(typeof plugin.description).toBe("string");
+      expect(plugin.configSchema).toBeDefined();
+      expect(typeof plugin.register).toBe("function");
     });
 
     it("re-export 主动消息与已知用户 API（cron/外部脚本入口）", async () => {
@@ -57,53 +64,37 @@ describe("插件注册契约", () => {
   });
 
   describe("registrationMode 行为矩阵", () => {
-    it("cli-metadata：不注册 channel、不注入 runtime", async () => {
-      const { default: plugin } = await import("../index.js");
-      const { getQQRuntime } = await import("../runtime.js");
+    // 顺序敏感：前三个模式不注入 runtime，此时单例必须仍未初始化
+    it("cli-metadata：不注册 channel、不注入 runtime", () => {
       const api = makeFakeApi("cli-metadata");
       plugin.register(api);
       expect(api.registerChannel).not.toHaveBeenCalled();
       expect(() => getQQRuntime()).toThrow("QQ runtime not initialized");
     });
 
-    it("tool-discovery：不注册 channel、不注入 runtime", async () => {
-      const { default: plugin } = await import("../index.js");
-      const { getQQRuntime } = await import("../runtime.js");
+    it("tool-discovery：不注册 channel、不注入 runtime", () => {
       const api = makeFakeApi("tool-discovery");
       plugin.register(api);
       expect(api.registerChannel).not.toHaveBeenCalled();
       expect(() => getQQRuntime()).toThrow("QQ runtime not initialized");
     });
 
-    it("setup-only：注册 channel 但不注入 runtime", async () => {
-      const { default: plugin } = await import("../index.js");
-      const { getQQRuntime } = await import("../runtime.js");
+    it("setup-only：注册 channel 但不注入 runtime", () => {
       const api = makeFakeApi("setup-only");
       plugin.register(api);
       expect(api.registerChannel).toHaveBeenCalledTimes(1);
       expect(() => getQQRuntime()).toThrow("QQ runtime not initialized");
     });
 
-    it("full：注册 channel 并注入 runtime", async () => {
-      const { default: plugin } = await import("../index.js");
-      const { getQQRuntime } = await import("../runtime.js");
+    it("full：注册 channel 并注入 runtime，registerChannel 收到 qqChannel 本体", () => {
       const api = makeFakeApi("full");
       plugin.register(api);
       expect(api.registerChannel).toHaveBeenCalledTimes(1);
+      expect(api.registerChannel).toHaveBeenCalledWith({ plugin: qqChannel });
       expect(getQQRuntime()).toBe(api.runtime);
     });
 
-    it("full：registerChannel 收到 qqChannel 对象本体", async () => {
-      const { default: plugin } = await import("../index.js");
-      const { qqChannel } = await import("../channel.js");
-      const api = makeFakeApi("full");
-      plugin.register(api);
-      expect(api.registerChannel).toHaveBeenCalledWith({ plugin: qqChannel });
-    });
-
-    it("discovery：注册 channel 并注入 runtime（非激活发现）", async () => {
-      const { default: plugin } = await import("../index.js");
-      const { getQQRuntime } = await import("../runtime.js");
+    it("discovery：注册 channel 并注入 runtime（非激活发现）", () => {
       const api = makeFakeApi("discovery");
       plugin.register(api);
       expect(api.registerChannel).toHaveBeenCalledTimes(1);
@@ -112,8 +103,7 @@ describe("插件注册契约", () => {
   });
 
   describe("channel plugin 必备面", () => {
-    it("qqChannel 含全部运行时 adapter", async () => {
-      const { qqChannel } = await import("../channel.js");
+    it("qqChannel 含全部运行时 adapter", () => {
       const requiredAdapters = [
         "id",
         "meta",
@@ -134,16 +124,14 @@ describe("插件注册契约", () => {
       expect(qqChannel.meta.id).toBe("napcat");
     });
 
-    it("config adapter：listAccountIds 无配置返回空、有配置返回 default", async () => {
-      const { qqChannel } = await import("../channel.js");
+    it("config adapter：listAccountIds 无配置返回空、有配置返回 default", () => {
       expect(qqChannel.config.listAccountIds({} as never)).toEqual([]);
       expect(
         qqChannel.config.listAccountIds({ channels: { napcat: { wsUrl: "ws://x" } } } as never),
       ).toEqual(["default"]);
     });
 
-    it("config adapter：resolveAccount 返回 configured 账户并透传配置", async () => {
-      const { qqChannel } = await import("../channel.js");
+    it("config adapter：resolveAccount 返回 configured 账户并透传配置", () => {
       const cfg = {
         channels: { napcat: { wsUrl: "ws://127.0.0.1:3002", admins: [1] } },
       } as never;
@@ -154,8 +142,7 @@ describe("插件注册契约", () => {
       expect(acc.config.admins).toEqual([1]);
     });
 
-    it("config adapter：resolveAccount 剥离运行时字段 _selfId/_selfName", async () => {
-      const { qqChannel } = await import("../channel.js");
+    it("config adapter：resolveAccount 剥离运行时字段 _selfId/_selfName", () => {
       const cfg = {
         channels: { napcat: { wsUrl: "ws://x", _selfId: 123, _selfName: "bot" } },
       } as never;
@@ -164,8 +151,7 @@ describe("插件注册契约", () => {
       expect((acc.config as Record<string, unknown>)._selfName).toBeUndefined();
     });
 
-    it("config adapter：未配置连接时 configured 为 false", async () => {
-      const { qqChannel } = await import("../channel.js");
+    it("config adapter：未配置连接时 configured 为 false", () => {
       const cfg = { channels: { napcat: { requireMention: true } } } as never;
       const acc = qqChannel.config.resolveAccount(cfg, "default");
       expect(acc.configured).toBe(false);
@@ -174,14 +160,9 @@ describe("插件注册契约", () => {
 });
 
 describe("setup-entry 契约", () => {
-  beforeEach(() => {
-    vi.resetModules();
-  });
-
-  it("default export 为 { plugin } 且含最小 setup 面", async () => {
-    const mod = await import("../setup-entry.js");
-    expect(Object.keys(mod.default)).toEqual(["plugin"]);
-    const p = mod.default.plugin;
+  it("default export 为 { plugin } 且含最小 setup 面", () => {
+    expect(Object.keys(setupEntry)).toEqual(["plugin"]);
+    const p = setupEntry.plugin;
     expect(p.id).toBe("napcat");
     expect(p.meta.id).toBe("napcat");
     expect(p.capabilities.chatTypes).toEqual(["direct", "group"]);
@@ -189,18 +170,14 @@ describe("setup-entry 契约", () => {
     expect(typeof p.config.resolveAccount).toBe("function");
   });
 
-  it("setup plugin 的 config adapter 与完整插件行为一致", async () => {
-    const setup = await import("../setup-entry.js");
-    const { qqChannel } = await import("../channel.js");
+  it("setup plugin 的 config adapter 与完整插件行为一致", () => {
     const cfg = { channels: { napcat: { wsUrl: "ws://x", admins: [7] } } } as never;
-    const a = setup.default.plugin.config.resolveAccount(cfg, "default");
+    const a = setupEntry.plugin.config.resolveAccount(cfg, "default");
     const b = qqChannel.config.resolveAccount(cfg, "default");
     expect(a).toEqual(b);
   });
 
-  it("setup-entry 源码不引入重运行时模块（client/gateway/outbound/admin-commands）", async () => {
-    const fs = await import("node:fs");
-    const path = await import("node:path");
+  it("setup-entry 源码不引入重运行时模块（client/gateway/outbound/admin-commands）", () => {
     const src = fs.readFileSync(path.join(process.cwd(), "src/setup-entry.ts"), "utf8");
     const importLines = src
       .split("\n")
