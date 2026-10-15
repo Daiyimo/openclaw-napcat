@@ -19,7 +19,7 @@ fi
 # │ curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/scripts/docker-install.sh | bash
 # │                                                                      │
 # │ # 3. 强制指定单一镜像(已知在环境里能用的):                             │
-# │ export OPENCLAW_NAPCAT_MIRROR=https://ghfast.top/https://github.com/Daiyimo/openclaw-napcat/archive
+# │ export OPENCLAW_NAPCAT_MIRROR=https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat/archive
 # │ curl -fsSL ... | bash                                                │
 # │                                                                      │
 # │ # 4. 完全离线(★ NAS/严格内网/镜像全挂时的唯一可靠方案):                │
@@ -68,17 +68,22 @@ rm -rf "$TEMP_DIR" "$EXTRACT_DIR" "$ARCHIVE"
 mkdir -p "$EXTRACT_DIR"
 
 # 镜像列表：按优先级尝试（GitHub archive 直链）
-# 顺序按"国内可用度 + 稳定性"排。ghfast/gh-proxy 经常挂,补多镜像兜底。
-# 2026-06-02:移除 kkgithub(部分容器环境不可达,排首位导致脚本卡 60s)
+# 2026-10-15 实测校准（raw 与 tarball 双通道均验证真实内容）:
+#   gh-proxy.com    5/5 可用, 0.6-6.5s
+#   ghproxy.net     5/5 可用, tarball 慢(32-36s)但完整
+#   gh.kejilion.pro 4/5 可用(首轮冷启动超时), 1-11s
+#   github.com 直连 3/3 可用(codeload 12-14s); raw 子域仍被墙
+#   ghfast.top      当前全挂, 留最后兜底(恢复即用)
+# 已剔除: kkgithub(SSL 证书错) / mirror.ghproxy.com(超时) /
+#         gh-proxy.net / ghproxy.cn / gitproxy.click(返回 HTML 验证页, 非真文件)
 # 用户可通过 OPENCLAW_NAPCAT_MIRROR 环境变量强制指定单个镜像（跳过列表）。
 MIRRORS=(
-  "https://ghfast.top/https://github.com/Daiyimo/openclaw-napcat/archive"
   "https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat/archive"
-  "https://mirror.ghproxy.com/https://github.com/Daiyimo/openclaw-napcat/archive"
+  "https://ghproxy.net/https://github.com/Daiyimo/openclaw-napcat/archive"
+  "https://gh.kejilion.pro/https://github.com/Daiyimo/openclaw-napcat/archive"
   "https://github.com/Daiyimo/openclaw-napcat/archive"
-  # 新增 2 个常见代理作为最后兜底,只走 30s 超时,挂了不影响主流程
-  "https://ghproxy.cn/https://github.com/Daiyimo/openclaw-napcat/archive"
-  "https://gh-proxy.net/https://github.com/Daiyimo/openclaw-napcat/archive"
+  # 最后兜底,挂了只损失一次 connect-timeout,不影响主流程
+  "https://ghfast.top/https://github.com/Daiyimo/openclaw-napcat/archive"
 )
 
 DOWNLOAD_OK=0

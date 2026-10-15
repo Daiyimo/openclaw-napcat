@@ -358,8 +358,11 @@ curl -fsSL https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/script
 **国内加速（raw.githubusercontent.com 被墙时）：**
 
 ```bash
-curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/scripts/remote-upgrade.sh | bash
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/scripts/remote-upgrade.sh | bash
 ```
+
+> gh-proxy.com 失效时换 `https://ghproxy.net/` 前缀（2026-10-15 实测两者均可用；
+> 原 ghfast.top 已持续不可达）。更多镜像与实测数据见 [docs/UPGRADE.md](docs/UPGRADE.md)。
 
 **自定义容器名或数据目录：**
 

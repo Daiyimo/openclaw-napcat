@@ -10,7 +10,9 @@
 #   curl -fsSL https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/scripts/remote-upgrade.sh | bash
 #
 # 国内镜像加速（raw.githubusercontent.com 被墙时）:
-#   curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/scripts/remote-upgrade.sh | bash
+#   curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/scripts/remote-upgrade.sh | bash
+#
+# 2026-10-15 实测: gh-proxy.com / ghproxy.net 可用; ghfast.top 持续超时不可达。
 #
 # 自动检测：容器名、volume 路径、配置文件路径全部自动识别。
 # 也可手动指定：
@@ -127,16 +129,23 @@ check_prerequisites() {
     ok "环境正常 (容器=${CONTAINER_NAME}, 数据卷=${DATA_DIR})"
 }
 
-# ── 下载源码（6 镜像兜底） ────────────────────────────────────────────────────
+# ── 下载源码（多镜像兜底） ────────────────────────────────────────────────────
+# 2026-10-15 在本机网络实测校准顺序（raw 与 tarball 双通道均验证过真实内容）:
+#   gh-proxy.com   5/5 可用, 0.6-6.5s
+#   ghproxy.net    5/5 可用, tarball 慢(32-36s)但完整
+#   gh.kejilion.pro 4/5 可用(首轮冷启动超时), 1-11s
+#   github.com 直连 3/3 可用(codeload 实测 12-14s); raw 子域仍被墙
+#   ghfast.top     当前全挂, 留最后兜底(恢复即用)
+# 已剔除: kkgithub(SSL 证书错) / mirror.ghproxy.com(超时) /
+#         gh-proxy.net / ghproxy.cn / gitproxy.click(返回 HTML 验证页, 非真文件)
 download_source() {
     local out="$1"
     local mirrors=(
-        "https://ghfast.top/https://github.com/Daiyimo/openclaw-napcat/archive"
         "https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat/archive"
-        "https://mirror.ghproxy.com/https://github.com/Daiyimo/openclaw-napcat/archive"
+        "https://ghproxy.net/https://github.com/Daiyimo/openclaw-napcat/archive"
+        "https://gh.kejilion.pro/https://github.com/Daiyimo/openclaw-napcat/archive"
         "https://github.com/Daiyimo/openclaw-napcat/archive"
-        "https://ghproxy.cn/https://github.com/Daiyimo/openclaw-napcat/archive"
-        "https://gh-proxy.net/https://github.com/Daiyimo/openclaw-napcat/archive"
+        "https://ghfast.top/https://github.com/Daiyimo/openclaw-napcat/archive"
     )
     [ -n "$MIRROR" ] && mirrors=("$MIRROR")
 

@@ -17,8 +17,21 @@ curl -fsSL https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/script
 ### 国内加速（raw.githubusercontent.com 被墙时）
 
 ```bash
-curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/scripts/remote-upgrade.sh | bash
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/Daiyimo/openclaw-napcat/main/scripts/remote-upgrade.sh | bash
 ```
+
+gh-proxy.com 失效时换 `https://ghproxy.net/` 前缀。两者于 2026-10-15 在本机网络实测可用
+（各 5 轮全部返回真实脚本内容，耗时 0.6–2.8s）。
+
+以下代理实测**不可用**，请勿使用：
+
+| 代理 | 实测结果（2026-10-15） |
+|------|------------------------|
+| `ghfast.top` | 5/5 轮连接超时，已持续不可达 |
+| `mirror.ghproxy.com` | 5/5 轮连接超时 |
+| `gh-proxy.net` / `ghproxy.cn` / `gitproxy.click` | 返回 HTTP 200 但内容是 HTML 验证页，`curl \| bash` 会把 HTML 喂给 bash |
+| `ghp.ci` / `hub.gitmirror.com` / `kkgithub.com` | DNS 解析失败或 SSL 证书错误 |
+| `cdn.jsdelivr.net` | SSL 连接失败（国内干扰）；`fastly.jsdelivr.net` 可用但有 CDN 缓存延迟 |
 
 ---
 

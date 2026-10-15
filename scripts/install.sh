@@ -64,10 +64,10 @@ EXTRACT_DIR="/tmp/openclaw-napcat-extract-$$"
 rm -rf "$EXTRACT_DIR" "$ARCHIVE"
 mkdir -p "$EXTRACT_DIR"
 
-# 镜像列表：按优先级尝试
+# 镜像列表：按优先级尝试（2026-10-15 实测校准,ghfast.top 已持续不可达）
 MIRRORS=(
-  "https://ghfast.top/https://github.com/Daiyimo/openclaw-napcat/archive"
   "https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat/archive"
+  "https://ghproxy.net/https://github.com/Daiyimo/openclaw-napcat/archive"
   "https://github.com/Daiyimo/openclaw-napcat/archive"
 )
 

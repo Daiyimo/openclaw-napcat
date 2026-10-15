@@ -32,12 +32,13 @@ EXTRACT_DIR="/tmp/openclaw-napcat-update"
 mkdir -p "$EXTRACT_DIR"
 
 # 镜像列表：按优先级尝试
-# 顺序按"国内可用度 + 稳定性"排,可通过 OPENCLAW_NAPCAT_MIRROR 强制指定单一镜像
+# 2026-10-15 实测校准: gh-proxy.com / ghproxy.net / gh.kejilion.pro 双通道可用;
+# ghfast.top / mirror.ghproxy.com 持续超时, kkgithub SSL 证书错, 均已降级或剔除。
+# 可通过 OPENCLAW_NAPCAT_MIRROR 强制指定单一镜像
 MIRRORS=(
-  "https://kkgithub.com/Daiyimo/openclaw-napcat/archive"
-  "https://ghfast.top/https://github.com/Daiyimo/openclaw-napcat/archive"
   "https://gh-proxy.com/https://github.com/Daiyimo/openclaw-napcat/archive"
-  "https://mirror.ghproxy.com/https://github.com/Daiyimo/openclaw-napcat/archive"
+  "https://ghproxy.net/https://github.com/Daiyimo/openclaw-napcat/archive"
+  "https://gh.kejilion.pro/https://github.com/Daiyimo/openclaw-napcat/archive"
   "https://github.com/Daiyimo/openclaw-napcat/archive"
 )
 if [ -n "$OPENCLAW_NAPCAT_MIRROR" ]; then

@@ -40,6 +40,14 @@
 
 - **新增 `src/__tests__/registration-contract.test.ts`（16 用例）**：覆盖此前无测试的三处——入口形态与 re-export、6 种 registrationMode 行为矩阵（cli-metadata/tool-discovery 不注册不注入，setup-only 只注册，full/discovery 注册+注入）、channel plugin 11 个必备 adapter 与 config adapter 行为、setup-entry 形态与"不引入重运行时模块"静态断言。
 
+#### Changed — 国内镜像地址实测校准
+
+`ghfast.top` 已持续不可达（2026-10-15 本机实测 5/5 轮连接超时），文档一键命令与各脚本镜像列表按双通道实测结果重排：
+
+- **raw 命令**：README / docs/UPGRADE.md 中 `curl | bash` 的 ghfast.top 前缀改为 `gh-proxy.com`，备选 `ghproxy.net`。UPGRADE.md 附不可用代理清单，含一类"假可用"——gh-proxy.net / ghproxy.cn / gitproxy.click 返回 HTTP 200 但内容是 HTML 验证页，`curl | bash` 会把 HTML 喂给 bash。
+- **tarball 镜像列表**（install.sh / update.sh / docker-install.sh / remote-upgrade.sh）：统一为 gh-proxy.com → ghproxy.net → gh.kejilion.pro → github.com 直连 → ghfast.top（留最后兜底）。剔除 kkgithub（SSL 证书错）、mirror.ghproxy.com（超时）及上述三个假可用代理。
+- ghproxy.net 的 tarball 通道实测慢（32–36s），排第二作互补；gh.kejilion.pro 首轮有冷启动超时，不作首选。`OPENCLAW_NAPCAT_LOCAL_TARBALL` 离线入口未动——跨区域容器环境仍有全部镜像不可达的先例（2026-06-02, commit 9004030）。
+
 ---
 
 #### 适配 openclaw 2026.7.2
