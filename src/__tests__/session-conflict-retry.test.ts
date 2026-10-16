@@ -298,7 +298,6 @@ describe("installMessageHandler — session conflict dispatch handling", () => {
     await vi.waitFor(
       () => expect(ctx.log.warn).toHaveBeenCalledWith(
         expect.stringContaining("会话繁忙提示发送失败"),
-        expect.anything(),
       ),
       { timeout: 2000 },
     );
@@ -334,6 +333,39 @@ describe("installMessageHandler — session conflict dispatch handling", () => {
     // 冒泡到外层：记录「Reply dispatch error」
     expect(ctx.log.error).toHaveBeenCalledWith(expect.stringContaining("Reply dispatch error"));
     expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("test_record_inbound_session_throw_does_not_abort_dispatch", async () => {
+    // 2026-10-15 线上：recordInboundSession 既走 onRecordError 又向上抛，
+    // 外层 catch 直接吞掉整条消息，用户收不到任何回复。
+    // 契约上 onRecordError 就是"记录失败不影响消息流程"，这里守住该语义。
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx();
+    ctx.channelRuntime.session!.recordInboundSession = vi
+      .fn()
+      .mockImplementation(async ({ onRecordError }) => {
+        onRecordError(new Error("session store write failed"));
+        throw new Error("session store write failed");
+      });
+    installMessageHandler(client, ctx);
+
+    client.emit("message", makePrivateEvent());
+
+    // 终点：仍然完成派发，而不是掉进外层 Critical error
+    await vi.waitFor(
+      () => expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1),
+      { timeout: 2000 },
+    );
+
+    // 错误可见（不再是一条空日志），且不带第二个参数
+    expect(ctx.log.error).toHaveBeenCalledWith(
+      expect.stringContaining("QQ Session Error: Error: session store write failed"),
+    );
+    expect(ctx.log.warn).toHaveBeenCalledWith(
+      expect.stringContaining("continuing dispatch"),
+    );
+    expect(ctx.log.error).not.toHaveBeenCalledWith(
+      expect.stringContaining("Critical error in message handler"),
+    );
   });
 
   it("test_dispatch_success_marks_done_and_counts_succeeded", async () => {

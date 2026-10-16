@@ -687,6 +687,73 @@ describe("installMessageHandler — inbound pipeline integration (28 cases)", ()
     expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalled();
   });
 
+  it("9c. 转发记录内容里的静默关键词不会误杀整条消息", async () => {
+    // silentKeywords 的语义是"用户打了这个词就让机器人闭嘴"。
+    // 旧实现拿含转发展开文本的完整正文去匹配，别人转发进来的内容出现关键词时
+    // 整条消息被静默丢掉——不回复也不打日志，和"读不到转发"表现一模一样。
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({
+      silentKeywords: ["ww"],
+      requireMention: true,
+      historyLimit: 0,
+    });
+    (client as unknown as { getForwardMsg: ReturnType<typeof vi.fn> }).getForwardMsg = vi
+      .fn()
+      .mockResolvedValue({
+        messages: [{ sender: { nickname: "别人" }, raw_message: "ww签到" }],
+      });
+    installMessageHandler(client, ctx);
+
+    client.emit(
+      "message",
+      makeGroupEvent({
+        message: [
+          { type: "at", data: { qq: String(SELF_ID) } },
+          { type: "forward", data: { id: "f-silent" } },
+        ],
+        raw_message: `[CQ:at,qq=${SELF_ID}][CQ:forward,id=f-silent]`,
+      }),
+    );
+
+    await vi.waitFor(
+      () => expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce(),
+      { timeout: 2000 },
+    );
+
+    // 转发内容仍然进到模型可见的正文里
+    const payload = vi.mocked(dispatchReplyWithBufferedBlockDispatcher).mock.calls[0][0] as {
+      ctx: { Body: string };
+    };
+    expect(payload.ctx.Body).toContain("ww签到");
+  });
+
+  it("9d. 用户自己打的静默关键词仍然生效（即使同时转了聊天记录）", async () => {
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({
+      silentKeywords: ["ww"],
+      requireMention: false,
+      historyLimit: 0,
+    });
+    (client as unknown as { getForwardMsg: ReturnType<typeof vi.fn> }).getForwardMsg = vi
+      .fn()
+      .mockResolvedValue({
+        messages: [{ sender: { nickname: "别人" }, raw_message: "正常内容" }],
+      });
+    installMessageHandler(client, ctx);
+
+    client.emit(
+      "message",
+      makePrivateEvent({
+        message: [
+          { type: "text", data: { text: "ww" } },
+          { type: "forward", data: { id: "f-own" } },
+        ],
+        raw_message: "ww[CQ:forward,id=f-own]",
+      }),
+    );
+    await flush();
+
+    expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+  });
+
   // 10. meta_event is ignored
   it("10. meta_event is ignored — no dispatch", async () => {
     const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx();
@@ -1398,4 +1465,167 @@ describe("installMessageHandler — sharedAdmins cross-bot admin", () => {
       expect((updatedConfig as { passiveMode?: { temperature?: number } }).passiveMode?.temperature).toBe(0);
     }
   });
+
+  // 群聊里转发进来的聊天记录：端到端验证 dispatch 出来的 Body 含展开后的内容。
+  // NapCat 收合并转发时多数版本把节点内联在 data.content（id 为空），
+  // 旧代码以 `seg.data?.id` 为门槛，这种情况下整段被静默丢掉。
+  it("group message with inlined forward nodes expands into the dispatched body", async () => {
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({
+      requireMention: true,
+      historyLimit: 0,
+    });
+    installMessageHandler(client, ctx);
+
+    client.emit(
+      "message",
+      makeGroupEvent({
+        message: [
+          { type: "at", data: { qq: String(SELF_ID) } },
+          {
+            type: "forward",
+            data: {
+              content: [
+                { type: "node", data: { nickname: "小明", user_id: "11111", content: "今晚开会吗" } },
+                { type: "node", data: { nickname: "小红", user_id: "22222", content: "8 点" } },
+              ],
+            },
+          },
+        ],
+        raw_message: `[CQ:at,qq=${SELF_ID}][CQ:forward,id=]`,
+      }),
+    );
+
+    await vi.waitFor(
+      () => expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce(),
+      { timeout: 2000 },
+    );
+
+    const payload = vi.mocked(dispatchReplyWithBufferedBlockDispatcher).mock.calls[0][0] as {
+      ctx: { Body: string; RawBody: string };
+    };
+    expect(payload.ctx.Body).toContain("[转发聊天记录]");
+    expect(payload.ctx.Body).toContain("小明: 今晚开会吗");
+    expect(payload.ctx.Body).toContain("小红: 8 点");
+    expect(payload.ctx.RawBody).not.toContain("CQ:forward");
+  });
+
+  it("group message with a forward id resolves nodes via get_forward_msg", async () => {
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({
+      requireMention: true,
+      historyLimit: 0,
+    });
+    (client as unknown as { getForwardMsg: ReturnType<typeof vi.fn> }).getForwardMsg = vi
+      .fn()
+      .mockResolvedValue({
+        messages: [
+          { user_id: "11111", sender: { nickname: "小明" }, raw_message: "今晚开会吗" },
+          { user_id: "22222", sender: { nickname: "小红" }, raw_message: "8 点" },
+        ],
+      });
+    installMessageHandler(client, ctx);
+
+    client.emit(
+      "message",
+      makeGroupEvent({
+        message: [
+          { type: "at", data: { qq: String(SELF_ID) } },
+          { type: "forward", data: { id: "fwd-e2e" } },
+        ],
+        raw_message: `[CQ:at,qq=${SELF_ID}][CQ:forward,id=fwd-e2e]`,
+      }),
+    );
+
+    await vi.waitFor(
+      () => expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledOnce(),
+      { timeout: 2000 },
+    );
+
+    const payload = vi.mocked(dispatchReplyWithBufferedBlockDispatcher).mock.calls[0][0] as {
+      ctx: { Body: string; RawBody: string };
+    };
+    expect(payload.ctx.Body).toContain("小明: 今晚开会吗");
+    expect(payload.ctx.Body).toContain("小红: 8 点");
+    expect(payload.ctx.RawBody).not.toContain("CQ:forward");
+  });
+
+  // ============ 转发内容不得充当指令 ============
+
+  it("转发内容不会被执行成管理指令，也不给指令提供参数", async () => {
+    // 可达路径：命令名取自用户本人，但参数旧代码取的是完整展开文本。
+    // 管理员发 "/setname" 并附带一条转发记录，旧实现会把转发内容一起
+    // join 进新群名，群名就被第三方内容改写了。
+    const ADMIN_ID = 99999;
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({
+      requireMention: true,
+      historyLimit: 0,
+      admins: [ADMIN_ID],
+    });
+    installMessageHandler(client, ctx);
+
+    client.emit(
+      "message",
+      makeGroupEvent({
+        user_id: ADMIN_ID,
+        message: [
+          { type: "text", data: { text: "/setname" } },
+          { type: "at", data: { qq: String(SELF_ID) } },
+          { type: "forward", data: { content: "被改坏的群名" } },
+        ],
+        raw_message: "/setname[CQ:at,qq=" + SELF_ID + "][CQ:forward]",
+      }),
+    );
+
+    await vi.waitFor(
+      () => expect(client.sendGroupMsg).toHaveBeenCalled(),
+      { timeout: 2000 },
+    );
+
+    // 没有取到新群名 → 回用法提示；而不是拿转发内容去改群名
+    expect(client.sendGroupMsg).toHaveBeenCalledWith(GROUP_ID, "用法：/setname <新群名>");
+    expect(client.sendGroupMsg).not.toHaveBeenCalledWith(
+      GROUP_ID,
+      expect.stringContaining("被改坏的群名"),
+    );
+  });
+
+
+  it("管理员自己打的指令照旧执行（即使同时转了聊天记录）", async () => {
+    const ADMIN_ID = 99999;
+    const { client, ctx, dispatchReplyWithBufferedBlockDispatcher } = makeCtx({
+      requireMention: true,
+      historyLimit: 0,
+      admins: [ADMIN_ID],
+    });
+    (client as unknown as { getForwardMsg: ReturnType<typeof vi.fn> }).getForwardMsg = vi
+      .fn()
+      .mockResolvedValue({
+        messages: [{ sender: { nickname: "别人" }, raw_message: "随手转的记录" }],
+      });
+    installMessageHandler(client, ctx);
+
+    client.emit(
+      "message",
+      makeGroupEvent({
+        user_id: ADMIN_ID,
+        message: [
+          { type: "at", data: { qq: String(SELF_ID) } },
+          { type: "text", data: { text: "/ping" } },
+          { type: "forward", data: { id: "f-cmd-ok" } },
+        ],
+        raw_message: `[CQ:at,qq=${SELF_ID}] /ping[CQ:forward,id=f-cmd-ok]`,
+      }),
+    );
+
+    await vi.waitFor(
+      () =>
+        expect(client.sendGroupMsg).toHaveBeenCalledWith(
+          GROUP_ID,
+          expect.stringContaining("Pong"),
+        ),
+      { timeout: 2000 },
+    );
+    // 命令已处理，不再派发 AI
+    expect(dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
+  });
+
 });

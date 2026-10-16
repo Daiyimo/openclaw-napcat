@@ -79,3 +79,34 @@ export function maskSecretsInText(text: string): string {
       )
   );
 }
+
+/**
+ * 把未知错误对象压成一行可读文本，用于拼进日志消息。
+ *
+ * 存在的原因：openclaw 的 channel logger 只格式化第一个字符串参数，后面的
+ * 附加参数会被整段丢掉。`log.error("QQ Session Error:", err)` 这种写法在日志里
+ * 只剩一个冒号，出错时什么都看不到（2026-10-15 的线上日志里连续出现两条空错误）。
+ * 因此所有错误都必须先在这里转成字符串再拼进消息。
+ *
+ * @param err 捕获到的未知错误对象。
+ * @returns 一行错误描述；Error 附带 name / stack 首帧，便于定位。
+ */
+export function describeError(err: unknown): string {
+  if (err instanceof Error) {
+    const location = err.stack
+      ?.split("\n")[1]
+      ?.trim()
+      .replace(/^at\s+/, "");
+    return location ? `${err.name}: ${err.message} (${location})` : `${err.name}: ${err.message}`;
+  }
+  if (err === undefined) return "(undefined)";
+  if (err === null) return "(null)";
+  if (typeof err === "object") {
+    // 普通对象：JSON.stringify(new Error()) 会得到 {}，这里避开并给出构造器名
+    const ctor = (err as { constructor?: { name?: string } }).constructor?.name;
+    const keys = Object.keys(err as object);
+    const label = ctor && ctor !== "Object" ? ctor : "object";
+    return keys.length > 0 ? `${label}{${keys.join(",")}}` : label;
+  }
+  return String(err);
+}

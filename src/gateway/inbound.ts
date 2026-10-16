@@ -23,7 +23,7 @@ import {
 import { createDeliverDebouncer, type DeliverPayload, type DeliverInfo } from "../deliver-debounce.js";
 import { TypingKeepAlive } from "../typing-keepalive.js";
 import { recordRef, lookupRef } from "../ref-index-store.js";
-import { maskId } from "../utils/log-sanitize.js";
+import { maskId, describeError } from "../utils/log-sanitize.js";
 import {
   buildFromId,
   buildBodyWithReply,
@@ -43,6 +43,9 @@ import { evictOldest } from "../utils/cache-evict.js";
 
 /** 群消息历史缓存上限（条目数），超过后淘汰最旧的条目防止内存泄漏 */
 const GROUP_HISTORY_CACHE_MAX = 200;
+
+/** 群历史里合并转发消息的占位文案（展开需另调 API，历史路径只做标记） */
+const FORWARD_HISTORY_PLACEHOLDER = "[聊天记录]";
 
 /** 群消息历史缓存：key = groupId:limit，value = { messages, timestamp } */
 const _groupHistoryCache = new Map<string, { messages: Record<string, unknown>[]; timestamp: number }>();
@@ -76,7 +79,7 @@ async function getCachedGroupHistory(
     }
     return (messages as Record<string, unknown>[] | null) ?? null;
   } catch (e) {
-    log.warn(`[napcat-QQ] Failed to fetch group history for ${groupId}:`, e);
+    log.warn(`[napcat-QQ] Failed to fetch group history for ${groupId}: ${describeError(e)}`);
     return null;
   }
 }
@@ -174,7 +177,9 @@ export function installMessageHandler(
           try {
             repliedMsg = await client.getMsg(replyMsgId);
           } catch (e) {
-            log.warn(`[napcat-QQ] Failed to fetch replied message ${replyMsgId}:`, e);
+            log.warn(
+              `[napcat-QQ] Failed to fetch replied message ${replyMsgId}: ${describeError(e)}`,
+            );
           }
         }
       }
@@ -187,10 +192,14 @@ export function installMessageHandler(
         if (history) {
           historyContext = history
             .slice(-(limit + 1), -1)
-            .map(
-              (m: Record<string, unknown>) =>
-                `${(m.sender as { nickname?: string; user_id?: unknown } | undefined)?.nickname ?? m.user_id}: ${cleanCQCodes((m.raw_message as string | undefined) ?? "")}`,
-            )
+            .map((m: Record<string, unknown>) => {
+              const raw = (m.raw_message as string | undefined) ?? "";
+              const body = cleanCQCodes(raw);
+              // 合并转发在历史记录里只有 [CQ:forward,id=...]，清完 CQ 码就是空的，
+              // 直接拼会出现 "昵称: " 这种空白行；给固定占位说明这里是聊天记录。
+              const text = body || (raw.includes("[CQ:forward") ? FORWARD_HISTORY_PLACEHOLDER : "");
+              return `${(m.sender as { nickname?: string; user_id?: unknown } | undefined)?.nickname ?? m.user_id}: ${text}`;
+            })
             .join("\n");
         }
       }
@@ -246,7 +255,9 @@ export function installMessageHandler(
           const emojiId = config.reactionEmoji ?? matchEmojiId(text);
           await client.setMsgEmojiLike(event.message_id, emojiId);
         } catch (err) {
-          log.error(`[napcat-QQ][debug-reaction] FAILED msgId=${event.message_id} err=`, err);
+          log.error(
+            `[napcat-QQ][debug-reaction] FAILED msgId=${event.message_id} err=${describeError(err)}`,
+          );
         }
       }
 
@@ -319,7 +330,10 @@ export function installMessageHandler(
           });
           resolvedSessionKey = route?.sessionKey;
         } catch (err) {
-          log.warn(`[napcat-QQ] resolveAgentRoute failed for group ${groupId}, using fallback session key:`, err);
+          log.warn(
+            `[napcat-QQ] resolveAgentRoute failed for group ${groupId}, using fallback session key: ` +
+              describeError(err),
+          );
           resolvedSessionKey = `agent:default:napcat:group:${groupId}`;
         }
       } else if (isGuild && guildId && channelId) {
@@ -372,22 +386,34 @@ export function installMessageHandler(
       };
 
       // session 记录（SDK 可选能力，不存在时静默跳过）
+      //
+      // recordInboundSession 有自己的 onRecordError 回调，语义上就是"记录失败不该影响消息流程"。
+      // 但 2026-10-15 的线上日志里它既走了 onRecordError 又向上抛，导致整条消息处理中断、
+      // 用户完全收不到回复。这里再包一层 try/catch：记录失败只降级，不中断派发。
       if (channelRuntime.session?.recordInboundSession && channelRuntime.session?.resolveStorePath) {
-        await channelRuntime.session.recordInboundSession({
-          storePath: channelRuntime.session.resolveStorePath(
-            (cfg as OpenClawConfig).session?.store,
-            { agentId: "default" },
-          ),
-          sessionKey: ctxPayload.SessionKey as string,
-          ctx: ctxPayload,
-          updateLastRoute: {
+        try {
+          await channelRuntime.session.recordInboundSession({
+            storePath: channelRuntime.session.resolveStorePath(
+              (cfg as OpenClawConfig).session?.store,
+              { agentId: "default" },
+            ),
             sessionKey: ctxPayload.SessionKey as string,
-            channel: "napcat",
-            to: fromId,
-            accountId: account.accountId,
-          },
-          onRecordError: (err) => log.error("QQ Session Error:", err),
-        });
+            ctx: ctxPayload,
+            updateLastRoute: {
+              sessionKey: ctxPayload.SessionKey as string,
+              channel: "napcat",
+              to: fromId,
+              accountId: account.accountId,
+            },
+            onRecordError: (err) =>
+              log.error(`QQ Session Error: ${describeError(err)}`),
+          });
+        } catch (sessionErr) {
+          log.warn(
+            `[napcat-QQ] recordInboundSession threw for sessionKey=${ctxPayload.SessionKey}, ` +
+              `continuing dispatch: ${describeError(sessionErr)}`,
+          );
+        }
       }
 
       // ── Typing 状态 ───────────────────────────────────
@@ -412,7 +438,7 @@ export function installMessageHandler(
           }
         }
       } catch (err) {
-        log.warn("[napcat-QQ] stop-intent decision failed:", err);
+        log.warn(`[napcat-QQ] stop-intent decision failed: ${describeError(err)}`);
         // 降级：不拦截消息，继续正常派发（dispatch 的 finally 会停止 typing）
       }
 
@@ -458,7 +484,8 @@ export function installMessageHandler(
                   throw deliverErr;
                 }
               },
-              onError: (err: unknown) => log.error("[napcat-QQ] dispatch error:", err),
+              onError: (err: unknown) =>
+                log.error(`[napcat-QQ] dispatch error: ${describeError(err)}`),
             },
             replyOptions: {
               onReplyStart: undefined,
@@ -477,7 +504,7 @@ export function installMessageHandler(
             try {
               await deliver({ text: "⏳ 会话繁忙，请稍后再试。" });
             } catch (notifyErr) {
-              log.warn("[napcat-QQ] 会话繁忙提示发送失败:", notifyErr);
+              log.warn(`[napcat-QQ] 会话繁忙提示发送失败: ${describeError(notifyErr)}`);
             }
           } else {
             throw err;
@@ -513,7 +540,7 @@ export function installMessageHandler(
           try {
             await debouncer.dispose();
           } catch (disposeErr) {
-            log.warn("[napcat-QQ] debouncer dispose failed:", disposeErr);
+            log.warn(`[napcat-QQ] debouncer dispose failed: ${describeError(disposeErr)}`);
           }
         }
         typing?.stop();
@@ -521,7 +548,7 @@ export function installMessageHandler(
     } catch (err) {
       // 确保 typing 状态释放（recordInboundSession/downloadImages 等前置步骤异常时）
       typing?.stop();
-      log.error("[napcat-QQ] Critical error in message handler:", err);
+      log.error(`[napcat-QQ] Critical error in message handler: ${describeError(err)}`);
       if (config.enableErrorNotify && config.admins?.length) {
         try {
           const errorMsg =
@@ -532,7 +559,7 @@ export function installMessageHandler(
             await sleep(ERROR_NOTIFY_SLEEP_MS);
           }
         } catch (notifyErr) {
-          log.warn("[napcat-QQ] Failed to send error notification:", notifyErr);
+          log.warn(`[napcat-QQ] Failed to send error notification: ${describeError(notifyErr)}`);
         }
       }
     }

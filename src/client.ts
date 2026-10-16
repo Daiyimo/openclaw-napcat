@@ -8,7 +8,7 @@ import {
   ClientApiError,
   ServerApiError,
 } from "./errors/napcat-error.js";
-import { maskUrl } from "./utils/log-sanitize.js";
+import { describeError } from "./utils/log-sanitize.js";
 import { getLog } from "./admin-commands/shared.js";
 import { withRetry, isRetryableError } from "./utils/retry.js";
 import { BAN_DEFAULT_MINUTES } from "./admin-commands.js";
@@ -649,14 +649,17 @@ export class OneBotClient extends EventEmitter {
 
     if (this.options.httpUrl) {
       try {
+        // 直接用 origin 拼 action：maskUrl(origin) 返回的路径自带一个尾斜杠，
+        // 再拼 "/" 会打出 http://host:3000//action，照日志排查会误判路径有问题。
+        // origin 只有 scheme+host+port，没有需要脱敏的 query/path。
         this.log.log(
-          `[napcat-QQ][sendAction] trying HTTP: ${maskUrl(new URL(this.options.httpUrl!).origin)}/${action}`,
+          `[napcat-QQ][sendAction] trying HTTP: ${new URL(this.options.httpUrl!).origin}/${action}`,
         );
         await this.sendViaHttp(action, params);
         this.log.log(`[napcat-QQ][sendAction] HTTP success: ${action}`);
         return;
       } catch (err) {
-        this.log.warn(`[napcat-QQ][sendAction] HTTP failed for ${action}:`, err);
+        this.log.warn(`[napcat-QQ][sendAction] HTTP failed for ${action}: ${describeError(err)}`);
       }
     }
     const activeWs = this.getActiveWs();

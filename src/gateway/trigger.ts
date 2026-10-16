@@ -23,6 +23,8 @@ import {
   isMessageDirectedAtBot,
   buildOtherBotNames,
   resolveMessageText,
+  extractOwnText,
+  extractOwnSegments,
 } from "../message-processor.js";
 import { parseBotHandshake } from "../utils/bot-handshake.js";
 import { handleAdminCommand } from "../admin-commands.js";
@@ -166,7 +168,8 @@ async function handleAdminCommandStage(
   input: TriggerInput,
   client: OneBotClient,
   ctx: InboundContext,
-  text: string,
+  /** 用户本人发送的文本（不含转发记录展开内容） */
+  ownText: string,
   isCmdMentioned: boolean,
   isAdmin: boolean,
 ): Promise<HandleAdminResult> {
@@ -177,15 +180,16 @@ async function handleAdminCommandStage(
     return { handled: false };
   }
 
-  const parts = text.trim().split(/\s+/);
+  const parts = ownText.trim().split(/\s+/);
   const cmd = parts[0];
   const handled = await handleAdminCommand(cmd, parts, {
     client,
     isGroup: input.isGroup,
     groupId: input.groupId,
     userId: input.userId,
-    text,
-    message: input.event.message,
+    text: ownText,
+    // 只给非 forward 段：转发内容里的图片/@ 不能充当指令参数
+    message: extractOwnSegments(input.event),
     eventTime: input.event.time ? input.event.time * 1000 : undefined,
     rateLimiter: ctx.inboundStore.rateLimiter,
     metrics: input.metrics,
@@ -345,11 +349,17 @@ export async function triggerStage(
 
   const text = await resolveMessageText(event, client, config, cfg as Record<string, unknown>, log);
 
+  // 用户本人发送的内容（文字 + 非 forward 段）。转发内容只能被当作文本读，
+  // 不参与静默关键词、指令识别和指令取参，见 extractOwnText / extractOwnSegments。
+  const ownText = extractOwnText(event);
+
   // ── 静默关键词过滤 ─────────────────────────────────────
+  // 只匹配用户自己打的字，不含转发记录展开内容：
+  // 别人转发进来的聊天记录里出现关键词时，不该把整条消息静默丢掉。
   if (config.silentKeywords?.length) {
     const regexes = getSilentKeywordRegexes(config.silentKeywords);
     for (const re of regexes) {
-      if (re.test(text)) {
+      if (re.test(ownText)) {
         if (config.debug) {
           log.info(`[napcat-QQ][silent_keyword] matched, dropping message`);
         }
@@ -526,7 +536,10 @@ export async function triggerStage(
   if (tempResult?.handled) return null;
 
   // ── 管理员命令 ──────────────────────────────────────────────────────
-  if (!isGuild && isAdmin && text.trim().startsWith("/")) {
+  // 门槛、命令名、参数全部只认用户本人发送的内容（ownText / 非 forward 段）。
+  // 转发内容是第三方写的：若拿它识别指令，别人转发一条带 "/banall" 的记录
+  // 就能借管理员之手执行群管操作。
+  if (!isGuild && isAdmin && ownText.trim().startsWith("/")) {
     const isCmdMentioned =
       !isGroup ||
       (() => {
@@ -542,10 +555,10 @@ export async function triggerStage(
             }
           }
         }
-        return text.includes(`[CQ:at,qq=${sid}]`);
+        return ownText.includes(`[CQ:at,qq=${sid}]`);
       })();
 
-    const adminResult = await handleAdminCommandStage(input, client, ctx, text, isCmdMentioned, isAdmin);
+    const adminResult = await handleAdminCommandStage(input, client, ctx, ownText, isCmdMentioned, isAdmin);
     if (adminResult.handled) return null;
   }
 

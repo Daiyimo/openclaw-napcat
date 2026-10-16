@@ -5,7 +5,9 @@ import {
   maskIdsInText,
   maskBearerToken,
   maskSecretsInText,
+  describeError,
 } from "../utils/log-sanitize.js";
+import { ClientApiError } from "../errors/napcat-error.js";
 
 describe("maskId", () => {
   it("returns 'null' for undefined", () => {
@@ -159,5 +161,38 @@ describe("maskBearerToken (existing behavior)", () => {
 
   it("returns text unchanged when no bearer token present", () => {
     expect(maskBearerToken("no credentials here")).toBe("no credentials here");
+  });
+});
+
+describe("describeError", () => {
+  it("包含 Error 的 name 与 message", () => {
+    const out = describeError(new TypeError("bad segment"));
+    expect(out).toContain("TypeError");
+    expect(out).toContain("bad segment");
+  });
+
+  it("附带 stack 首帧位置，便于定位", () => {
+    const out = describeError(new Error("boom"));
+    expect(out).toContain("boom");
+    expect(out).toMatch(/\(.*:\d+:\d+\)$/);
+  });
+
+  it("非 Error 对象也能产出非空描述（不会变成空字符串）", () => {
+    expect(describeError("plain string")).toBe("plain string");
+    expect(describeError(42)).toBe("42");
+    expect(describeError(undefined)).toBe("(undefined)");
+    expect(describeError(null)).toBe("(null)");
+  });
+
+  it("普通对象给出构造器名而不是 {}", () => {
+    const out = describeError({ code: 1 });
+    expect(out).not.toBe("{}");
+    expect(out).toContain("code");
+  });
+
+  it("NapCat 自定义错误保留 action 等关键字段", () => {
+    const out = describeError(new ClientApiError(404, "Not Found", "get_forward_msg"));
+    expect(out).toContain("ClientApiError");
+    expect(out).toContain("get_forward_msg");
   });
 });

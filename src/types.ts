@@ -6,7 +6,11 @@ export type OneBotMessageSegment =
   | { type: "record"; data: { file: string; url?: string; text?: string; magic?: boolean } }
   | { type: "video"; data: { file: string; url?: string } }
   | { type: "json"; data: { data: string } }
-  | { type: "forward"; data: { id: string } }
+  /**
+   * 合并转发。OneBot 11 规范只规定 `id`（需再调 get_forward_msg 取内容），
+   * 但 NapCat / Lagrange 的部分版本会把节点直接内联在 `content`，此时 `id` 可能为空。
+   */
+  | { type: "forward"; data: { id: string; content?: OneBotMessage | string } }
   | { type: "file"; data: { file?: string; file_id?: string; busid?: number; url?: string; name?: string } }
   | { type: "face"; data: { id: string } }
   | { type: "share"; data: { url: string; title: string; content?: string; image?: string } }

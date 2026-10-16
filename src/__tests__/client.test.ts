@@ -46,10 +46,16 @@ vi.mock("../utils/retry.js", () => ({
   isRetryableError: vi.fn(() => false),
 }));
 
-vi.mock("../utils/log-sanitize.js", () => ({
-  maskUrl: vi.fn((url: string) => url),
-  maskBearerToken: vi.fn((text: string) => text),
-}));
+// maskUrl / maskBearerToken 用真实实现：client.ts 的 HTTP 日志用 maskUrl 拼 URL，
+// 用恒等 mock 会把 maskUrl(origin) 自带尾斜杠的行为掩盖掉，双斜杠回归就测不出来。
+vi.mock("../utils/log-sanitize.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../utils/log-sanitize.js")>();
+  return {
+    maskUrl: actual.maskUrl,
+    maskBearerToken: actual.maskBearerToken,
+    describeError: actual.describeError,
+  };
+});
 
 import { OneBotClient } from "../client.js";
 import { ClientApiError } from "../errors/napcat-error.js";
@@ -508,6 +514,19 @@ describe("OneBotClient", () => {
       const sendViaHttpSpy = vi.spyOn(client as any, "sendViaHttp").mockResolvedValue(undefined);
       await client.sendAction("test_action", { param: "value" });
       expect(sendViaHttpSpy).toHaveBeenCalledWith("test_action", { param: "value" });
+    });
+
+    it("HTTP 日志里的 URL 不出现双斜杠", async () => {
+      // 2026-10-15 线上日志是 http://host:3000//set_msg_emoji_like：
+      // maskUrl(origin) 自带一个尾斜杠，模板又拼了一个 /。
+      // 纯显示问题（真实请求 URL 是对的），但照日志排查会以为路径错了。
+      vi.spyOn(client as any, "sendViaHttp").mockResolvedValue(undefined);
+      const logSpy = vi.spyOn((client as any).log, "log");
+      await client.sendAction("test_action", {});
+      const line = logSpy.mock.calls.map((c) => String(c[0])).find((m) => m.includes("trying HTTP"));
+      expect(line).toBeDefined();
+      expect(line).toContain("http://localhost:3000/test_action");
+      expect(line).not.toContain("3000//");
     });
 
     it("falls back to WS when HTTP fails", async () => {
